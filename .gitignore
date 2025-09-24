@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.env
+env/
+venv/
+ENV/
+build/
+dist/
+
+# VSCode
+.vscode/
+
+# Mac
+.DS_Store
+
+# Data / Models
+*.h5
+*.pb
+*.dat
+*.dll
