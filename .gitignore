@@ -1,24 +1,11 @@
-# Python
+venv/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.env
+.Python
 env/
-venv/
-ENV/
-build/
-dist/
-
-# VSCode
-.vscode/
-
-# Mac
-.DS_Store
-
-# Data / Models
-*.h5
-*.pb
-*.dat
-*.dll
-
+.venv/
+attendance/attendance.csv
+known_faces/*.jpg
+known_faces/*.png
