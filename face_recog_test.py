@@ -3,6 +3,7 @@ import time
 import cv2
 import numpy as np
 import face_recognition
+import csv
 from attendance_utils import mark_attendance, load_today_names
 
 try:
@@ -38,18 +39,36 @@ MOTION_MIN_NOSE_PIX = 4
 
 HAAR = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
+def load_students():
+    """Load student database"""
+    students = {}
+    if os.path.exists("students.csv"):
+        with open("students.csv", "r", newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                students[row["student_id"]] = row
+    return students
+
 def load_known_faces(folder="known_faces"):
     """Robust loader: CLAHE + multiple upsample passes to get encodings."""
-    encs, names = [], []
+    encs, student_info = [], []
     os.makedirs(folder, exist_ok=True)
+    
+    # Load student database
+    students = load_students()
+    
     for f in os.listdir(folder):
         p = os.path.join(folder, f)
         if not os.path.isfile(p):
             continue
         if os.path.splitext(f)[1].lower() not in [".jpg", ".jpeg", ".png"]:
             continue
-        name = os.path.splitext(f)[0].split("_")[0]  # keep raw id from filename
-
+        
+        student_id = os.path.splitext(f)[0]  # filename = student_id
+        
+        # Get student info
+        student_name = students.get(student_id, {}).get("name", student_id)
+        
         bgr = cv2.imread(p)
         if bgr is None:
             print(f"Skipped (cannot read): {f}")
@@ -74,18 +93,19 @@ def load_known_faces(folder="known_faces"):
             continue
 
         encs.append(e[0])
-        names.append(name)
+        student_info.append((student_id, student_name))
 
     if not encs:
-        print("Warning: no known faces loaded. Put clear frontal photos in 'known_faces/'.")
+        print("Warning: no student faces found. Students should register first.")
+        print("Run: python student_register.py")
     else:
-        print("Known IDs:", ", ".join(names))
-    return encs, names
+        print("Known students:", ", ".join([f"{sid} ({name})" for sid, name in student_info]))
+    return encs, student_info
 
 def reload_knowns():
-    global KNOWN_ENCS, KNOWN_NAMES
-    KNOWN_ENCS, KNOWN_NAMES = load_known_faces("known_faces")
-    print(f"Loaded {len(KNOWN_ENCS)} face(s).")
+    global KNOWN_ENCS, KNOWN_INFO
+    KNOWN_ENCS, KNOWN_INFO = load_known_faces("known_faces")
+    print(f"Loaded {len(KNOWN_ENCS)} student(s).")
 
 def _euclid(p1, p2): return np.linalg.norm(np.array(p1) - np.array(p2))
 def ear(eye_pts):
@@ -124,14 +144,16 @@ def validate_face_roi(frame_bgr, box_xywh):
     enc = encs[0] if encs else None
     return (enc is not None), enc
 
-def best_match_name(enc):
-    if enc is None or not KNOWN_ENCS: return "Unknown"
+def best_match_student(enc):
+    if enc is None or not KNOWN_ENCS: return "Unknown", "Unknown"
     d = face_recognition.face_distance(KNOWN_ENCS, enc)
     i = int(np.argmin(d))
-    return KNOWN_NAMES[i] if d[i] <= MATCH_TOLERANCE else "Unknown"
+    if d[i] <= MATCH_TOLERANCE:
+        return KNOWN_INFO[i]  # (student_id, student_name)
+    return "Unknown", "Unknown"
 
 # Load DB
-KNOWN_ENCS, KNOWN_NAMES = [], []
+KNOWN_ENCS, KNOWN_INFO = [], []
 reload_knowns()
 
 cap = cv2.VideoCapture(0)
@@ -146,7 +168,8 @@ def create_tracker():
             except AttributeError: return cv2.legacy.TrackerKCF_create()
 
 tracker = None
-current_name = "Unknown"
+current_student_id = "Unknown"
+current_student_name = "Unknown"
 already_marked = set(load_today_names())
 
 # Liveness
@@ -180,17 +203,20 @@ while True:
 
             ok_face, enc = validate_face_roi(frame, cand)
             if ok_face:
-                current_name = best_match_name(enc)
+                student_id, student_name = best_match_student(enc)
+                current_student_id = student_id
+                current_student_name = student_name
                 tracker = create_tracker()
                 tracker.init(frame, cand)
                 box = cand
 
-                if current_name != "Unknown" and current_name not in already_marked:
+                if current_student_id != "Unknown" and current_student_id not in already_marked:
                     liveness = True; blink_frames = 0; blink_count = 0
                     nose_prev = None; nose_max_disp = 0.0
 
                 cv2.rectangle(frame, (X, Y), (X + W, Y + H), (0, 255, 0), 2)
-                cv2.putText(frame, current_name, (X, Y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                display_name = f"{current_student_name} ({current_student_id})" if current_student_id != "Unknown" else "Unknown"
+                cv2.putText(frame, display_name, (X, Y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         else:
             cv2.putText(frame, "Detecting face...", (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
@@ -200,7 +226,8 @@ while True:
             (x, y, w, h) = [int(v) for v in tbox]
             box = (x, y, w, h)
             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            cv2.putText(frame, current_name, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            display_name = f"{current_student_name} ({current_student_id})" if current_student_id != "Unknown" else "Unknown"
+            cv2.putText(frame, display_name, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
             # Validated re-detect in ROI (keeps box on real faces only)
             if frame_idx % REDETECT_EVERY == 0:
@@ -227,11 +254,12 @@ while True:
             if frame_idx % RECOGNIZE_EVERY == 0 and box is not None:
                 ok_face, enc = validate_face_roi(frame, box)
                 if ok_face:
-                    name = best_match_name(enc)
-                    if name != "Unknown":
-                        current_name = name
+                    student_id, student_name = best_match_student(enc)
+                    if student_id != "Unknown":
+                        current_student_id = student_id
+                        current_student_name = student_name
         else:
-            tracker = None; box = None; current_name = "Unknown"
+            tracker = None; box = None; current_student_id = "Unknown"; current_student_name = "Unknown"
             liveness = False; nose_prev = None; nose_max_disp = 0.0
 
     # Liveness (blink + motion), throttled
@@ -264,11 +292,11 @@ while True:
         cv2.putText(frame, f"Blink + small head move • {blink_count}/{REQUIRE_BLINKS}",
                     (12, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         if blink_count >= REQUIRE_BLINKS and nose_max_disp >= MOTION_MIN_NOSE_PIX:
-            if current_name != "Unknown" and mark_attendance(current_name):
-                notify_name = current_name
+            if current_student_id != "Unknown" and mark_attendance(current_student_id, current_student_name):
+                notify_name = f"{current_student_name} ({current_student_id})"
                 notify_until = time.time() + 1.8
                 notify_beep()
-                already_marked.add(current_name)
+                already_marked.add(current_student_id)
             liveness = False
             nose_prev = None; nose_max_disp = 0.0
             blink_count = 0; blink_frames = 0
@@ -282,11 +310,11 @@ while True:
         cv2.putText(frame, f"Marked present: {notify_name}", (12, 32),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
 
-    cv2.imshow("Face Recognition (Faces Only) - Q quit, R reload faces", frame)
+    cv2.imshow("Student Attendance System - Q quit, R reload faces", frame)
     key = cv2.waitKey(1) & 0xFF
     if key == ord("q"): break
     if key == ord("r"):
-        tracker = None; box = None; current_name = "Unknown"
+        tracker = None; box = None; current_student_id = "Unknown"; current_student_name = "Unknown"
         liveness = False; nose_prev = None; nose_max_disp = 0.0
         notify_name = ""; notify_until = 0.0
         reload_knowns(); already_marked = set(load_today_names())
