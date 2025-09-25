@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FaceCheck - Student Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <!-- Sidebar -->
+    <div class="flex h-screen">
+        <!-- Sidebar -->
+        <div class="w-64 bg-gray-800 text-white">
+            <!-- Logo -->
+            <div class="p-6 border-b border-gray-700">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center mr-3">
+                        <i class="fas fa-user-graduate text-white"></i>
+                    </div>
+                    <h1 class="text-xl font-bold">FaceCheck</h1>
+                </div>
+            </div>
+            
+            <!-- Navigation -->
+            <nav class="mt-6">
+                <div class="px-3">
+                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Student Menu</div>
+                </div>
+                
+                <a href="{{ url_for('student_dashboard') }}" class="flex items-center px-6 py-3 bg-gray-700 text-white">
+                    <i class="fas fa-tachometer-alt mr-3"></i>
+                    Dashboard
+                </a>
+                
+                <a href="/attendance" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-camera mr-3"></i>
+                    Take Attendance
+                </a>
+                
+                <a href="/my_attendance" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-calendar-check mr-3"></i>
+                    My Attendance
+                </a>
+                
+                <a href="/register_face" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-user-plus mr-3"></i>
+                    Register Face
+                </a>
+                
+                <a href="/profile" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-user mr-3"></i>
+                    Profile
+                </a>
+            </nav>
+            
+            <!-- User Info -->
+            <div class="absolute bottom-0 w-64 p-6 border-t border-gray-700">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center mr-3">
+                        <i class="fas fa-user text-white text-sm"></i>
+                    </div>
+                    <div>
+                        <div class="text-sm font-medium">{{ session.username }}</div>
+                        <div class="text-xs text-gray-400">Student</div>
+                    </div>
+                </div>
+                <a href="{{ url_for('logout') }}" class="mt-3 flex items-center text-gray-300 hover:text-white transition duration-200">
+                    <i class="fas fa-sign-out-alt mr-2"></i>
+                    Logout
+                </a>
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Top Header -->
+            <header class="bg-white shadow-sm border-b border-gray-200">
+                <div class="px-6 py-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-bold text-gray-800">Student Dashboard</h2>
+                            <p class="text-gray-600">Welcome, {{ session.username }}</p>
+                        </div>
+                    </div>
+                </div>
+            </header>
+            
+            <!-- Main Content Area -->
+            <main class="flex-1 overflow-y-auto p-6">
+        <!-- Student Info Card -->
+        <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
+            <h2 class="text-2xl font-bold text-gray-900 mb-4">Student Information</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Student ID</label>
+                    <p class="mt-1 text-lg text-gray-900">{{ student_info.idno }}</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Year Level</label>
+                    <p class="mt-1 text-lg text-gray-900">{{ student_info.year_level }}</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Course</label>
+                    <p class="mt-1 text-lg text-gray-900">{{ student_info.course_name or 'Not assigned' }}</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Face Registration Alert -->
+        {% if not has_face_registered %}
+        <div class="bg-yellow-50 border border-yellow-200 rounded-xl shadow-lg p-6 mb-8">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <i class="fas fa-exclamation-triangle text-yellow-600 text-2xl"></i>
+                </div>
+                <div class="ml-4">
+                    <h3 class="text-lg font-medium text-yellow-800">Face Registration Required</h3>
+                    <div class="mt-2">
+                        <p class="text-yellow-700">
+                            You need to register your face before you can take attendance. 
+                            Please contact your administrator or use the face registration system to complete your setup.
+                        </p>
+                    </div>
+                    <div class="mt-4">
+                        <a href="/register_face" class="inline-flex items-center px-4 py-2 bg-yellow-600 text-white text-sm font-medium rounded-lg hover:bg-yellow-700 transition duration-200">
+                            <i class="fas fa-camera mr-2"></i>
+                            Register My Face
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Today's Attendance Status -->
+        <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
+            <h3 class="text-xl font-semibold text-gray-900 mb-4">Today's Attendance Status</h3>
+            {% if today_attendance %}
+            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div class="flex items-center">
+                    <i class="fas fa-check-circle text-green-600 text-xl mr-3"></i>
+                    <div>
+                        <p class="text-green-800 font-medium">Present</p>
+                        <p class="text-green-600 text-sm">Marked at {{ today_attendance.attendance_date }}</p>
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div class="flex items-center">
+                    <i class="fas fa-exclamation-triangle text-yellow-600 text-xl mr-3"></i>
+                    <div>
+                        <p class="text-yellow-800 font-medium">Not Marked</p>
+                        <p class="text-yellow-600 text-sm">Please take your attendance</p>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Recent Attendance History -->
+        <div class="bg-white rounded-xl shadow-lg">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <h2 class="text-xl font-semibold text-gray-900">Recent Attendance</h2>
+            </div>
+            <div class="p-6">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            {% for record in attendance_history %}
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ record.date }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    {% if record.status == 'present' %}
+                                    <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                                        Present
+                                    </span>
+                                    {% else %}
+                                    <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">
+                                        {{ record.status.title() }}
+                                    </span>
+                                    {% endif %}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ record.time }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+            </main>
+        </div>
+    </div>
+</body>
+</html>

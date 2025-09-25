@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Event - FaceCheck</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <!-- Sidebar -->
+    <div class="flex h-screen">
+        <!-- Sidebar -->
+        <div class="w-64 bg-gray-800 text-white">
+            <!-- Logo -->
+            <div class="p-6 border-b border-gray-700">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center mr-3">
+                        <i class="fas fa-user-check text-white"></i>
+                    </div>
+                    <h1 class="text-xl font-bold">FaceCheck</h1>
+                </div>
+            </div>
+            
+            <!-- Navigation -->
+            <nav class="mt-6">
+                <div class="px-3">
+                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Main Menu</div>
+                </div>
+                
+                <a href="{{ url_for('dashboard') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-tachometer-alt mr-3"></i>
+                    Dashboard
+                </a>
+                
+                <a href="{{ url_for('admin_users') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-users mr-3"></i>
+                    User Management
+                </a>
+                
+                <a href="{{ url_for('admin_classes') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-chalkboard-teacher mr-3"></i>
+                    Class Management
+                </a>
+                
+                <a href="{{ url_for('admin_events') }}" class="flex items-center px-6 py-3 bg-gray-700 text-white">
+                    <i class="fas fa-calendar-alt mr-3"></i>
+                    Event Management
+                </a>
+                
+                <a href="/reports" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-chart-bar mr-3"></i>
+                    Reports
+                </a>
+                
+                <a href="/settings" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-cog mr-3"></i>
+                    Settings
+                </a>
+            </nav>
+            
+            <!-- User Info -->
+            <div class="absolute bottom-0 w-64 p-6 border-t border-gray-700">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center mr-3">
+                        <i class="fas fa-user text-white text-sm"></i>
+                    </div>
+                    <div>
+                        <div class="text-sm font-medium">Admin User</div>
+                        <div class="text-xs text-gray-400">Administrator</div>
+                    </div>
+                </div>
+                <a href="{{ url_for('logout') }}" class="mt-3 flex items-center text-gray-300 hover:text-white transition duration-200">
+                    <i class="fas fa-sign-out-alt mr-2"></i>
+                    Logout
+                </a>
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Top Header -->
+            <header class="bg-white shadow-sm border-b border-gray-200">
+                <div class="px-6 py-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-bold text-gray-800">Edit Event</h2>
+                            <p class="text-gray-600">Update event information and details</p>
+                        </div>
+                        <a href="{{ url_for('admin_events') }}" class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition duration-200">
+                            <i class="fas fa-arrow-left mr-2"></i>Back to Events
+                        </a>
+                    </div>
+                </div>
+            </header>
+            
+            <!-- Flash Messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="px-6 py-4">
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ 'error' if category == 'error' else 'success' }} bg-{{ 'red' if category == 'error' else 'green' }}-50 border border-{{ 'red' if category == 'error' else 'green' }}-200 text-{{ 'red' if category == 'error' else 'green' }}-800 px-4 py-3 rounded-lg mb-4">
+                                <i class="fas fa-{{ 'exclamation-circle' if category == 'error' else 'check-circle' }} mr-2"></i>
+                                {{ message }}
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+            
+            <!-- Main Content Area -->
+            <main class="flex-1 overflow-y-auto p-6">
+                <div class="max-w-4xl mx-auto">
+                    <form method="POST" class="bg-white rounded-xl shadow-lg p-8">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <!-- Event Information -->
+                            <div class="md:col-span-2">
+                                <h3 class="text-lg font-semibold text-gray-900 mb-4">Event Information</h3>
+                            </div>
+                            
+                            <div>
+                                <label for="event_name" class="block text-sm font-medium text-gray-700 mb-2">Event Name *</label>
+                                <input type="text" id="event_name" name="event_name" required
+                                       value="{{ event_info.event_name }}"
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       placeholder="e.g., Annual Science Fair">
+                            </div>
+                            
+                            <div>
+                                <label for="event_type" class="block text-sm font-medium text-gray-700 mb-2">Event Type *</label>
+                                <select id="event_type" name="event_type" required
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                    <option value="">Select Event Type</option>
+                                    <option value="Seminar" {% if event_info.event_type == 'Seminar' %}selected{% endif %}>Seminar</option>
+                                    <option value="Workshop" {% if event_info.event_type == 'Workshop' %}selected{% endif %}>Workshop</option>
+                                    <option value="Conference" {% if event_info.event_type == 'Conference' %}selected{% endif %}>Conference</option>
+                                    <option value="Meeting" {% if event_info.event_type == 'Meeting' %}selected{% endif %}>Meeting</option>
+                                    <option value="Training" {% if event_info.event_type == 'Training' %}selected{% endif %}>Training</option>
+                                    <option value="Other" {% if event_info.event_type == 'Other' %}selected{% endif %}>Other</option>
+                                </select>
+                            </div>
+                            
+                            <div>
+                                <label for="event_date" class="block text-sm font-medium text-gray-700 mb-2">Event Date *</label>
+                                <input type="date" id="event_date" name="event_date" required
+                                       value="{{ event_info.event_date }}"
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            </div>
+                            
+                            <div>
+                                <label for="start_time" class="block text-sm font-medium text-gray-700 mb-2">Start Time *</label>
+                                <input type="time" id="start_time" name="start_time" required
+                                       value="{{ event_info.start_time }}"
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            </div>
+                            
+                            <div>
+                                <label for="end_time" class="block text-sm font-medium text-gray-700 mb-2">End Time *</label>
+                                <input type="time" id="end_time" name="end_time" required
+                                       value="{{ event_info.end_time }}"
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            </div>
+                            
+                            <div>
+                                <label for="room" class="block text-sm font-medium text-gray-700 mb-2">Room</label>
+                                <input type="text" id="room" name="room"
+                                       value="{{ event_info.room or '' }}"
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       placeholder="e.g., Room 101">
+                            </div>
+                            
+                            <div>
+                                <label for="faculty_id" class="block text-sm font-medium text-gray-700 mb-2">Faculty Coordinator *</label>
+                                <select id="faculty_id" name="faculty_id" required
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                    <option value="">Select Faculty</option>
+                                    {% for faculty_member in faculty %}
+                                    <option value="{{ faculty_member.faculty_id }}" 
+                                            {% if faculty_member.faculty_id == event_info.faculty_id %}selected{% endif %}>
+                                        {{ faculty_member.firstname }} {{ faculty_member.lastname }}
+                                        {% if faculty_member.dept_name %} - {{ faculty_member.dept_name }}{% endif %}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            
+                            <!-- Description -->
+                            <div class="md:col-span-2">
+                                <label for="description" class="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                                <textarea id="description" name="description" rows="4"
+                                          class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                          placeholder="Enter event description...">{{ event_info.description or '' }}</textarea>
+                            </div>
+                        </div>
+                        
+                        <!-- Submit Button -->
+                        <div class="mt-8 flex justify-end space-x-4">
+                            <a href="{{ url_for('admin_events') }}" class="bg-gray-300 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-400 transition duration-200">
+                                Cancel
+                            </a>
+                            <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition duration-200">
+                                <i class="fas fa-save mr-2"></i>Update Event
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </main>
+        </div>
+    </div>
+</body>
+</html>

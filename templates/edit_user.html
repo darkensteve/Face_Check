@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit User - FaceCheck</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <!-- Sidebar -->
+    <div class="flex h-screen">
+        <!-- Sidebar -->
+        <div class="w-64 bg-gray-800 text-white">
+            <!-- Logo -->
+            <div class="p-6 border-b border-gray-700">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center mr-3">
+                        <i class="fas fa-user-check text-white"></i>
+                    </div>
+                    <h1 class="text-xl font-bold">FaceCheck</h1>
+                </div>
+            </div>
+            
+            <!-- Navigation -->
+            <nav class="mt-6">
+                <div class="px-3">
+                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Main Menu</div>
+                </div>
+                
+                <a href="{{ url_for('dashboard') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-tachometer-alt mr-3"></i>
+                    Dashboard
+                </a>
+                
+                <a href="{{ url_for('admin_users') }}" class="flex items-center px-6 py-3 bg-gray-700 text-white">
+                    <i class="fas fa-users mr-3"></i>
+                    User Management
+                </a>
+                
+                <a href="{{ url_for('admin_classes') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-chalkboard-teacher mr-3"></i>
+                    Class Management
+                </a>
+                
+                <a href="{{ url_for('admin_events') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-calendar-alt mr-3"></i>
+                    Event Management
+                </a>
+                
+                <a href="/reports" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-chart-bar mr-3"></i>
+                    Reports
+                </a>
+                
+                <a href="/settings" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-cog mr-3"></i>
+                    Settings
+                </a>
+            </nav>
+            
+            <!-- User Info -->
+            <div class="absolute bottom-0 w-64 p-6 border-t border-gray-700">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center mr-3">
+                        <i class="fas fa-user text-white text-sm"></i>
+                    </div>
+                    <div>
+                        <div class="text-sm font-medium">Admin User</div>
+                        <div class="text-xs text-gray-400">Administrator</div>
+                    </div>
+                </div>
+                <a href="{{ url_for('logout') }}" class="mt-3 flex items-center text-gray-300 hover:text-white transition duration-200">
+                    <i class="fas fa-sign-out-alt mr-2"></i>
+                    Logout
+                </a>
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Top Header -->
+            <header class="bg-white shadow-sm border-b border-gray-200">
+                <div class="px-6 py-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-bold text-gray-800">Edit User</h2>
+                            <p class="text-gray-600">Update user information and settings</p>
+                        </div>
+                        <a href="{{ url_for('admin_users') }}" class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition duration-200 flex items-center">
+                            <i class="fas fa-arrow-left mr-2"></i>
+                            Back to Users
+                        </a>
+                    </div>
+                </div>
+            </header>
+            
+            <!-- Main Content Area -->
+            <main class="flex-1 overflow-y-auto p-6">
+                <!-- Flash Messages -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="mb-4 p-4 rounded-lg {% if category == 'error' %}bg-red-100 text-red-700 border border-red-200{% else %}bg-green-100 text-green-700 border border-green-200{% endif %}">
+                                <div class="flex items-center">
+                                    <i class="fas {% if category == 'error' %}fa-exclamation-circle{% else %}fa-check-circle{% endif %} mr-2"></i>
+                                    {{ message }}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                <!-- Edit User Form -->
+                <div class="bg-white rounded-lg shadow overflow-hidden">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h3 class="text-lg font-medium text-gray-900">Edit User: {{ user.firstname }} {{ user.lastname }}</h3>
+                        <p class="text-sm text-gray-500">Update user details and permissions</p>
+                    </div>
+                    
+                    <form method="POST" action="{{ url_for('edit_user', user_id=user.user_id) }}" class="p-6 space-y-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">First Name</label>
+                                <input type="text" name="firstname" value="{{ user.firstname }}" required 
+                                       class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Last Name</label>
+                                <input type="text" name="lastname" value="{{ user.lastname }}" required 
+                                       class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            </div>
+                        </div>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">User ID</label>
+                                <input type="text" value="{{ user.idno }}" disabled 
+                                       class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 bg-gray-100 text-gray-500">
+                                <p class="text-xs text-gray-500 mt-1">User ID cannot be changed</p>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Role</label>
+                                <select name="role" required class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent" onchange="toggleRoleFields()">
+                                    <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Admin</option>
+                                    <option value="faculty" {% if user.role == 'faculty' %}selected{% endif %}>Faculty</option>
+                                    <option value="student" {% if user.role == 'student' %}selected{% endif %}>Student</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Department</label>
+                            <select name="dept_id" id="deptSelect" class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent" onchange="filterCourses()">
+                                <option value="">Select Department</option>
+                                {% for dept in departments %}
+                                <option value="{{ dept.dept_id }}" {% if user.dept_id == dept.dept_id %}selected{% endif %}>{{ dept.dept_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <div class="flex items-center">
+                            <input type="checkbox" name="is_active" value="1" {% if user.is_active %}checked{% endif %} 
+                                   class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                            <label class="ml-2 block text-sm text-gray-900">Active User</label>
+                        </div>
+                        
+                        <!-- Student-specific fields -->
+                        <div id="studentFields" class="{% if user.role != 'student' %}hidden{% endif %}">
+                            <div class="border-t pt-4">
+                                <h4 class="text-sm font-medium text-gray-900 mb-4">Student Information</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Year Level</label>
+                                        <select name="year_level" class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                            <option value="">Select Year Level</option>
+                                            <option value="1st Year" {% if user.year_level == '1st Year' %}selected{% endif %}>1st Year</option>
+                                            <option value="2nd Year" {% if user.year_level == '2nd Year' %}selected{% endif %}>2nd Year</option>
+                                            <option value="3rd Year" {% if user.year_level == '3rd Year' %}selected{% endif %}>3rd Year</option>
+                                            <option value="4th Year" {% if user.year_level == '4th Year' %}selected{% endif %}>4th Year</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Course</label>
+                                        <select name="course_id" id="courseSelect" class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                            <option value="">Select Course</option>
+                                            {% for course in courses %}
+                                            <option value="{{ course.course_id }}" data-dept-id="{{ course.dept_id }}" {% if user.course_id == course.course_id %}selected{% endif %}>{{ course.course_name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Faculty-specific fields -->
+                        <div id="facultyFields" class="{% if user.role != 'faculty' %}hidden{% endif %}">
+                            <div class="border-t pt-4">
+                                <h4 class="text-sm font-medium text-gray-900 mb-4">Faculty Information</h4>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Position</label>
+                                    <input type="text" name="position" value="{{ user.position or '' }}" 
+                                           class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent" 
+                                           placeholder="e.g., Professor, Instructor">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="flex justify-end space-x-3 pt-6 border-t border-gray-200">
+                            <a href="{{ url_for('admin_users') }}" class="px-4 py-2 text-gray-700 bg-gray-200 rounded hover:bg-gray-300 transition duration-200">Cancel</a>
+                            <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition duration-200">Update User</button>
+                        </div>
+                    </form>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        function toggleRoleFields() {
+            const role = document.querySelector('select[name="role"]').value;
+            const studentFields = document.getElementById('studentFields');
+            const facultyFields = document.getElementById('facultyFields');
+            
+            studentFields.classList.add('hidden');
+            facultyFields.classList.add('hidden');
+            
+            if (role === 'student') {
+                studentFields.classList.remove('hidden');
+            } else if (role === 'faculty') {
+                facultyFields.classList.remove('hidden');
+            }
+        }
+
+        function filterCourses() {
+            const deptSelect = document.getElementById('deptSelect');
+            const courseSelect = document.getElementById('courseSelect');
+            const selectedDeptId = deptSelect.value;
+            
+            // Reset course selection
+            courseSelect.value = '';
+            
+            // Show/hide course options based on selected department
+            const courseOptions = courseSelect.querySelectorAll('option');
+            courseOptions.forEach(option => {
+                if (option.value === '') {
+                    // Always show the "Select Course" option
+                    option.style.display = 'block';
+                } else {
+                    const courseDeptId = option.getAttribute('data-dept-id');
+                    if (selectedDeptId === '' || courseDeptId === selectedDeptId) {
+                        option.style.display = 'block';
+                    } else {
+                        option.style.display = 'none';
+                    }
+                }
+            });
+        }
+
+        // Initialize course filtering on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            filterCourses();
+        });
+    </script>
+</body>
+</html>

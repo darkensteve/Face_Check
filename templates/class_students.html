@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Class Students - FaceCheck</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <!-- Sidebar -->
+    <div class="flex h-screen">
+        <!-- Sidebar -->
+        <div class="w-64 bg-gray-800 text-white">
+            <!-- Logo -->
+            <div class="p-6 border-b border-gray-700">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center mr-3">
+                        <i class="fas fa-user-check text-white"></i>
+                    </div>
+                    <h1 class="text-xl font-bold">FaceCheck</h1>
+                </div>
+            </div>
+            
+            <!-- Navigation -->
+            <nav class="mt-6">
+                <div class="px-3">
+                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Main Menu</div>
+                </div>
+                
+                <a href="{{ url_for('dashboard') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-tachometer-alt mr-3"></i>
+                    Dashboard
+                </a>
+                
+                <a href="{{ url_for('admin_users') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-users mr-3"></i>
+                    User Management
+                </a>
+                
+                <a href="{{ url_for('admin_classes') }}" class="flex items-center px-6 py-3 bg-gray-700 text-white">
+                    <i class="fas fa-chalkboard-teacher mr-3"></i>
+                    Class Management
+                </a>
+                
+                <a href="{{ url_for('admin_events') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-calendar-alt mr-3"></i>
+                    Event Management
+                </a>
+                
+                <a href="/reports" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-chart-bar mr-3"></i>
+                    Reports
+                </a>
+                
+                <a href="/settings" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-cog mr-3"></i>
+                    Settings
+                </a>
+            </nav>
+            
+            <!-- User Info -->
+            <div class="absolute bottom-0 w-64 p-6 border-t border-gray-700">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center mr-3">
+                        <i class="fas fa-user text-white text-sm"></i>
+                    </div>
+                    <div>
+                        <div class="text-sm font-medium">Admin User</div>
+                        <div class="text-xs text-gray-400">Administrator</div>
+                    </div>
+                </div>
+                <a href="{{ url_for('logout') }}" class="mt-3 flex items-center text-gray-300 hover:text-white transition duration-200">
+                    <i class="fas fa-sign-out-alt mr-2"></i>
+                    Logout
+                </a>
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Top Header -->
+            <header class="bg-white shadow-sm border-b border-gray-200">
+                <div class="px-6 py-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-bold text-gray-800">{{ class_info.class_name }}</h2>
+                            <p class="text-gray-600">Manage student enrollments for this class</p>
+                            <div class="mt-2 text-sm text-gray-500">
+                                <span class="mr-4"><i class="fas fa-code mr-1"></i>{{ class_info.edpcode }}</span>
+                                <span class="mr-4"><i class="fas fa-clock mr-1"></i>{{ class_info.start_time }} - {{ class_info.end_time }}</span>
+                                <span class="mr-4"><i class="fas fa-door-open mr-1"></i>{{ class_info.room or 'TBA' }}</span>
+                                <span><i class="fas fa-chalkboard-teacher mr-1"></i>{{ class_info.firstname }} {{ class_info.lastname }}</span>
+                            </div>
+                        </div>
+                        <a href="{{ url_for('admin_classes') }}" class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition duration-200">
+                            <i class="fas fa-arrow-left mr-2"></i>Back to Classes
+                        </a>
+                    </div>
+                </div>
+            </header>
+            
+            <!-- Flash Messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="px-6 py-4">
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ 'error' if category == 'error' else 'success' }} bg-{{ 'red' if category == 'error' else 'green' }}-50 border border-{{ 'red' if category == 'error' else 'green' }}-200 text-{{ 'red' if category == 'error' else 'green' }}-800 px-4 py-3 rounded-lg mb-4">
+                                <i class="fas fa-{{ 'exclamation-circle' if category == 'error' else 'check-circle' }} mr-2"></i>
+                                {{ message }}
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+            
+            <!-- Main Content Area -->
+            <main class="flex-1 overflow-y-auto p-6">
+                <!-- Statistics Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                    <div class="bg-white rounded-xl shadow-lg p-6">
+                        <div class="flex items-center">
+                            <div class="p-3 bg-blue-100 rounded-lg">
+                                <i class="fas fa-users text-blue-600 text-xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-gray-600">Total Enrolled</p>
+                                <p class="text-2xl font-bold text-gray-900">{{ enrolled_students|length }}</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded-xl shadow-lg p-6">
+                        <div class="flex items-center">
+                            <div class="p-3 bg-green-100 rounded-lg">
+                                <i class="fas fa-user-plus text-green-600 text-xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-gray-600">Available to Enroll</p>
+                                <p class="text-2xl font-bold text-gray-900">{{ available_students|length }}</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded-xl shadow-lg p-6">
+                        <div class="flex items-center">
+                            <div class="p-3 bg-purple-100 rounded-lg">
+                                <i class="fas fa-chart-pie text-purple-600 text-xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-gray-600">Enrollment Rate</p>
+                                <p class="text-2xl font-bold text-gray-900">
+                                    {% if (enrolled_students|length + available_students|length) > 0 %}
+                                        {{ "%.1f"|format((enrolled_students|length / (enrolled_students|length + available_students|length)) * 100) }}%
+                                    {% else %}
+                                        0%
+                                    {% endif %}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Enrolled Students -->
+                    <div class="bg-white rounded-xl shadow-lg">
+                        <div class="px-6 py-4 border-b border-gray-200">
+                            <div class="flex items-center justify-between">
+                                <h3 class="text-lg font-semibold text-gray-900">Enrolled Students ({{ enrolled_students|length }})</h3>
+                                {% if enrolled_students %}
+                                <div class="flex space-x-2">
+                                    <button onclick="selectAllEnrolled()" class="text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded-lg hover:bg-blue-200 transition duration-200">
+                                        <i class="fas fa-check-double mr-1"></i>Select All
+                                    </button>
+                                    <button onclick="unenrollSelected()" id="bulkUnenrollBtn" class="text-sm bg-red-100 text-red-700 px-3 py-1 rounded-lg hover:bg-red-200 transition duration-200" disabled>
+                                        <i class="fas fa-user-minus mr-1"></i>Remove Selected
+                                    </button>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        
+                        {% if enrolled_students %}
+                        <div class="max-h-96 overflow-y-auto" id="enrolledStudentsList">
+                            {% for student in enrolled_students %}
+                            <div class="px-6 py-4 border-b border-gray-100 hover:bg-gray-50 enrolled-student-card">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center">
+                                        <input type="checkbox" class="enrolled-student-checkbox mr-3 h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded" 
+                                               value="{{ student.student_id }}" onchange="updateBulkUnenrollButton()">
+                                        <div>
+                                            <div class="text-sm font-medium text-gray-900">{{ student.firstname }} {{ student.lastname }}</div>
+                                            <div class="text-xs text-gray-500">
+                                                <span class="mr-3">ID: {{ student.idno }}</span>
+                                                <span class="mr-3">Year: {{ student.year_level }}</span>
+                                                {% if student.course_name %}<span class="mr-3">{{ student.course_name }}</span>{% endif %}
+                                                {% if student.dept_name %}<span>{{ student.dept_name }}</span>{% endif %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="flex space-x-2">
+                                        <form method="POST" action="{{ url_for('unenroll_student_from_class', class_id=class_info.class_id, student_id=student.student_id) }}" class="inline">
+                                            <button type="submit" class="text-red-600 hover:text-red-900 text-sm" 
+                                                    onclick="return confirm('Are you sure you want to unenroll this student?')">
+                                                <i class="fas fa-user-minus mr-1"></i>Remove
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="text-center py-8">
+                            <i class="fas fa-users text-gray-400 text-4xl mb-4"></i>
+                            <p class="text-gray-500">No students enrolled yet</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Available Students -->
+                    <div class="bg-white rounded-xl shadow-lg">
+                        <div class="px-6 py-4 border-b border-gray-200">
+                            <div class="flex items-center justify-between">
+                                <h3 class="text-lg font-semibold text-gray-900">Available Students ({{ available_students|length }})</h3>
+                                <div class="flex space-x-2">
+                                    <button onclick="selectAllAvailable()" class="text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded-lg hover:bg-blue-200 transition duration-200">
+                                        <i class="fas fa-check-double mr-1"></i>Select All
+                                    </button>
+                                    <button onclick="enrollSelected()" id="bulkEnrollBtn" class="text-sm bg-green-100 text-green-700 px-3 py-1 rounded-lg hover:bg-green-200 transition duration-200" disabled>
+                                        <i class="fas fa-user-plus mr-1"></i>Enroll Selected
+                                    </button>
+                                </div>
+                            </div>
+                            <!-- Search and Filter -->
+                            <div class="mt-4 flex space-x-4">
+                                <div class="flex-1">
+                                    <input type="text" id="studentSearch" placeholder="Search students..." 
+                                           class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                </div>
+                                <select id="departmentFilter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                    <option value="">All Departments</option>
+                                    <!-- Will be populated by JavaScript -->
+                                </select>
+                            </div>
+                        </div>
+                        
+                        {% if available_students %}
+                        <div class="max-h-96 overflow-y-auto" id="availableStudentsList">
+                            {% for student in available_students %}
+                            <div class="px-6 py-4 border-b border-gray-100 hover:bg-gray-50 student-card" 
+                                 data-name="{{ student.firstname }} {{ student.lastname }}" 
+                                 data-idno="{{ student.idno }}"
+                                 data-department="{{ student.dept_name or '' }}"
+                                 data-course="{{ student.course_name or '' }}">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center">
+                                        <input type="checkbox" class="student-checkbox mr-3 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" 
+                                               value="{{ student.student_id }}" onchange="updateBulkEnrollButton()">
+                                        <div>
+                                            <div class="text-sm font-medium text-gray-900">{{ student.firstname }} {{ student.lastname }}</div>
+                                            <div class="text-xs text-gray-500">
+                                                <span class="mr-3">ID: {{ student.idno }}</span>
+                                                <span class="mr-3">Year: {{ student.year_level }}</span>
+                                                {% if student.course_name %}<span class="mr-3">{{ student.course_name }}</span>{% endif %}
+                                                {% if student.dept_name %}<span>{{ student.dept_name }}</span>{% endif %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="flex space-x-2">
+                                        <form method="POST" action="{{ url_for('enroll_student_to_class', class_id=class_info.class_id) }}" class="inline">
+                                            <input type="hidden" name="student_id" value="{{ student.student_id }}">
+                                            <button type="submit" class="text-blue-600 hover:text-blue-900 text-sm">
+                                                <i class="fas fa-user-plus mr-1"></i>Enroll
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="text-center py-8">
+                            <i class="fas fa-user-check text-gray-400 text-4xl mb-4"></i>
+                            <p class="text-gray-500">All students are already enrolled</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+    
+    <script>
+        // Search functionality
+        document.getElementById('studentSearch').addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            const studentCards = document.querySelectorAll('.student-card');
+            
+            studentCards.forEach(card => {
+                const name = card.dataset.name.toLowerCase();
+                const idno = card.dataset.idno.toLowerCase();
+                const department = card.dataset.department.toLowerCase();
+                const course = card.dataset.course.toLowerCase();
+                
+                if (name.includes(searchTerm) || idno.includes(searchTerm) || 
+                    department.includes(searchTerm) || course.includes(searchTerm)) {
+                    card.style.display = 'block';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        });
+        
+        // Department filter
+        document.getElementById('departmentFilter').addEventListener('change', function() {
+            const selectedDept = this.value;
+            const studentCards = document.querySelectorAll('.student-card');
+            
+            studentCards.forEach(card => {
+                const department = card.dataset.department;
+                
+                if (selectedDept === '' || department === selectedDept) {
+                    card.style.display = 'block';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        });
+        
+        // Populate department filter
+        function populateDepartmentFilter() {
+            const departments = new Set();
+            const studentCards = document.querySelectorAll('.student-card');
+            
+            studentCards.forEach(card => {
+                const dept = card.dataset.department;
+                if (dept) departments.add(dept);
+            });
+            
+            const filter = document.getElementById('departmentFilter');
+            departments.forEach(dept => {
+                const option = document.createElement('option');
+                option.value = dept;
+                option.textContent = dept;
+                filter.appendChild(option);
+            });
+        }
+        
+        // Select all functionality
+        function selectAllAvailable() {
+            const checkboxes = document.querySelectorAll('.student-checkbox');
+            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+            
+            checkboxes.forEach(cb => {
+                if (cb.closest('.student-card').style.display !== 'none') {
+                    cb.checked = !allChecked;
+                }
+            });
+            
+            updateBulkEnrollButton();
+        }
+        
+        // Update bulk enroll button
+        function updateBulkEnrollButton() {
+            const checkedBoxes = document.querySelectorAll('.student-checkbox:checked');
+            const bulkBtn = document.getElementById('bulkEnrollBtn');
+            
+            if (checkedBoxes.length > 0) {
+                bulkBtn.disabled = false;
+                bulkBtn.textContent = `Enroll Selected (${checkedBoxes.length})`;
+            } else {
+                bulkBtn.disabled = true;
+                bulkBtn.textContent = 'Enroll Selected';
+            }
+        }
+        
+        // Select all enrolled students
+        function selectAllEnrolled() {
+            const checkboxes = document.querySelectorAll('.enrolled-student-checkbox');
+            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+            
+            checkboxes.forEach(cb => {
+                cb.checked = !allChecked;
+            });
+            
+            updateBulkUnenrollButton();
+        }
+        
+        // Update bulk unenroll button
+        function updateBulkUnenrollButton() {
+            const checkedBoxes = document.querySelectorAll('.enrolled-student-checkbox:checked');
+            const bulkBtn = document.getElementById('bulkUnenrollBtn');
+            
+            if (checkedBoxes.length > 0) {
+                bulkBtn.disabled = false;
+                bulkBtn.textContent = `Remove Selected (${checkedBoxes.length})`;
+            } else {
+                bulkBtn.disabled = true;
+                bulkBtn.textContent = 'Remove Selected';
+            }
+        }
+        
+        // Bulk unenroll functionality
+        function unenrollSelected() {
+            const checkedBoxes = document.querySelectorAll('.enrolled-student-checkbox:checked');
+            const studentIds = Array.from(checkedBoxes).map(cb => cb.value);
+            
+            if (studentIds.length === 0) {
+                alert('Please select at least one student to remove.');
+                return;
+            }
+            
+            if (confirm(`Are you sure you want to remove ${studentIds.length} student(s) from this class?`)) {
+                // Create a form to submit multiple student IDs
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '{{ url_for("bulk_unenroll_students", class_id=class_info.class_id) }}';
+                
+                studentIds.forEach(id => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = 'student_ids';
+                    input.value = id;
+                    form.appendChild(input);
+                });
+                
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+        
+        // Bulk enroll functionality
+        function enrollSelected() {
+            const checkedBoxes = document.querySelectorAll('.student-checkbox:checked');
+            const studentIds = Array.from(checkedBoxes).map(cb => cb.value);
+            
+            if (studentIds.length === 0) {
+                alert('Please select at least one student to enroll.');
+                return;
+            }
+            
+            if (confirm(`Are you sure you want to enroll ${studentIds.length} student(s)?`)) {
+                // Create a form to submit multiple student IDs
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '{{ url_for("bulk_enroll_students", class_id=class_info.class_id) }}';
+                
+                studentIds.forEach(id => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = 'student_ids';
+                    input.value = id;
+                    form.appendChild(input);
+                });
+                
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            populateDepartmentFilter();
+            updateBulkEnrollButton();
+            updateBulkUnenrollButton();
+        });
+    </script>
+</body>
+</html>
