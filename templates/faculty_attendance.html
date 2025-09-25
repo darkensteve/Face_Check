@@ -114,12 +114,39 @@
             
             <!-- Main Content Area -->
             <main class="flex-1 overflow-y-auto p-6">
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
+                <!-- Class Selection Section -->
+                <div id="classSelectionSection" class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Select Class for Attendance</h3>
+                    <p class="text-gray-600 mb-4">Choose the class you want to take attendance for:</p>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="classesList">
+                        <!-- Classes will be loaded here -->
+                    </div>
+                    
+                    <div id="noClassesMessage" class="text-center py-8 text-gray-500" style="display: none;">
+                        <i class="fas fa-chalkboard-teacher text-gray-400 text-4xl mb-4"></i>
+                        <p>No classes assigned to you yet.</p>
+                        <p class="text-sm">Contact your administrator to get assigned to classes.</p>
+                    </div>
+                </div>
+                
+                <!-- Camera Section (hidden initially) -->
+                <div id="cameraSection" class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full" style="display: none;">
                     <!-- Camera Section -->
                     <div class="bg-white rounded-xl shadow-lg p-6">
                         <div class="mb-4">
-                            <h3 class="text-lg font-semibold text-gray-900 mb-2">Camera Feed</h3>
+                            <div class="flex items-center justify-between mb-2">
+                                <h3 class="text-lg font-semibold text-gray-900">Camera Feed</h3>
+                                <button id="backToClasses" class="text-blue-600 hover:text-blue-800 text-sm">
+                                    <i class="fas fa-arrow-left mr-1"></i>Change Class
+                                </button>
+                            </div>
                             <p class="text-sm text-gray-600">Position students in front of the camera for face recognition</p>
+                        </div>
+                        
+                        <!-- Selected Class Info -->
+                        <div id="selectedClassInfo" class="mb-4 p-3 bg-blue-50 rounded-lg">
+                            <!-- Selected class info will be shown here -->
                         </div>
                         
                         <!-- Camera Container -->
@@ -240,6 +267,10 @@
         const RECOGNIZE_EVERY = 45;
         const LIVENESS_EVERY = 4;
         
+        // Global variables for class selection
+        let selectedClass = null;
+        let facultyClasses = [];
+        
         // Initialize elements
         document.addEventListener('DOMContentLoaded', async function() {
             video = document.getElementById('video');
@@ -249,16 +280,14 @@
             // Set up event listeners
             document.getElementById('startCamera').addEventListener('click', startCamera);
             document.getElementById('stopCamera').addEventListener('click', stopCamera);
+            document.getElementById('backToClasses').addEventListener('click', backToClassSelection);
             
             // Update time and date
             updateDateTime();
             setInterval(updateDateTime, 1000);
             
-            // Load attendance data
-            loadAttendanceData();
-            
-            // Load today's marked students
-            loadTodayMarked();
+            // Load faculty classes
+            await loadFacultyClasses();
         });
         
         // Start camera
@@ -473,7 +502,7 @@
         // Mark attendance
         async function markAttendance(studentId, studentName) {
             try {
-                console.log('Attempting to mark attendance for:', studentId, studentName);
+                console.log('Attempting to mark attendance for:', studentId, studentName, 'in class:', selectedClass?.class_id);
                 
                 const response = await fetch('/api/attendance/mark', {
                     method: 'POST',
@@ -482,7 +511,8 @@
                     },
                     body: JSON.stringify({
                         student_id: studentId,
-                        student_name: studentName
+                        student_name: studentName,
+                        class_id: selectedClass?.class_id
                     })
                 });
                 
@@ -529,8 +559,13 @@
         
         // Load today's marked students
         async function loadTodayMarked() {
+            if (!selectedClass) {
+                console.log('No class selected, cannot load marked students');
+                return;
+            }
+            
             try {
-                const response = await fetch('/api/attendance/today');
+                const response = await fetch(`/api/attendance/today?class_id=${selectedClass.class_id}`);
                 if (response.ok) {
                     const data = await response.json();
                     data.forEach(record => {
@@ -585,7 +620,12 @@
         
         // Load attendance data
         function loadAttendanceData() {
-            fetch('/api/attendance/today')
+            if (!selectedClass) {
+                console.log('No class selected, cannot load attendance data');
+                return;
+            }
+            
+            fetch(`/api/attendance/today?class_id=${selectedClass.class_id}`)
                 .then(response => response.json())
                 .then(data => {
                     if (data.length > 0) {
@@ -598,6 +638,92 @@
                 .catch(error => {
                     console.error('Error loading attendance data:', error);
                 });
+        }
+        
+        // Load faculty classes
+        async function loadFacultyClasses() {
+            try {
+                const response = await fetch('/api/faculty/classes');
+                if (response.ok) {
+                    facultyClasses = await response.json();
+                    displayClasses();
+                } else {
+                    console.error('Error loading faculty classes');
+                    document.getElementById('noClassesMessage').style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Error loading faculty classes:', error);
+                document.getElementById('noClassesMessage').style.display = 'block';
+            }
+        }
+        
+        // Display classes
+        function displayClasses() {
+            const classesList = document.getElementById('classesList');
+            const noClassesMessage = document.getElementById('noClassesMessage');
+            
+            if (facultyClasses.length === 0) {
+                noClassesMessage.style.display = 'block';
+                return;
+            }
+            
+            classesList.innerHTML = '';
+            facultyClasses.forEach(classInfo => {
+                const classCard = document.createElement('div');
+                classCard.className = 'bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition duration-200 cursor-pointer';
+                classCard.onclick = () => selectClass(classInfo);
+                
+                classCard.innerHTML = `
+                    <div class="flex items-center mb-2">
+                        <i class="fas fa-chalkboard-teacher text-blue-600 mr-2"></i>
+                        <h4 class="font-semibold text-gray-900">${classInfo.class_name}</h4>
+                    </div>
+                    <p class="text-sm text-gray-600 mb-2">${classInfo.edpcode}</p>
+                    <p class="text-xs text-gray-500">${classInfo.start_time} - ${classInfo.end_time}</p>
+                    <p class="text-xs text-gray-500">Room: ${classInfo.room || 'TBA'}</p>
+                `;
+                
+                classesList.appendChild(classCard);
+            });
+        }
+        
+        // Select class
+        function selectClass(classInfo) {
+            selectedClass = classInfo;
+            
+            // Hide class selection, show camera section
+            document.getElementById('classSelectionSection').style.display = 'none';
+            document.getElementById('cameraSection').style.display = 'grid';
+            
+            // Update selected class info
+            document.getElementById('selectedClassInfo').innerHTML = `
+                <div class="flex items-center">
+                    <i class="fas fa-chalkboard-teacher text-blue-600 mr-2"></i>
+                    <div>
+                        <h4 class="font-semibold text-gray-900">${classInfo.class_name}</h4>
+                        <p class="text-sm text-gray-600">${classInfo.edpcode} • ${classInfo.start_time} - ${classInfo.end_time}</p>
+                    </div>
+                </div>
+            `;
+            
+            // Load attendance data for this class
+            loadAttendanceData();
+            loadTodayMarked();
+        }
+        
+        // Back to class selection
+        function backToClassSelection() {
+            // Stop camera if running
+            if (stream) {
+                stopCamera();
+            }
+            
+            // Hide camera section, show class selection
+            document.getElementById('cameraSection').style.display = 'none';
+            document.getElementById('classSelectionSection').style.display = 'block';
+            
+            // Reset selected class
+            selectedClass = null;
         }
         
         // Show notification

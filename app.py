@@ -995,9 +995,23 @@ def faculty_dashboard():
     # Format attendance data for template
     formatted_attendance = []
     for record in today_attendance:
+        # Extract time from datetime string
+        time_str = ''
+        if record['attendance_date']:
+            try:
+                # If it's already a string, extract the time part
+                if isinstance(record['attendance_date'], str):
+                    # Format: '2025-09-25 08:44:50' -> extract '08:44:50'
+                    time_str = record['attendance_date'].split(' ')[1] if ' ' in record['attendance_date'] else record['attendance_date']
+                else:
+                    # If it's a datetime object, use strftime
+                    time_str = record['attendance_date'].strftime('%H:%M:%S')
+            except:
+                time_str = str(record['attendance_date'])
+        
         formatted_attendance.append({
             'name': f"{record['firstname']} {record['lastname']}",
-            'time': record['attendance_date'].strftime('%H:%M:%S') if record['attendance_date'] else '',
+            'time': time_str,
             'status': record['attendance_status']
         })
     
@@ -1331,21 +1345,22 @@ def api_attendance_mark():
         print(f"Attendance mark request data: {data}")
         student_id = data.get('student_id')
         student_name = data.get('student_name')
+        class_id = data.get('class_id')
         
-        print(f"Student ID: {student_id}, Student Name: {student_name}")
+        print(f"Student ID: {student_id}, Student Name: {student_name}, Class ID: {class_id}")
         
-        if not student_id or not student_name:
-            return jsonify({'success': False, 'message': 'Missing student information'}), 400
+        if not student_id or not student_name or not class_id:
+            return jsonify({'success': False, 'message': 'Missing student or class information'}), 400
         
         # Mark attendance in database
         conn = get_db_connection()
         print("Database connection established")
         
-        # Get the correct studentclass_id for this student
+        # Get the correct studentclass_id for this student and class
         student_class = conn.execute('''
             SELECT sc.studentclass_id FROM student_class sc
-            WHERE sc.student_id = ?
-        ''', (student_id,)).fetchone()
+            WHERE sc.student_id = ? AND sc.class_id = ?
+        ''', (student_id, class_id)).fetchone()
         
         if not student_class:
             print(f"No student_class found for student_id: {student_id}")
@@ -1426,20 +1441,75 @@ def api_mark_attendance():
 @app.route('/api/attendance/today')
 def api_today_attendance():
     today = datetime.now().strftime('%Y-%m-%d')
+    class_id = request.args.get('class_id')
+    
+    if not class_id:
+        return jsonify([])
+    
     conn = get_db_connection()
     
     attendance = conn.execute('''
-        SELECT u.firstname, u.lastname, a.attendance_status, a.attendance_date
+        SELECT s.student_id, u.firstname, u.lastname, a.attendance_status, a.attendance_date
         FROM attendance a
         JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
         JOIN student s ON sc.student_id = s.student_id
         JOIN user u ON s.user_id = u.user_id
-        WHERE DATE(a.attendance_date) = ?
+        WHERE DATE(a.attendance_date) = ? AND sc.class_id = ?
         ORDER BY a.attendance_date DESC
-    ''', (today,)).fetchall()
+    ''', (today, class_id)).fetchall()
+    
+    # Format the data for frontend
+    formatted_attendance = []
+    for record in attendance:
+        # Extract time from datetime string
+        time_str = ''
+        if record['attendance_date']:
+            try:
+                if isinstance(record['attendance_date'], str):
+                    time_str = record['attendance_date'].split(' ')[1] if ' ' in record['attendance_date'] else record['attendance_date']
+                else:
+                    time_str = record['attendance_date'].strftime('%H:%M:%S')
+            except:
+                time_str = str(record['attendance_date'])
+        
+        formatted_attendance.append({
+            'student_id': record['student_id'],
+            'student_name': f"{record['firstname']} {record['lastname']}",
+            'time': time_str,
+            'status': record['attendance_status']
+        })
     
     conn.close()
-    return jsonify([dict(record) for record in attendance])
+    return jsonify(formatted_attendance)
+
+@app.route('/api/faculty/classes')
+def api_faculty_classes():
+    """Get classes assigned to the current faculty member"""
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    conn = get_db_connection()
+    
+    # First get the faculty_id for the current user
+    faculty = conn.execute('''
+        SELECT f.faculty_id FROM faculty f
+        WHERE f.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    
+    if not faculty:
+        conn.close()
+        return jsonify([])
+    
+    # Then get classes assigned to this faculty
+    classes = conn.execute('''
+        SELECT c.class_id, c.class_name, c.edpcode, c.start_time, c.end_time, c.room, c.faculty_id
+        FROM class c
+        WHERE c.faculty_id = ?
+        ORDER BY c.class_name
+    ''', (faculty['faculty_id'],)).fetchall()
+    
+    conn.close()
+    return jsonify([dict(record) for record in classes])
 
 @app.route('/admin/classes/<int:class_id>/delete', methods=['POST'])
 def delete_class(class_id):
