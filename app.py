@@ -1115,7 +1115,6 @@ def student_dashboard():
     today_status = today_attendance[0] if today_attendance else None
     
     # Check if student has registered their face (check database first, then file system)
-    import os
     has_face_registered = False
     
     # Check if attendance_image is stored in database
