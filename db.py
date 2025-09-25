@@ -194,11 +194,17 @@ def insert_default_data(cursor):
     ]
     cursor.executemany("INSERT OR IGNORE INTO course (course_name) VALUES (?)", courses)
     
-    # Insert default admin user
+    # Insert default admin user (with hashed password)
+    try:
+        import bcrypt
+        admin_password = bcrypt.hashpw(b'admin123', bcrypt.gensalt()).decode('utf-8')
+    except ImportError:
+        admin_password = 'admin123'  # Fallback for initial setup
+        
     cursor.execute("""
         INSERT OR IGNORE INTO user (idno, firstname, lastname, role, password, dept_id) 
-        VALUES ('admin', 'Admin', 'User', 'admin', 'admin123', 1)
-    """)
+        VALUES ('admin', 'Admin', 'User', 'admin', ?, 1)
+    """, (admin_password,))
     
     print("✅ Default data inserted successfully!")
 

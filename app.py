@@ -3,25 +3,156 @@ import sqlite3
 from datetime import datetime
 import os
 import time
+import secrets
+
+# Check for required packages
+try:
+    import bcrypt
+    BCRYPT_AVAILABLE = True
+except ImportError:
+    print("Warning: bcrypt not available. Passwords will not be secure!")
+    BCRYPT_AVAILABLE = False
+
+try:
+    import cv2
+    import numpy as np
+    import face_recognition
+    FACE_RECOGNITION_AVAILABLE = True
+    print("✅ Face recognition libraries loaded successfully")
+except ImportError as e:
+    print(f"⚠️ Face recognition not available: {e}")
+    print("Install with: pip install face-recognition opencv-contrib-python")
+    FACE_RECOGNITION_AVAILABLE = False
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-here'
+# Generate secure secret key from environment or create new one
+app.secret_key = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
 
-# Database connection
+# Session configuration for security
+app.config.update(
+    SESSION_COOKIE_SECURE=True if os.environ.get('HTTPS') == 'true' else False,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    PERMANENT_SESSION_LIFETIME=3600  # 1 hour session timeout
+)
+
+# Rate limiting for login attempts
+login_attempts = {}
+
+def is_rate_limited(ip_address, max_attempts=5, window_minutes=15):
+    """Simple rate limiting for login attempts"""
+    current_time = time.time()
+    window_seconds = window_minutes * 60
+    
+    if ip_address not in login_attempts:
+        login_attempts[ip_address] = []
+    
+    # Clean old attempts outside the window
+    login_attempts[ip_address] = [
+        attempt_time for attempt_time in login_attempts[ip_address]
+        if current_time - attempt_time < window_seconds
+    ]
+    
+    # Check if over limit
+    if len(login_attempts[ip_address]) >= max_attempts:
+        return True
+    
+    return False
+
+def record_login_attempt(ip_address):
+    """Record a failed login attempt"""
+    if ip_address not in login_attempts:
+        login_attempts[ip_address] = []
+    login_attempts[ip_address].append(time.time())
+
+# Database connection with better error handling
 def get_db_connection():
-    conn = sqlite3.connect('facecheck.db')
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Get database connection with error handling and timeout"""
+    try:
+        conn = sqlite3.connect('facecheck.db', timeout=30.0)
+        conn.row_factory = sqlite3.Row
+        # Enable foreign key constraints
+        conn.execute('PRAGMA foreign_keys = ON')
+        return conn
+    except sqlite3.Error as e:
+        print(f"Database connection error: {e}")
+        raise
 
 # Authentication functions
+def hash_password(password):
+    """Hash password using bcrypt for secure storage"""
+    if BCRYPT_AVAILABLE:
+        import bcrypt
+        return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    else:
+        # Fallback: NOT SECURE - only for development
+        print("WARNING: Using insecure password storage!")
+        return f"INSECURE_{password}"
+
+def verify_password(stored_hash, password):
+    """Verify password against stored hash"""
+    if BCRYPT_AVAILABLE and not stored_hash.startswith('INSECURE_'):
+        import bcrypt
+        try:
+            return bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8'))
+        except ValueError:
+            # Handle legacy passwords
+            return stored_hash == password
+    else:
+        # Fallback for insecure storage or legacy passwords
+        return stored_hash == password or stored_hash == f"INSECURE_{password}"
+
+def validate_input(data, field_type='text', min_len=1, max_len=255):
+    """Validate and sanitize input data"""
+    if not data or not isinstance(data, str):
+        return False, "Invalid input"
+    
+    data = data.strip()
+    
+    if len(data) < min_len or len(data) > max_len:
+        return False, f"Length must be between {min_len} and {max_len} characters"
+    
+    if field_type == 'idno':
+        # Only allow alphanumeric characters for ID numbers
+        if not data.replace('-', '').replace('_', '').isalnum():
+            return False, "ID number can only contain letters, numbers, hyphens, and underscores"
+    elif field_type == 'name':
+        # Only allow letters, spaces, and common name characters
+        import re
+        if not re.match(r'^[a-zA-Z\s\.\-\']+$', data):
+            return False, "Names can only contain letters, spaces, periods, hyphens, and apostrophes"
+    elif field_type == 'role':
+        if data not in ['admin', 'faculty', 'student']:
+            return False, "Invalid role"
+    
+    return True, data
+
 def authenticate_user(idno, password):
+    """Authenticate user with secure password checking"""
+    # Validate inputs
+    is_valid_id, idno = validate_input(idno, 'idno', 1, 20)
+    if not is_valid_id:
+        return None
+    
+    is_valid_pass, password = validate_input(password, 'text', 1, 255)
+    if not is_valid_pass:
+        return None
+    
     conn = get_db_connection()
-    user = conn.execute(
-        'SELECT * FROM user WHERE idno = ? AND password = ? AND is_active = 1',
-        (idno, password)
-    ).fetchone()
-    conn.close()
-    return user
+    try:
+        user = conn.execute(
+            'SELECT * FROM user WHERE idno = ? AND is_active = 1',
+            (idno,)
+        ).fetchone()
+        
+        if user and verify_password(user['password'], password):
+            return user
+    except Exception as e:
+        print(f"Authentication error: {e}")
+    finally:
+        conn.close()
+    
+    return None
 
 def get_user_info(user_id):
     conn = get_db_connection()
@@ -77,15 +208,28 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
+        client_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.environ.get('REMOTE_ADDR', 'unknown'))
+        
+        # Check rate limiting
+        if is_rate_limited(client_ip):
+            flash('Too many login attempts. Please try again in 15 minutes.', 'error')
+            return render_template('login.html')
+        
         idno = request.form.get('idno')
         password = request.form.get('password')
         
         if not idno or not password:
             flash('Please fill in all fields', 'error')
+            record_login_attempt(client_ip)
             return render_template('login.html')
         
         user = authenticate_user(idno, password)
         if user:
+            # Successful login - clear any rate limiting for this IP
+            if client_ip in login_attempts:
+                del login_attempts[client_ip]
+            
+            session.permanent = True
             session['user_id'] = user['user_id']
             session['idno'] = user['idno']
             session['role'] = user['role']
@@ -100,6 +244,7 @@ def login():
                 return redirect(url_for('faculty_dashboard'))
         else:
             flash('Invalid credentials', 'error')
+            record_login_attempt(client_ip)
     
     return render_template('login.html')
 
@@ -161,35 +306,87 @@ def create_user():
         course_id = request.form.get('course_id')
         position = request.form.get('position')
         
+        # Validate required fields
         if not all([idno, firstname, lastname, role, password]):
             flash('Please fill in all required fields', 'error')
             return redirect(url_for('admin_users'))
         
+        # Validate each field
+        is_valid_id, validated_idno = validate_input(idno, 'idno', 1, 20)
+        if not is_valid_id:
+            flash(f'Invalid ID number: {validated_idno}', 'error')
+            return redirect(url_for('admin_users'))
+        
+        is_valid_fname, validated_fname = validate_input(firstname, 'name', 1, 50)
+        if not is_valid_fname:
+            flash(f'Invalid first name: {validated_fname}', 'error')
+            return redirect(url_for('admin_users'))
+        
+        is_valid_lname, validated_lname = validate_input(lastname, 'name', 1, 50)
+        if not is_valid_lname:
+            flash(f'Invalid last name: {validated_lname}', 'error')
+            return redirect(url_for('admin_users'))
+        
+        is_valid_role, validated_role = validate_input(role, 'role')
+        if not is_valid_role:
+            flash(f'Invalid role: {validated_role}', 'error')
+            return redirect(url_for('admin_users'))
+        
+        # Validate password strength
+        if len(password) < 8:
+            flash('Password must be at least 8 characters long', 'error')
+            return redirect(url_for('admin_users'))
+        
+        # Validate department ID if provided
+        if dept_id:
+            try:
+                dept_id = int(dept_id)
+            except ValueError:
+                flash('Invalid department ID', 'error')
+                return redirect(url_for('admin_users'))
+        
+        # Validate course ID for students
+        if validated_role == 'student' and course_id:
+            try:
+                course_id = int(course_id)
+            except ValueError:
+                flash('Invalid course ID', 'error')
+                return redirect(url_for('admin_users'))
+        
         conn = get_db_connection()
         
         # Check if user already exists
-        existing_user = conn.execute('SELECT idno FROM user WHERE idno = ?', (idno,)).fetchone()
+        existing_user = conn.execute('SELECT idno FROM user WHERE idno = ?', (validated_idno,)).fetchone()
         if existing_user:
             flash('User ID already exists', 'error')
             conn.close()
             return redirect(url_for('admin_users'))
+        
+        # Hash password before storing
+        hashed_password = hash_password(password)
         
         # Insert user
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO user (idno, firstname, lastname, role, password, dept_id)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (idno, firstname, lastname, role, password, dept_id))
+        ''', (validated_idno, validated_fname, validated_lname, validated_role, hashed_password, dept_id))
         
         user_id = cursor.lastrowid
         
         # Insert role-specific data
-        if role == 'student' and course_id:
+        if validated_role == 'student' and course_id:
+            if not year_level:
+                flash('Year level is required for students', 'error')
+                conn.rollback()
+                conn.close()
+                return redirect(url_for('admin_users'))
+            
             cursor.execute('''
                 INSERT INTO student (year_level, course_id, user_id)
                 VALUES (?, ?, ?)
             ''', (year_level, course_id, user_id))
-        elif role == 'faculty' and position:
+        elif validated_role == 'faculty' and position:
             cursor.execute('''
                 INSERT INTO faculty (position, user_id)
                 VALUES (?, ?)
@@ -1036,6 +1233,27 @@ def api_register_face():
         if face_file.filename == '':
             return jsonify({'error': 'No face image selected'}), 400
         
+        # Validate file type and size
+        allowed_extensions = {'png', 'jpg', 'jpeg'}
+        max_file_size = 5 * 1024 * 1024  # 5MB
+        
+        def allowed_file(filename):
+            return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
+        
+        if not allowed_file(face_file.filename):
+            return jsonify({'error': 'Invalid file type. Only PNG, JPG, and JPEG are allowed'}), 400
+        
+        # Check file size
+        face_file.seek(0, os.SEEK_END)
+        file_size = face_file.tell()
+        face_file.seek(0)
+        
+        if file_size > max_file_size:
+            return jsonify({'error': 'File too large. Maximum size is 5MB'}), 400
+        
+        if file_size < 1024:  # Minimum 1KB
+            return jsonify({'error': 'File too small. Minimum size is 1KB'}), 400
+        
         # Get student info
         conn = get_db_connection()
         student = conn.execute('''
@@ -1048,56 +1266,101 @@ def api_register_face():
             conn.close()
             return jsonify({'error': 'Student not found'}), 404
         
-        # Import required libraries for face detection
-        import cv2
-        import numpy as np
-        import face_recognition
-        import os
+        # Check if face recognition is available
+        if not FACE_RECOGNITION_AVAILABLE:
+            return jsonify({'error': 'Face recognition system is not configured. Please install required packages: pip install face-recognition opencv-contrib-python'}), 503
         
-        # Create known_faces directory
-        os.makedirs('known_faces', exist_ok=True)
+        # Create known_faces directory with proper permissions
+        os.makedirs('known_faces', mode=0o755, exist_ok=True)
         
-        # Read the uploaded image
-        face_data = face_file.read()
-        nparr = np.frombuffer(face_data, np.uint8)
-        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        # Read and validate the uploaded image
+        try:
+            face_data = face_file.read()
+            if len(face_data) == 0:
+                return jsonify({'error': 'Empty file received'}), 400
+                
+            nparr = np.frombuffer(face_data, np.uint8)
+            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        except Exception as e:
+            return jsonify({'error': 'Failed to read image data'}), 400
         
         if image is None:
-            conn.close()
-            return jsonify({'error': 'Invalid image format'}), 400
+            return jsonify({'error': 'Invalid image format or corrupted file'}), 400
+        
+        # Validate image dimensions
+        height, width = image.shape[:2]
+        if height < 100 or width < 100:
+            return jsonify({'error': 'Image too small. Minimum resolution is 100x100 pixels'}), 400
+        
+        if height > 4000 or width > 4000:
+            return jsonify({'error': 'Image too large. Maximum resolution is 4000x4000 pixels'}), 400
         
         # Convert BGR to RGB for face_recognition
         rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
-        # Detect faces using face_recognition library (same as student_register.py)
-        face_locations = face_recognition.face_locations(rgb_image)
-        face_encodings = face_recognition.face_encodings(rgb_image, face_locations)
+        # Detect faces using face_recognition library or fallback
+        try:
+            if FACE_RECOGNITION_AVAILABLE:
+                face_locations = face_recognition.face_locations(rgb_image, model="hog")
+                face_encodings = face_recognition.face_encodings(rgb_image, face_locations)
+            else:
+                # Use OpenCV fallback
+                from opencv_face_detector import simple_detector
+                faces = simple_detector.detect_face(image)
+                if len(faces) == 0:
+                    face_encodings = []
+                elif len(faces) > 1:
+                    return jsonify({'error': 'Multiple faces detected. Please ensure only your face is visible in the camera.'}), 400
+                else:
+                    face_encodings = [1]  # Dummy encoding to indicate face found
+        except Exception as e:
+            return jsonify({'error': f'Face detection failed: {str(e)}'}), 400
         
         if not face_encodings:
-            conn.close()
             return jsonify({'error': 'No face detected in the image. Please ensure your face is clearly visible and try again.'}), 400
         
         if len(face_encodings) > 1:
-            conn.close()
             return jsonify({'error': 'Multiple faces detected. Please ensure only your face is visible in the camera.'}), 400
         
-        # Save the face image (same format as student_register.py)
-        face_path = f"known_faces/{student['idno']}.jpg"
-        cv2.imwrite(face_path, image)
+        # Generate secure filename
+        import uuid
+        filename = f"{student['idno']}_{uuid.uuid4().hex[:8]}.jpg"
+        face_path = os.path.join('known_faces', filename)
+        
+        # Resize image to standard size to reduce storage
+        max_size = 800
+        if max(height, width) > max_size:
+            scale = max_size / max(height, width)
+            new_width = int(width * scale)
+            new_height = int(height * scale)
+            image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+        
+        # Save the face image with proper error handling
+        try:
+            if not cv2.imwrite(face_path, image):
+                return jsonify({'error': 'Failed to save face image'}), 500
+        except Exception as e:
+            return jsonify({'error': f'Failed to save face image: {str(e)}'}), 500
         
         # Update the student record with the attendance_image path
-        conn.execute('''
-            UPDATE student 
-            SET attendance_image = ? 
-            WHERE user_id = ?
-        ''', (face_path, session['user_id']))
+        try:
+            conn.execute('''
+                UPDATE student 
+                SET attendance_image = ? 
+                WHERE user_id = ?
+            ''', (face_path, session['user_id']))
+            
+            conn.commit()
+        except Exception as e:
+            # Clean up the saved file if database update fails
+            if os.path.exists(face_path):
+                os.remove(face_path)
+            return jsonify({'error': f'Failed to update student record: {str(e)}'}), 500
+        finally:
+            conn.close()
         
-        conn.commit()
-        conn.close()
         return jsonify({'success': True, 'message': 'Face registered successfully'})
         
-    except ImportError as e:
-        return jsonify({'error': 'Face recognition libraries not installed. Please contact administrator.'}), 500
     except Exception as e:
         return jsonify({'error': f'Registration failed: {str(e)}'}), 500
 
@@ -1134,10 +1397,19 @@ def calculate_ear(eye_landmarks):
 def process_face_recognition(image_path):
     """Process face recognition using the same logic as face_recog_test.py"""
     try:
-        import cv2
-        import face_recognition
-        import numpy as np
-        import os
+        # Check if face recognition is available
+        if not FACE_RECOGNITION_AVAILABLE:
+            print("Using OpenCV fallback for face recognition")
+            try:
+                from opencv_face_detector import fallback_face_recognition
+                return fallback_face_recognition(image_path)
+            except ImportError as e:
+                return {
+                    'success': False,
+                    'message': f'Face recognition system is not configured: {e}',
+                    'student_id': 'Unknown',
+                    'student_name': 'Unknown'
+                }
         
         print(f"Processing image: {image_path}")
         
@@ -1308,6 +1580,7 @@ def api_attendance_detect():
     if 'user_id' not in session or session['role'] != 'faculty':
         return jsonify({'success': False, 'message': 'Unauthorized'}), 401
     
+    filepath = None
     try:
         # Get the uploaded image
         if 'image' not in request.files:
@@ -1317,22 +1590,36 @@ def api_attendance_detect():
         if file.filename == '':
             return jsonify({'success': False, 'message': 'No image selected'}), 400
         
-        # Save the image temporarily
-        filename = f"temp_{session['user_id']}_{int(time.time())}.jpg"
-        filepath = os.path.join('temp', filename)
-        os.makedirs('temp', exist_ok=True)
+        # Save the image temporarily with secure filename
+        import uuid
+        safe_filename = f"temp_{session['user_id']}_{uuid.uuid4().hex[:8]}.jpg"
+        filepath = os.path.join('temp', safe_filename)
+        os.makedirs('temp', mode=0o755, exist_ok=True)
+        
+        # Validate file size before saving
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+        
+        if file_size > 10 * 1024 * 1024:  # 10MB limit
+            return jsonify({'success': False, 'message': 'File too large'}), 400
+        
         file.save(filepath)
         
-        # Process the image for face recognition using the same logic as face_recog_test.py
+        # Process the image for face recognition
         result = process_face_recognition(filepath)
-        
-        # Clean up temp file
-        os.remove(filepath)
         
         return jsonify(result)
         
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
+    finally:
+        # Always clean up temp file
+        if filepath and os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+            except Exception as e:
+                print(f"Warning: Failed to clean up temp file {filepath}: {e}")
 
 @app.route('/api/attendance/mark', methods=['POST'])
 def api_attendance_mark():
