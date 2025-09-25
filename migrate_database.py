@@ -56,7 +56,7 @@ def migrate_database():
         
         if admin_user and admin_user[0] == 'admin123':
             try:
-                import bcrypt
+                import bcrypt # type: ignore
                 new_password = bcrypt.hashpw(b'admin123', bcrypt.gensalt()).decode('utf-8')
                 c.execute("""
                     UPDATE user SET password = ? WHERE idno = 'admin' AND role = 'admin'

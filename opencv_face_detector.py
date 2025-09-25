@@ -3,8 +3,8 @@ Alternative face detection using only OpenCV (no dlib dependency)
 This provides basic face detection for systems where face-recognition library can't be installed
 """
 
-import cv2
-import numpy as np
+import cv2 # type: ignore
+import numpy as np # type: ignore
 import os
 import hashlib
 from pathlib import Path

@@ -196,7 +196,7 @@ def insert_default_data(cursor):
     
     # Insert default admin user (with hashed password)
     try:
-        import bcrypt
+        import bcrypt # type: ignore
         admin_password = bcrypt.hashpw(b'admin123', bcrypt.gensalt()).decode('utf-8')
     except ImportError:
         admin_password = 'admin123'  # Fallback for initial setup

@@ -5,7 +5,11 @@ Run this script to start the Face_Check application with proper error handling
 
 import sys
 import os
+import warnings
 from pathlib import Path
+
+# Suppress known deprecation warning from face_recognition_models
+warnings.filterwarnings('ignore', category=UserWarning, module='face_recognition_models')
 
 def check_requirements():
     """Check if all requirements are met"""
@@ -17,26 +21,26 @@ def check_requirements():
     
     # Check required packages
     try:
-        import flask
+        import flask # type: ignore
         print("✅ Flask available")
     except ImportError:
         issues.append("Flask not installed: pip install flask")
     
     try:
-        import bcrypt
+        import bcrypt # type: ignore
         print("✅ bcrypt available - passwords will be secure")
     except ImportError:
         print("⚠️ bcrypt not available - passwords will be insecure")
         print("   Install with: pip install bcrypt")
     
     try:
-        import cv2
+        import cv2 # type: ignore
         print("✅ OpenCV available - basic face detection will work")
     except ImportError:
         issues.append("OpenCV not installed: pip install opencv-contrib-python")
     
     try:
-        import face_recognition
+        import face_recognition # type: ignore
         print("✅ face_recognition available - full face recognition will work")
     except ImportError:
         print("⚠️ face_recognition not available - using OpenCV fallback")
