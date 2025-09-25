@@ -13,6 +13,30 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
+
+# Helper to safely format database datetime values which may be stored/returned
+# as strings (most common) or as datetime objects. Prevents AttributeError when
+# code calls .strftime on a string.
+def safe_strftime(value, fmt):
+    from datetime import datetime as _dt
+    if not value:
+        return ''
+    # If it's already a datetime object
+    if isinstance(value, _dt):
+        return value.strftime(fmt)
+    # If it's a string, try common formats
+    if isinstance(value, str):
+        for f in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+            try:
+                parsed = _dt.strptime(value, f)
+                return parsed.strftime(fmt)
+            except Exception:
+                continue
+        # Fallback: return the raw string when parsing fails
+        return value
+    # Unknown type: convert to str
+    return str(value)
+
 # Authentication functions
 def authenticate_user(idno, password):
     conn = get_db_connection()
@@ -909,8 +933,8 @@ def student_dashboard():
     formatted_history = []
     for record in attendance_history:
         formatted_history.append({
-            'date': record['attendance_date'].strftime('%Y-%m-%d') if record['attendance_date'] else '',
-            'time': record['attendance_date'].strftime('%H:%M:%S') if record['attendance_date'] else '',
+            'date': safe_strftime(record['attendance_date'], '%Y-%m-%d'),
+            'time': safe_strftime(record['attendance_date'], '%H:%M:%S'),
             'status': record['attendance_status']
         })
     
@@ -997,12 +1021,12 @@ def faculty_dashboard():
     for record in today_attendance:
         formatted_attendance.append({
             'name': f"{record['firstname']} {record['lastname']}",
-            'time': record['attendance_date'].strftime('%H:%M:%S') if record['attendance_date'] else '',
+            'time': safe_strftime(record['attendance_date'], '%H:%M:%S'),
             'status': record['attendance_status']
         })
     
     conn.close()
-    return render_template('faculty_dashboard.html', 
+    return render_template('faculty/faculty_dashboard.html', 
                          faculty_info=faculty, 
                          stats=stats, 
                          today_attendance=formatted_attendance)
@@ -1502,7 +1526,301 @@ def attendance():
     if 'user_id' not in session or session['role'] != 'faculty':
         return redirect(url_for('login'))
     
-    return render_template('faculty_attendance.html')
+    return render_template('faculty/faculty_attendance.html')
+
+# Faculty Reports & Analytics
+@app.route('/attendance_reports')
+def faculty_reports():
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return redirect(url_for('login'))
+    return render_template('faculty/faculty_reports.html')
+
+@app.route('/api/faculty/reports/summary')
+def api_faculty_reports_summary():
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return jsonify([]), 401
+    start = request.args.get('start')
+    end = request.args.get('end')
+    if not start or not end:
+        today = datetime.now().strftime('%Y-%m-%d')
+        start = today
+        end = today
+    conn = get_db_connection()
+    faculty = conn.execute('''
+        SELECT f.faculty_id FROM faculty f JOIN user u ON f.user_id = u.user_id
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    if not faculty:
+        conn.close()
+        return jsonify([])
+    rows = conn.execute('''
+        SELECT c.class_name, c.edpcode,
+               COUNT(a.attendance_id) AS present_count,
+               COUNT(DISTINCT sc.student_id) AS unique_students
+        FROM class c
+        JOIN student_class sc ON sc.class_id = c.class_id
+        LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
+            AND DATE(a.attendance_date) BETWEEN ? AND ?
+        WHERE c.faculty_id = ?
+        GROUP BY c.class_id
+        ORDER BY c.class_name
+    ''', (start, end, faculty['faculty_id'])).fetchall()
+    conn.close()
+    return jsonify([{
+        'class_name': r['class_name'],
+        'edpcode': r['edpcode'] if 'edpcode' in r.keys() else None,
+        'present_count': r['present_count'] or 0,
+        'unique_students': r['unique_students'] or 0
+    } for r in rows])
+
+@app.route('/api/faculty/reports/absence-patterns')
+def api_faculty_reports_absence_patterns():
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return jsonify([]), 401
+    start = request.args.get('start')
+    end = request.args.get('end')
+    if not start or not end:
+        today = datetime.now().strftime('%Y-%m-%d')
+        start = today
+        end = today
+    conn = get_db_connection()
+    faculty = conn.execute('''
+        SELECT f.faculty_id FROM faculty f JOIN user u ON f.user_id = u.user_id
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    if not faculty:
+        conn.close()
+        return jsonify([])
+    rows = conn.execute('''
+        SELECT (u.firstname || ' ' || u.lastname) AS student_name,
+               c.class_name,
+               COUNT(a.attendance_id) AS present_count
+        FROM class c
+        JOIN student_class sc ON sc.class_id = c.class_id
+        JOIN student s ON sc.student_id = s.student_id
+        JOIN user u ON s.user_id = u.user_id
+        LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
+            AND DATE(a.attendance_date) BETWEEN ? AND ?
+        WHERE c.faculty_id = ?
+        GROUP BY sc.student_id, c.class_id
+        HAVING present_count >= 0
+        ORDER BY present_count ASC, student_name
+        LIMIT 200
+    ''', (start, end, faculty['faculty_id'])).fetchall()
+    conn.close()
+    return jsonify([{
+        'student_name': r['student_name'],
+        'class_name': r['class_name'],
+        'present_count': r['present_count'] or 0
+    } for r in rows])
+
+@app.route('/api/faculty/reports/monthly')
+def api_faculty_reports_monthly():
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return jsonify([]), 401
+    year = request.args.get('year', datetime.now().strftime('%Y'))
+    conn = get_db_connection()
+    faculty = conn.execute('''
+        SELECT f.faculty_id FROM faculty f JOIN user u ON f.user_id = u.user_id
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    if not faculty:
+        conn.close()
+        return jsonify([])
+    # Initialize months 1..12 to 0
+    month_counts = {str(m).zfill(2): 0 for m in range(1, 13)}
+    rows = conn.execute('''
+        SELECT strftime('%m', a.attendance_date) AS month,
+               COUNT(a.attendance_id) AS present_count
+        FROM attendance a
+        JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+        JOIN class c ON sc.class_id = c.class_id
+        WHERE c.faculty_id = ? AND strftime('%Y', a.attendance_date) = ?
+        GROUP BY strftime('%m', a.attendance_date)
+    ''', (faculty['faculty_id'], str(year))).fetchall()
+    conn.close()
+    for r in rows:
+        month_counts[r['month']] = r['present_count'] or 0
+    # Map months to labels
+    month_names = {
+        '01': 'Jan','02': 'Feb','03': 'Mar','04': 'Apr','05': 'May','06': 'Jun',
+        '07': 'Jul','08': 'Aug','09': 'Sep','10': 'Oct','11': 'Nov','12': 'Dec'
+    }
+    return jsonify([{ 'month': month_names[m], 'present_count': month_counts[m] } for m in sorted(month_counts.keys())])
+
+@app.route('/attendance_reports/export/<fmt>')
+def faculty_reports_export(fmt):
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return redirect(url_for('login'))
+    start = request.args.get('start')
+    end = request.args.get('end')
+    if not start or not end:
+        today = datetime.now().strftime('%Y-%m-%d')
+        start = today
+        end = today
+    # Fetch datasets using the same queries
+    conn = get_db_connection()
+    faculty = conn.execute('''
+        SELECT f.faculty_id FROM faculty f JOIN user u ON f.user_id = u.user_id
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    if not faculty:
+        conn.close()
+        return 'No faculty record', 404
+    summary = conn.execute('''
+        SELECT c.class_name, c.edpcode,
+               COUNT(a.attendance_id) AS present_count,
+               COUNT(DISTINCT sc.student_id) AS unique_students
+        FROM class c
+        JOIN student_class sc ON sc.class_id = c.class_id
+        LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
+            AND DATE(a.attendance_date) BETWEEN ? AND ?
+        WHERE c.faculty_id = ?
+        GROUP BY c.class_id
+        ORDER BY c.class_name
+    ''', (start, end, faculty['faculty_id'])).fetchall()
+    absence = conn.execute('''
+        SELECT (u.firstname || ' ' || u.lastname) AS student_name,
+               c.class_name,
+               COUNT(a.attendance_id) AS present_count
+        FROM class c
+        JOIN student_class sc ON sc.class_id = c.class_id
+        JOIN student s ON sc.student_id = s.student_id
+        JOIN user u ON s.user_id = u.user_id
+        LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
+            AND DATE(a.attendance_date) BETWEEN ? AND ?
+        WHERE c.faculty_id = ?
+        GROUP BY sc.student_id, c.class_id
+        ORDER BY present_count ASC, student_name
+    ''', (start, end, faculty['faculty_id'])).fetchall()
+    monthly = conn.execute('''
+        SELECT strftime('%Y', a.attendance_date) AS year,
+               strftime('%m', a.attendance_date) AS month,
+               COUNT(a.attendance_id) AS present_count
+        FROM attendance a
+        JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+        JOIN class c ON sc.class_id = c.class_id
+        WHERE c.faculty_id = ?
+        GROUP BY strftime('%Y', a.attendance_date), strftime('%m', a.attendance_date)
+        ORDER BY year, month
+    ''', (faculty['faculty_id'],)).fetchall()
+    conn.close()
+
+    if fmt == 'csv':
+        from io import StringIO
+        import csv
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow([f"Reports & Analytics ({start} to {end})"])
+        writer.writerow([])
+        writer.writerow(['Class Attendance Summaries'])
+        writer.writerow(['Class', 'EDP Code', 'Presents', 'Unique Students'])
+        for r in summary:
+            writer.writerow([r['class_name'], r['edpcode'] if 'edpcode' in r.keys() else '', r['present_count'] or 0, r['unique_students'] or 0])
+        writer.writerow([])
+        writer.writerow(['Absence Patterns (by low presence)'])
+        writer.writerow(['Student', 'Class', 'Presents'])
+        for r in absence:
+            writer.writerow([r['student_name'], r['class_name'], r['present_count'] or 0])
+        writer.writerow([])
+        writer.writerow(['Monthly Attendance'])
+        writer.writerow(['Year', 'Month', 'Presents'])
+        for r in monthly:
+            writer.writerow([r['year'], r['month'], r['present_count'] or 0])
+        csv_data = output.getvalue()
+        return app.response_class(
+            csv_data,
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename=faculty_reports_{start}_to_{end}.csv'}
+        )
+    elif fmt == 'xlsx':
+        try:
+            from io import BytesIO
+            from openpyxl import Workbook
+            wb = Workbook()
+            ws1 = wb.active
+            ws1.title = 'Summaries'
+            ws1.append([f'Reports & Analytics ({start} to {end})'])
+            ws1.append([])
+            ws1.append(['Class', 'EDP Code', 'Presents', 'Unique Students'])
+            for r in summary:
+                ws1.append([r['class_name'], r['edpcode'] if 'edpcode' in r.keys() else '', r['present_count'] or 0, r['unique_students'] or 0])
+            ws2 = wb.create_sheet('Absence Patterns')
+            ws2.append(['Student', 'Class', 'Presents'])
+            for r in absence:
+                ws2.append([r['student_name'], r['class_name'], r['present_count'] or 0])
+            ws3 = wb.create_sheet('Monthly')
+            ws3.append(['Year', 'Month', 'Presents'])
+            for r in monthly:
+                ws3.append([r['year'], r['month'], r['present_count'] or 0])
+            stream = BytesIO()
+            wb.save(stream)
+            stream.seek(0)
+            return app.response_class(
+                stream.read(),
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                headers={'Content-Disposition': f'attachment; filename=faculty_reports_{start}_to_{end}.xlsx'}
+            )
+        except ImportError:
+            return jsonify({'error': 'Excel export requires openpyxl. Please install it.'}), 500
+    elif fmt == 'pdf':
+        try:
+            from io import BytesIO
+            from reportlab.lib.pagesizes import letter
+            from reportlab.pdfgen import canvas
+            from reportlab.lib.units import inch
+            buffer = BytesIO()
+            c = canvas.Canvas(buffer, pagesize=letter)
+            width, height = letter
+            y = height - inch
+            c.setFont('Helvetica-Bold', 14)
+            c.drawString(inch, y, f'Reports & Analytics ({start} to {end})')
+            y -= 0.4*inch
+            c.setFont('Helvetica-Bold', 12)
+            c.drawString(inch, y, 'Class Attendance Summaries')
+            y -= 0.25*inch
+            c.setFont('Helvetica', 10)
+            for r in summary:
+                line = f"{r['class_name']}  |  EDP: {r['edpcode'] if 'edpcode' in r.keys() else ''}  |  Presents: {r['present_count'] or 0}  |  Unique: {r['unique_students'] or 0}"
+                if y < inch:
+                    c.showPage(); y = height - inch; c.setFont('Helvetica', 10)
+                c.drawString(inch, y, line)
+                y -= 0.2*inch
+            y -= 0.2*inch
+            c.setFont('Helvetica-Bold', 12)
+            c.drawString(inch, y, 'Absence Patterns (by low presence)')
+            y -= 0.25*inch
+            c.setFont('Helvetica', 10)
+            for r in absence:
+                line = f"{r['student_name']}  |  {r['class_name']}  |  Presents: {r['present_count'] or 0}"
+                if y < inch:
+                    c.showPage(); y = height - inch; c.setFont('Helvetica', 10)
+                c.drawString(inch, y, line)
+                y -= 0.2*inch
+            y -= 0.2*inch
+            c.setFont('Helvetica-Bold', 12)
+            c.drawString(inch, y, 'Monthly Attendance')
+            y -= 0.25*inch
+            c.setFont('Helvetica', 10)
+            for r in monthly:
+                line = f"{r['year']}-{r['month']}  |  Presents: {r['present_count'] or 0}"
+                if y < inch:
+                    c.showPage(); y = height - inch; c.setFont('Helvetica', 10)
+                c.drawString(inch, y, line)
+                y -= 0.2*inch
+            c.showPage()
+            c.save()
+            pdf = buffer.getvalue()
+            buffer.close()
+            return app.response_class(
+                pdf,
+                mimetype='application/pdf',
+                headers={'Content-Disposition': f'attachment; filename=faculty_reports_{start}_to_{end}.pdf'}
+            )
+        except ImportError:
+            return jsonify({'error': 'PDF export requires reportlab. Please install it.'}), 500
+    else:
+        return 'Unsupported format', 400
 
 # Error handlers
 @app.errorhandler(404)
