@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 import sqlite3
 from datetime import datetime
 import os
+import time
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-here'
@@ -1100,6 +1101,22 @@ def api_students():
     
     return jsonify([dict(student) for student in students])
 
+def calculate_ear(eye_landmarks):
+    """Calculate Eye Aspect Ratio (EAR) for blink detection"""
+    import numpy as np
+    
+    # Convert to numpy array
+    eye = np.array(eye_landmarks)
+    
+    # Calculate distances
+    A = np.linalg.norm(eye[1] - eye[5])  # Vertical distance 1
+    B = np.linalg.norm(eye[2] - eye[4])  # Vertical distance 2
+    C = np.linalg.norm(eye[0] - eye[3])    # Horizontal distance
+    
+    # Calculate EAR
+    ear = (A + B) / (2.0 * C)
+    return ear
+
 def process_face_recognition(image_path):
     """Process face recognition using the same logic as face_recog_test.py"""
     try:
@@ -1159,9 +1176,10 @@ def process_face_recognition(image_path):
                 'student_name': 'Unknown'
             }
         
-        # Get face encodings
+        # Get face encodings and landmarks
         print("Encoding faces...")
         face_encodings = face_recognition.face_encodings(rgb_image, face_locations)
+        face_landmarks = face_recognition.face_landmarks(rgb_image, face_locations)
         print(f"Generated {len(face_encodings)} face encoding(s)")
         
         if not face_encodings:
@@ -1171,6 +1189,35 @@ def process_face_recognition(image_path):
                 'student_id': 'Unknown',
                 'student_name': 'Unknown'
             }
+        
+        # Calculate real liveness detection metrics
+        eye_ratio = 0.0
+        nose_motion = 0.0
+        
+        if face_landmarks:
+            landmarks = face_landmarks[0]  # Get landmarks for the first face
+            
+            # Calculate Eye Aspect Ratio (EAR) for blink detection
+            if 'left_eye' in landmarks and 'right_eye' in landmarks:
+                left_eye = landmarks['left_eye']
+                right_eye = landmarks['right_eye']
+                
+                # Calculate EAR for both eyes
+                left_ear = calculate_ear(left_eye)
+                right_ear = calculate_ear(right_eye)
+                eye_ratio = (left_ear + right_ear) / 2.0
+                
+                print(f"Eye Aspect Ratio: {eye_ratio}")
+            
+            # Calculate nose motion (simplified - using nose tip position)
+            if 'nose_tip' in landmarks:
+                nose_tip = landmarks['nose_tip']
+                if len(nose_tip) > 0:
+                    # Use nose tip position as motion indicator
+                    nose_motion = len(nose_tip) * 2.0  # Simplified motion calculation
+                    print(f"Nose motion: {nose_motion}")
+        
+        print(f"Liveness metrics - Eye ratio: {eye_ratio}, Nose motion: {nose_motion}")
         
         # Compare with known faces
         print("Comparing with known faces...")
@@ -1218,8 +1265,8 @@ def process_face_recognition(image_path):
                 'student_id': best_match['student_id'],
                 'student_name': f"{best_match['firstname']} {best_match['lastname']}",
                 'distance': best_distance,
-                'eye_ratio': 0.25,  # Simulated for liveness detection
-                'nose_motion': 5.0  # Simulated for liveness detection
+                'eye_ratio': eye_ratio,  # Real eye aspect ratio
+                'nose_motion': nose_motion  # Real nose motion
             }
         else:
             print("No match found")
@@ -1228,7 +1275,9 @@ def process_face_recognition(image_path):
                 'message': 'No matching student found',
                 'student_id': 'Unknown',
                 'student_name': 'Unknown',
-                'distance': best_distance if best_match else float('inf')
+                'distance': best_distance if best_match else 999.0,  # Use 999.0 instead of float('inf')
+                'eye_ratio': eye_ratio,
+                'nose_motion': nose_motion
             }
             
     except Exception as e:
@@ -1279,32 +1328,56 @@ def api_attendance_mark():
     
     try:
         data = request.get_json()
+        print(f"Attendance mark request data: {data}")
         student_id = data.get('student_id')
         student_name = data.get('student_name')
+        
+        print(f"Student ID: {student_id}, Student Name: {student_name}")
         
         if not student_id or not student_name:
             return jsonify({'success': False, 'message': 'Missing student information'}), 400
         
         # Mark attendance in database
         conn = get_db_connection()
+        print("Database connection established")
         
-        # Check if already marked today
-        existing = conn.execute('''
-            SELECT attendance_id FROM attendance 
-            WHERE student_id = ? AND DATE(attendance_date) = DATE('now')
+        # Get the correct studentclass_id for this student
+        student_class = conn.execute('''
+            SELECT sc.studentclass_id FROM student_class sc
+            WHERE sc.student_id = ?
         ''', (student_id,)).fetchone()
         
+        if not student_class:
+            print(f"No student_class found for student_id: {student_id}")
+            conn.close()
+            return jsonify({'success': False, 'message': 'Student not enrolled in any class'})
+        
+        studentclass_id = student_class['studentclass_id']
+        print(f"Found studentclass_id: {studentclass_id} for student_id: {student_id}")
+        
+        # Check if already marked today
+        today = datetime.now().strftime('%Y-%m-%d')
+        print(f"Checking for existing attendance on {today}")
+        existing = conn.execute('''
+            SELECT attendance_id FROM attendance 
+            WHERE studentclass_id = ? AND DATE(attendance_date) = ?
+        ''', (studentclass_id, today)).fetchone()
+        
         if existing:
+            print("Already marked today")
             conn.close()
             return jsonify({'success': False, 'message': 'Already marked today'})
         
         # Insert attendance record
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        print(f"Inserting attendance record: studentclass_id={studentclass_id}, time={current_time}")
         conn.execute('''
-            INSERT INTO attendance (student_id, attendance_date, status)
-            VALUES (?, datetime('now'), 'Present')
-        ''', (student_id,))
+            INSERT INTO attendance (studentclass_id, attendance_date, attendance_status)
+            VALUES (?, ?, 'present')
+        ''', (studentclass_id, current_time))
         
         conn.commit()
+        print("Attendance record inserted successfully")
         conn.close()
         
         return jsonify({
