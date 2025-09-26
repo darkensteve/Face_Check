@@ -204,7 +204,7 @@ def run_security_scan():
     
     # Check for required security packages
     try:
-        import bcrypt # type: ignore
+        import bcrypt 
         print("✅ bcrypt installed")
     except ImportError:
         issues.append("❌ bcrypt not installed - passwords not secure")

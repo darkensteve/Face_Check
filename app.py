@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify # type: ignore
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 import sqlite3
 from datetime import datetime
 import os
@@ -11,16 +11,16 @@ warnings.filterwarnings('ignore', category=UserWarning, module='face_recognition
 
 # Check for required packages
 try:
-    import bcrypt # type: ignore
+    import bcrypt 
     BCRYPT_AVAILABLE = True
 except ImportError:
     print("Warning: bcrypt not available. Passwords will not be secure!")
     BCRYPT_AVAILABLE = False
 
 try:
-    import cv2 # type: ignore
-    import numpy as np # type: ignore
-    import face_recognition # type: ignore
+    import cv2 
+    import numpy as np 
+    import face_recognition 
     FACE_RECOGNITION_AVAILABLE = True
     print("✅ Face recognition libraries loaded successfully")
 except ImportError as e:
@@ -86,7 +86,7 @@ def get_db_connection():
 def hash_password(password):
     """Hash password using bcrypt for secure storage"""
     if BCRYPT_AVAILABLE:
-        import bcrypt # type: ignore
+        import bcrypt 
         return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     else:
         # Fallback: NOT SECURE - only for development
@@ -96,7 +96,7 @@ def hash_password(password):
 def verify_password(stored_hash, password):
     """Verify password against stored hash"""
     if BCRYPT_AVAILABLE and not stored_hash.startswith('INSECURE_'):
-        import bcrypt # type: ignore
+        import bcrypt 
         try:
             return bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8'))
         except ValueError:
@@ -1383,7 +1383,7 @@ def api_students():
 
 def calculate_ear(eye_landmarks):
     """Calculate Eye Aspect Ratio (EAR) for blink detection"""
-    import numpy as np # type: ignore
+    import numpy as np 
     
     # Convert to numpy array
     eye = np.array(eye_landmarks)

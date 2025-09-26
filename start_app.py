@@ -21,26 +21,26 @@ def check_requirements():
     
     # Check required packages
     try:
-        import flask # type: ignore
+        import flask 
         print("✅ Flask available")
     except ImportError:
         issues.append("Flask not installed: pip install flask")
     
     try:
-        import bcrypt # type: ignore
+        import bcrypt 
         print("✅ bcrypt available - passwords will be secure")
     except ImportError:
         print("⚠️ bcrypt not available - passwords will be insecure")
         print("   Install with: pip install bcrypt")
     
     try:
-        import cv2 # type: ignore
+        import cv2 
         print("✅ OpenCV available - basic face detection will work")
     except ImportError:
         issues.append("OpenCV not installed: pip install opencv-contrib-python")
     
     try:
-        import face_recognition # type: ignore
+        import face_recognition 
         print("✅ face_recognition available - full face recognition will work")
     except ImportError:
         print("⚠️ face_recognition not available - using OpenCV fallback")
