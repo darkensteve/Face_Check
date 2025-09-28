@@ -11,6 +11,17 @@ app.secret_key = 'your-secret-key-here'
 def get_db_connection():
     conn = sqlite3.connect('facecheck.db')
     conn.row_factory = sqlite3.Row
+    # Ensure expected schema exists (idempotent)
+    try:
+        cur = conn.cursor()
+        cur.execute("PRAGMA table_info(faculty)")
+        columns = [row[1] for row in cur.fetchall()]
+        if 'attendance_image' not in columns:
+            cur.execute("ALTER TABLE faculty ADD COLUMN attendance_image VARCHAR(255)")
+            conn.commit()
+    except Exception:
+        # Ignore if PRAGMA/ALTER not applicable; app may still function without this column
+        pass
     return conn
 
 
@@ -891,6 +902,32 @@ def register_face():
                          student_name=student['firstname'] + ' ' + student['lastname'],
                          student_id=student['idno'])
 
+# Faculty Face Registration Route
+@app.route('/faculty/register_face')
+def faculty_register_face():
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return redirect(url_for('login'))
+    
+    # Get faculty info for the registration process
+    conn = get_db_connection()
+    faculty = conn.execute('''
+        SELECT u.idno, u.firstname, u.lastname
+        FROM user u
+        JOIN faculty f ON u.user_id = f.user_id
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    
+    if not faculty:
+        conn.close()
+        flash('Faculty not found', 'error')
+        return redirect(url_for('faculty_dashboard'))
+    
+    conn.close()
+    
+    return render_template('faculty/faculty_register_face.html', 
+                         faculty_name=faculty['firstname'] + ' ' + faculty['lastname'],
+                         faculty_id=faculty['idno'])
+
 # Student Dashboard
 @app.route('/student/dashboard')
 def student_dashboard():
@@ -981,7 +1018,7 @@ def faculty_dashboard():
     
     # Get faculty info
     faculty = conn.execute('''
-        SELECT u.*, f.faculty_id, f.position, d.dept_name
+        SELECT u.*, f.faculty_id, f.position, f.attendance_image, d.dept_name
         FROM user u
         JOIN faculty f ON u.user_id = f.user_id
         LEFT JOIN department d ON u.dept_id = d.dept_id
@@ -1025,11 +1062,23 @@ def faculty_dashboard():
             'status': record['attendance_status']
         })
     
+    # Check if faculty has registered their face
+    has_face_registered = False
+    if faculty['attendance_image']:
+        import os
+        if os.path.exists(faculty['attendance_image']):
+            has_face_registered = True
+        else:
+            # File doesn't exist, clear the database record
+            conn.execute('UPDATE faculty SET attendance_image = NULL WHERE user_id = ?', (session['user_id'],))
+            conn.commit()
+    
     conn.close()
     return render_template('faculty/faculty_dashboard.html', 
                          faculty_info=faculty, 
                          stats=stats, 
-                         today_attendance=formatted_attendance)
+                         today_attendance=formatted_attendance,
+                         has_face_registered=has_face_registered)
 
 # API Routes
 @app.route('/api/register_face', methods=['POST'])
@@ -1098,6 +1147,91 @@ def api_register_face():
         # Update the student record with the attendance_image path
         conn.execute('''
             UPDATE student 
+            SET attendance_image = ? 
+            WHERE user_id = ?
+        ''', (face_path, session['user_id']))
+        
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'Face registered successfully'})
+        
+    except ImportError as e:
+        return jsonify({'error': 'Face recognition libraries not installed. Please contact administrator.'}), 500
+    except Exception as e:
+        return jsonify({'error': f'Registration failed: {str(e)}'}), 500
+
+@app.route('/api/faculty/register_face', methods=['POST'])
+def api_faculty_register_face():
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        # Get the uploaded face image
+        if 'face_image' not in request.files:
+            return jsonify({'error': 'No face image provided'}), 400
+        
+        face_file = request.files['face_image']
+        if face_file.filename == '':
+            return jsonify({'error': 'No face image selected'}), 400
+        
+        # Get faculty info
+        conn = get_db_connection()
+        faculty = conn.execute('''
+            SELECT u.idno FROM user u
+            JOIN faculty f ON u.user_id = f.user_id
+            WHERE u.user_id = ?
+        ''', (session['user_id'],)).fetchone()
+        
+        if not faculty:
+            conn.close()
+            return jsonify({'error': 'Faculty not found'}), 404
+        
+        # Import required libraries for face detection
+        import cv2
+        import numpy as np
+        import face_recognition
+        import os
+        
+        # Create known_faces directory
+        os.makedirs('known_faces', exist_ok=True)
+        
+        # Read the uploaded image
+        face_data = face_file.read()
+        nparr = np.frombuffer(face_data, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if image is None:
+            conn.close()
+            return jsonify({'error': 'Invalid image format'}), 400
+        
+        # Convert BGR to RGB for face_recognition
+        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # Detect faces using face_recognition library
+        face_locations = face_recognition.face_locations(rgb_image)
+        face_encodings = face_recognition.face_encodings(rgb_image, face_locations)
+        
+        if not face_encodings:
+            conn.close()
+            return jsonify({'error': 'No face detected in the image. Please ensure your face is clearly visible and try again.'}), 400
+        
+        if len(face_encodings) > 1:
+            conn.close()
+            return jsonify({'error': 'Multiple faces detected. Please ensure only your face is visible in the camera.'}), 400
+        
+        # Save the face image with faculty prefix to distinguish from students
+        face_path = f"known_faces/faculty_{faculty['idno']}.jpg"
+        cv2.imwrite(face_path, image)
+        
+        # Add attendance_image column to faculty table if it doesn't exist
+        try:
+            conn.execute('ALTER TABLE faculty ADD COLUMN attendance_image VARCHAR(255)')
+        except:
+            pass  # Column already exists
+        
+        # Update the faculty record with the attendance_image path
+        conn.execute('''
+            UPDATE faculty 
             SET attendance_image = ? 
             WHERE user_id = ?
         ''', (face_path, session['user_id']))
