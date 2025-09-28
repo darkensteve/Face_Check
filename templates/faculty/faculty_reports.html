@@ -28,9 +28,13 @@
                     <i class="fas fa-tachometer-alt mr-3"></i>
                     Dashboard
                 </a>
-                <a href="/attendance" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
-                    <i class="fas fa-camera mr-3"></i>
-                    Take Attendance
+                <a href="/manage_students" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-users mr-3"></i>
+                    Manage Students
+                </a>
+                <a href="/my_classes" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-chalkboard mr-3"></i>
+                    My Classes
                 </a>
                 <a href="/attendance_reports" class="flex items-center px-6 py-3 bg-gray-700 text-white">
                     <i class="fas fa-chart-line mr-3"></i>
@@ -228,17 +232,69 @@
             sel.addEventListener('change', () => loadMonthly(sel.value));
         }
 
-        function exportReports(fmt) {
+        async function exportReports(fmt) {
             const start = document.getElementById('startDate').value;
             const end = document.getElementById('endDate').value;
-            const url = `/attendance_reports/export/${fmt}?start=${start}&end=${end}`;
-            window.open(url, '_blank');
+            
+            if (!start || !end) {
+                showNotification('Please select both start and end dates', 'error');
+                return;
+            }
+            
+            try {
+                const url = `/attendance_reports/export/${fmt}?start=${start}&end=${end}`;
+                
+                // Show loading notification
+                showNotification(`Generating ${fmt.toUpperCase()} report...`, 'info');
+                
+                // Create a temporary link to trigger download
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `faculty_reports_${start}_to_${end}.${fmt}`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // Show success notification after a short delay
+                setTimeout(() => {
+                    showNotification(`${fmt.toUpperCase()} report generated successfully`, 'success');
+                }, 1000);
+                
+            } catch (error) {
+                console.error('Export error:', error);
+                showNotification(`Error generating ${fmt.toUpperCase()} report`, 'error');
+            }
         }
 
         document.getElementById('applyFilters').addEventListener('click', async () => {
             await loadSummaries();
             await loadAbsencePatterns();
         });
+
+        // Show notification
+        function showNotification(message, type) {
+            const notification = document.createElement('div');
+            const bgColor = type === 'success' ? 'bg-green-500' : 
+                           type === 'error' ? 'bg-red-500' : 
+                           type === 'info' ? 'bg-blue-500' : 'bg-gray-500';
+            const icon = type === 'success' ? 'check' : 
+                        type === 'error' ? 'exclamation' : 
+                        type === 'info' ? 'info' : 'bell';
+            
+            notification.className = `fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg text-white ${bgColor}`;
+            notification.innerHTML = `
+                <div class="flex items-center">
+                    <i class="fas fa-${icon}-circle mr-2"></i>
+                    ${message}
+                </div>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
+        }
 
         // Init
         currentRangeDefaults();
