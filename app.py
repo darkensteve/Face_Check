@@ -28,6 +28,15 @@ except ImportError as e:
     print("Install with: pip install face-recognition opencv-contrib-python")
     FACE_RECOGNITION_AVAILABLE = False
 
+# Import anti-spoofing module
+try:
+    from anti_spoofing import AntiSpoofingDetector, anti_spoofing_detector
+    ANTI_SPOOFING_AVAILABLE = True
+    print("✅ Anti-spoofing module loaded successfully")
+except ImportError as e:
+    print(f"⚠️ Anti-spoofing not available: {e}")
+    ANTI_SPOOFING_AVAILABLE = False
+
 app = Flask(__name__)
 # Generate secure secret key from environment or create new one
 app.secret_key = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
@@ -1109,9 +1118,29 @@ def student_dashboard():
     # Format attendance history for template
     formatted_history = []
     for record in attendance_history:
+        date_str = ''
+        time_str = ''
+        if record['attendance_date']:
+            try:
+                if isinstance(record['attendance_date'], str):
+                    # Format: '2025-09-25 08:44:50' -> extract date and time
+                    if ' ' in record['attendance_date']:
+                        date_str = record['attendance_date'].split(' ')[0]
+                        time_str = record['attendance_date'].split(' ')[1]
+                    else:
+                        date_str = record['attendance_date']
+                        time_str = ''
+                else:
+                    # If it's a datetime object, use strftime
+                    date_str = record['attendance_date'].strftime('%Y-%m-%d')
+                    time_str = record['attendance_date'].strftime('%H:%M:%S')
+            except:
+                date_str = str(record['attendance_date'])
+                time_str = ''
+        
         formatted_history.append({
-            'date': record['attendance_date'].strftime('%Y-%m-%d') if record['attendance_date'] else '',
-            'time': record['attendance_date'].strftime('%H:%M:%S') if record['attendance_date'] else '',
+            'date': date_str,
+            'time': time_str,
             'status': record['attendance_status']
         })
     
@@ -1479,6 +1508,25 @@ def process_face_recognition(image_path):
                 'student_name': 'Unknown'
             }
         
+        # Perform anti-spoofing check
+        anti_spoofing_result = {'is_live': True, 'confidence': 1.0, 'details': 'Anti-spoofing disabled'}
+        if ANTI_SPOOFING_AVAILABLE and face_landmarks:
+            print("Performing anti-spoofing analysis...")
+            anti_spoofing_result = anti_spoofing_detector.comprehensive_anti_spoofing_check(
+                rgb_image, face_landmarks[0], face_locations[0]
+            )
+            print(f"Anti-spoofing result: {anti_spoofing_result['details']}")
+            
+            # Check if face passes anti-spoofing
+            if not anti_spoofing_result['is_live']:
+                return {
+                    'success': False,
+                    'message': f"Spoofing attempt detected! {anti_spoofing_result['details']}",
+                    'student_id': 'SPOOFING_DETECTED',
+                    'student_name': 'Spoofing Attempt',
+                    'anti_spoofing': anti_spoofing_result
+                }
+        
         # Calculate real liveness detection metrics
         eye_ratio = 0.0
         nose_motion = 0.0
@@ -1555,7 +1603,8 @@ def process_face_recognition(image_path):
                 'student_name': f"{best_match['firstname']} {best_match['lastname']}",
                 'distance': best_distance,
                 'eye_ratio': eye_ratio,  # Real eye aspect ratio
-                'nose_motion': nose_motion  # Real nose motion
+                'nose_motion': nose_motion,  # Real nose motion
+                'anti_spoofing': anti_spoofing_result  # Include anti-spoofing results
             }
         else:
             print("No match found")
@@ -1566,7 +1615,8 @@ def process_face_recognition(image_path):
                 'student_name': 'Unknown',
                 'distance': best_distance if best_match else 999.0,  # Use 999.0 instead of float('inf')
                 'eye_ratio': eye_ratio,
-                'nose_motion': nose_motion
+                'nose_motion': nose_motion,
+                'anti_spoofing': anti_spoofing_result  # Include anti-spoofing results
             }
             
     except Exception as e:
@@ -1636,11 +1686,35 @@ def api_attendance_mark():
         student_id = data.get('student_id')
         student_name = data.get('student_name')
         class_id = data.get('class_id')
+        anti_spoofing_data = data.get('anti_spoofing', {})
         
         print(f"Student ID: {student_id}, Student Name: {student_name}, Class ID: {class_id}")
         
         if not student_id or not student_name or not class_id:
             return jsonify({'success': False, 'message': 'Missing student or class information'}), 400
+        
+        # Check for spoofing attempts
+        if student_id == 'SPOOFING_DETECTED':
+            print("⚠️ Spoofing attempt blocked!")
+            return jsonify({
+                'success': False, 
+                'message': 'Spoofing attempt detected! Please try again with a live face.',
+                'spoofing_detected': True
+            }), 403
+        
+        # Validate anti-spoofing results if available
+        if ANTI_SPOOFING_AVAILABLE and anti_spoofing_data:
+            is_live = anti_spoofing_data.get('is_live', True)
+            confidence = anti_spoofing_data.get('confidence', 1.0)
+            
+            if not is_live or confidence < 0.7:
+                print(f"⚠️ Anti-spoofing failed: live={is_live}, confidence={confidence}")
+                return jsonify({
+                    'success': False,
+                    'message': f'Anti-spoofing check failed. Confidence: {confidence:.1%}',
+                    'spoofing_detected': True,
+                    'anti_spoofing_details': anti_spoofing_data.get('details', 'Low confidence score')
+                }), 403
         
         # Mark attendance in database
         conn = get_db_connection()
@@ -1863,6 +1937,103 @@ def attendance():
         return redirect(url_for('login'))
     
     return render_template('faculty_attendance.html')
+
+@app.route('/api/anti-spoofing/analyze', methods=['POST'])
+def api_anti_spoofing_analyze():
+    """Dedicated endpoint for anti-spoofing analysis"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    filepath = None
+    try:
+        # Get the uploaded image
+        if 'image' not in request.files:
+            return jsonify({'success': False, 'message': 'No image provided'}), 400
+        
+        file = request.files['image']
+        if file.filename == '':
+            return jsonify({'success': False, 'message': 'No image selected'}), 400
+        
+        # Save the image temporarily
+        import uuid
+        safe_filename = f"antispoofing_{session['user_id']}_{uuid.uuid4().hex[:8]}.jpg"
+        filepath = os.path.join('temp', safe_filename)
+        os.makedirs('temp', mode=0o755, exist_ok=True)
+        
+        # Validate file size
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+        
+        if file_size > 10 * 1024 * 1024:  # 10MB limit
+            return jsonify({'success': False, 'message': 'File too large'}), 400
+        
+        file.save(filepath)
+        
+        # Check if anti-spoofing is available
+        if not ANTI_SPOOFING_AVAILABLE:
+            return jsonify({
+                'success': False, 
+                'message': 'Anti-spoofing module not available',
+                'is_live': True,  # Default to allowing if module unavailable
+                'confidence': 0.5
+            })
+        
+        # Load and process the image
+        image = cv2.imread(filepath)
+        if image is None:
+            return jsonify({'success': False, 'message': 'Could not load image'}), 400
+        
+        # Convert to RGB
+        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # Detect faces
+        if FACE_RECOGNITION_AVAILABLE:
+            face_locations = face_recognition.face_locations(rgb_image, model="hog")
+            face_landmarks = face_recognition.face_landmarks(rgb_image, face_locations)
+        else:
+            return jsonify({'success': False, 'message': 'Face detection not available'}), 400
+        
+        if not face_locations or not face_landmarks:
+            return jsonify({'success': False, 'message': 'No face detected'}), 400
+        
+        # Perform anti-spoofing analysis
+        anti_spoofing_result = anti_spoofing_detector.comprehensive_anti_spoofing_check(
+            rgb_image, face_landmarks[0], face_locations[0]
+        )
+        
+        return jsonify({
+            'success': True,
+            'is_live': anti_spoofing_result['is_live'],
+            'confidence': anti_spoofing_result['confidence'],
+            'details': anti_spoofing_result['details'],
+            'checks': anti_spoofing_result['checks']
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Analysis error: {str(e)}'}), 500
+    finally:
+        # Clean up temp file
+        if filepath and os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+            except Exception as e:
+                print(f"Warning: Failed to clean up temp file {filepath}: {e}")
+
+@app.route('/api/anti-spoofing/reset', methods=['POST'])
+def api_anti_spoofing_reset():
+    """Reset anti-spoofing detector state"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    try:
+        if ANTI_SPOOFING_AVAILABLE:
+            anti_spoofing_detector.reset_state()
+            return jsonify({'success': True, 'message': 'Anti-spoofing state reset'})
+        else:
+            return jsonify({'success': False, 'message': 'Anti-spoofing not available'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Reset error: {str(e)}'}), 500
 
 # Error handlers
 @app.errorhandler(404)

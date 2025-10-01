@@ -6,8 +6,10 @@
     <title>Take Attendance - FaceCheck</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/anti-spoofing.css') }}" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <script src="{{ url_for('static', filename='js/anti-spoofing.js') }}"></script>
 </head>
 <body class="bg-gray-100">
     <!-- Sidebar -->
@@ -187,6 +189,11 @@
                                 <div id="recognitionIndicator" class="w-3 h-3 bg-gray-400 rounded-full"></div>
                             </div>
                         </div>
+                        
+                        <!-- Anti-Spoofing Status -->
+                        <div id="antiSpoofingContainer" class="mt-4">
+                            <!-- Anti-spoofing status will be inserted here by JavaScript -->
+                        </div>
                     </div>
                     
                     <!-- Attendance Table Section -->
@@ -271,11 +278,17 @@
         let selectedClass = null;
         let facultyClasses = [];
         
+        // Anti-spoofing manager
+        let antiSpoofingManager = null;
+        
         // Initialize elements
         document.addEventListener('DOMContentLoaded', async function() {
             video = document.getElementById('video');
             canvas = document.getElementById('canvas');
             ctx = canvas.getContext('2d');
+            
+            // Initialize anti-spoofing manager
+            initializeAntiSpoofing();
             
             // Set up event listeners
             document.getElementById('startCamera').addEventListener('click', startCamera);
@@ -289,6 +302,33 @@
             // Load faculty classes
             await loadFacultyClasses();
         });
+        
+        // Initialize anti-spoofing manager
+        function initializeAntiSpoofing() {
+            const container = document.getElementById('antiSpoofingContainer');
+            
+            if (typeof AntiSpoofingManager !== 'undefined') {
+                antiSpoofingManager = new AntiSpoofingManager({
+                    videoElement: video,
+                    canvasElement: canvas,
+                    enableRealTime: false, // We'll control this manually
+                    confidenceThreshold: 0.7
+                });
+                
+                console.log('✅ Anti-spoofing manager initialized');
+            } else {
+                console.warn('⚠️ Anti-spoofing manager not available');
+                // Show a simple status without anti-spoofing
+                container.innerHTML = `
+                    <div class="p-4 bg-yellow-50 rounded-lg border-l-4 border-yellow-400">
+                        <div class="flex items-center">
+                            <i class="fas fa-exclamation-triangle text-yellow-600 mr-2"></i>
+                            <span class="text-sm font-medium text-yellow-800">Anti-spoofing module not loaded</span>
+                        </div>
+                    </div>
+                `;
+            }
+        }
         
         // Start camera
         async function startCamera() {
@@ -310,6 +350,11 @@
                 document.getElementById('recognitionStatus').textContent = 'Camera active - detecting faces...';
                 document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-green-400 rounded-full';
                 
+                // Initialize anti-spoofing if available
+                if (antiSpoofingManager) {
+                    antiSpoofingManager.startRealTimeAnalysis();
+                }
+                
                 // Start face detection loop
                 startFaceDetection();
                 
@@ -327,6 +372,11 @@
             }
             
             video.srcObject = null;
+            
+            // Stop anti-spoofing analysis
+            if (antiSpoofingManager) {
+                antiSpoofingManager.stopRealTimeAnalysis();
+            }
             
             // Stop detection intervals
             if (detectionInterval) {
@@ -408,8 +458,31 @@
         
         // Handle recognition result
         function handleRecognitionResult(result) {
+            // Check for spoofing detection first
+            if (result.student_id === 'SPOOFING_DETECTED') {
+                document.getElementById('recognitionStatus').textContent = '⚠️ Spoofing attempt detected!';
+                document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-red-500 rounded-full';
+                
+                // Show alert
+                showSpoofingAlert(result.message || 'Spoofing attempt detected');
+                return;
+            }
+            
+            // Check anti-spoofing results if available
+            if (result.anti_spoofing) {
+                const antiSpoofing = result.anti_spoofing;
+                if (!antiSpoofing.is_live || antiSpoofing.confidence < 0.7) {
+                    document.getElementById('recognitionStatus').textContent = 
+                        `⚠️ Anti-spoofing failed (${Math.round(antiSpoofing.confidence * 100)}%)`;
+                    document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-red-500 rounded-full';
+                    
+                    showSpoofingAlert(`Anti-spoofing check failed. Confidence: ${Math.round(antiSpoofing.confidence * 100)}%`);
+                    return;
+                }
+            }
+            
             if (result.success && result.student_id && result.student_id !== 'Unknown') {
-                // Student recognized
+                // Student recognized and passed anti-spoofing
                 if (currentStudent && currentStudent.student_id === result.student_id) {
                     // Same student, continue liveness detection
                     updateLivenessDetection(result);
@@ -504,16 +577,27 @@
             try {
                 console.log('Attempting to mark attendance for:', studentId, studentName, 'in class:', selectedClass?.class_id);
                 
+                // Include anti-spoofing data if available
+                const attendanceData = {
+                    student_id: studentId,
+                    student_name: studentName,
+                    class_id: selectedClass?.class_id
+                };
+                
+                // Add anti-spoofing data if available
+                if (antiSpoofingManager && antiSpoofingManager.getAnalysisHistory().length > 0) {
+                    const latestAnalysis = antiSpoofingManager.getAnalysisHistory().slice(-1)[0];
+                    if (latestAnalysis && latestAnalysis.result) {
+                        attendanceData.anti_spoofing = latestAnalysis.result;
+                    }
+                }
+                
                 const response = await fetch('/api/attendance/mark', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        student_id: studentId,
-                        student_name: studentName,
-                        class_id: selectedClass?.class_id
-                    })
+                    body: JSON.stringify(attendanceData)
                 });
                 
                 console.log('Attendance mark response status:', response.status);
@@ -754,6 +838,115 @@
             
             document.getElementById('currentTime').textContent = timeString;
             document.getElementById('currentDate').textContent = dateString;
+        }
+        
+        // Show spoofing alert
+        function showSpoofingAlert(message) {
+            // Create alert overlay
+            const overlay = document.createElement('div');
+            overlay.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+            overlay.innerHTML = `
+                <div class="bg-white rounded-lg p-6 max-w-md mx-4 shadow-xl border-2 border-red-500 spoofing-alert">
+                    <div class="flex items-center mb-4">
+                        <i class="fas fa-exclamation-triangle text-red-500 text-3xl mr-4"></i>
+                        <div>
+                            <h3 class="text-lg font-bold text-red-800">Spoofing Detected!</h3>
+                            <p class="text-sm text-gray-600">Security Alert</p>
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <p class="text-gray-700">${message}</p>
+                        <div class="mt-3 p-3 bg-red-50 rounded border-l-4 border-red-400">
+                            <p class="text-sm text-red-700">
+                                <strong>Please ensure:</strong><br>
+                                • You are using a live person, not a photo or video<br>
+                                • Proper lighting on your face<br>
+                                • Look directly at the camera and blink naturally
+                            </p>
+                        </div>
+                    </div>
+                    <div class="flex justify-end space-x-3">
+                        <button onclick="this.closest('.fixed').remove(); resetAntiSpoofing();" 
+                                class="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition">
+                            Dismiss
+                        </button>
+                        <button onclick="this.closest('.fixed').remove(); resetAntiSpoofing();" 
+                                class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition">
+                            Try Again
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(overlay);
+            
+            // Auto-remove after 10 seconds
+            setTimeout(() => {
+                if (overlay.parentNode) {
+                    overlay.remove();
+                }
+            }, 10000);
+        }
+        
+        // Reset anti-spoofing state
+        function resetAntiSpoofing() {
+            if (antiSpoofingManager) {
+                antiSpoofingManager.resetAnalysis();
+            }
+            
+            // Reset current student state
+            currentStudent = null;
+            
+            // Update UI status
+            document.getElementById('recognitionStatus').textContent = 'Ready for next student';
+            document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-gray-400 rounded-full';
+        }
+        
+        // Enhanced notification system for spoofing alerts
+        function showEnhancedNotification(title, message, type = 'info', duration = 5000) {
+            const notification = document.createElement('div');
+            notification.className = `fixed top-4 right-4 z-50 max-w-sm w-full transition-all duration-300 transform translate-x-full`;
+            
+            const bgColor = type === 'error' ? 'bg-red-500' : 
+                           type === 'warning' ? 'bg-yellow-500' : 
+                           type === 'success' ? 'bg-green-500' : 'bg-blue-500';
+            
+            const icon = type === 'error' ? 'fa-exclamation-circle' : 
+                        type === 'warning' ? 'fa-exclamation-triangle' : 
+                        type === 'success' ? 'fa-check-circle' : 'fa-info-circle';
+            
+            notification.innerHTML = `
+                <div class="${bgColor} text-white p-4 rounded-lg shadow-lg">
+                    <div class="flex items-start">
+                        <i class="fas ${icon} mt-1 mr-3"></i>
+                        <div class="flex-1">
+                            <h4 class="font-bold text-sm">${title}</h4>
+                            <p class="text-sm opacity-90">${message}</p>
+                        </div>
+                        <button onclick="this.closest('.fixed').remove()" 
+                                class="ml-2 text-white opacity-70 hover:opacity-100">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            // Animate in
+            setTimeout(() => {
+                notification.classList.remove('translate-x-full');
+            }, 100);
+            
+            // Auto-remove
+            setTimeout(() => {
+                notification.classList.add('translate-x-full');
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.remove();
+                    }
+                }, 300);
+            }, duration);
         }
     </script>
 </body>
