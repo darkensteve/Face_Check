@@ -197,7 +197,7 @@ def insert_default_data(cursor):
     # Insert default admin user
     cursor.execute("""
         INSERT OR IGNORE INTO user (idno, firstname, lastname, role, password, dept_id) 
-        VALUES ('admin', 'Admin', 'User', 'admin', 'admin123', 1)
+        VALUES ('admin', 'Admin', 'User', 'admin', 'admin', 1)
     """)
     
     print("✅ Default data inserted successfully!")

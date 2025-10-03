@@ -48,6 +48,11 @@
                     Event Management
                 </a>
                 
+                <a href="{{ url_for('admin_attendance') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-clipboard-check mr-3"></i>
+                    View Attendance Record
+                </a>
+                
                 <a href="/reports" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-chart-bar mr-3"></i>
                     Reports
@@ -204,10 +209,10 @@
                             <div>
                                 <label class="block text-sm font-medium text-gray-700">User ID</label>
                                 <input type="text" name="idno" required class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <p class="text-xs text-gray-500 mt-1">This will be used as the default password. Users can change it after first login.</p>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700">Password</label>
-                                <input type="password" name="password" required class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <!-- Empty div to maintain grid layout -->
                             </div>
                         </div>
                         

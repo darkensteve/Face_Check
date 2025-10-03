@@ -293,7 +293,7 @@ def insert_sample_accounts(cursor):
     # Insert sample student
     cursor.execute("""
         INSERT INTO user (idno, firstname, lastname, role, password, dept_id) 
-        VALUES ('STU001', 'John', 'Doe', 'student', 'student123', 8)
+        VALUES ('STU001', 'John', 'Doe', 'student', 'STU001', 8)
     """)
     
     # Get the student user_id
@@ -306,12 +306,12 @@ def insert_sample_accounts(cursor):
         VALUES ('3rd Year', 1, ?)
     """, (student_user_id,))
     
-    print("✅ Inserted sample student: STU001 / student123")
+    print("✅ Inserted sample student: STU001 / STU001")
     
     # Insert sample faculty
     cursor.execute("""
         INSERT INTO user (idno, firstname, lastname, role, password, dept_id) 
-        VALUES ('FAC001', 'Jane', 'Smith', 'faculty', 'faculty123', 8)
+        VALUES ('FAC001', 'Jane', 'Smith', 'faculty', 'FAC001', 8)
     """)
     
     # Get the faculty user_id
@@ -324,7 +324,7 @@ def insert_sample_accounts(cursor):
         VALUES ('Professor', ?)
     """, (faculty_user_id,))
     
-    print("✅ Inserted sample faculty: FAC001 / faculty123")
+    print("✅ Inserted sample faculty: FAC001 / FAC001")
     
     # Create a sample class
     cursor.execute("""

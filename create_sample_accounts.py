@@ -13,7 +13,7 @@ def create_sample_accounts():
         # 1. Create a sample student user
         cursor.execute("""
             INSERT OR IGNORE INTO user (idno, firstname, lastname, role, password, dept_id) 
-            VALUES ('STU001', 'John', 'Doe', 'student', 'student123', 1)
+            VALUES ('STU001', 'John', 'Doe', 'student', 'STU001', 1)
         """)
         
         # Get the user_id for the student
@@ -29,7 +29,7 @@ def create_sample_accounts():
         # 2. Create a sample faculty user
         cursor.execute("""
             INSERT OR IGNORE INTO user (idno, firstname, lastname, role, password, dept_id) 
-            VALUES ('FAC001', 'Jane', 'Smith', 'faculty', 'faculty123', 1)
+            VALUES ('FAC001', 'Jane', 'Smith', 'faculty', 'FAC001', 1)
         """)
         
         # Get the user_id for the faculty
@@ -83,7 +83,7 @@ def create_sample_accounts():
         
         print("\n🎓 STUDENT ACCOUNT:")
         print("   Username: STU001")
-        print("   Password: student123")
+        print("   Password: STU001")
         print("   Name: John Doe")
         print("   Role: Student")
         print("   Year Level: 1st Year")
@@ -91,7 +91,7 @@ def create_sample_accounts():
         
         print("\n👨‍🏫 FACULTY ACCOUNT:")
         print("   Username: FAC001")
-        print("   Password: faculty123")
+        print("   Password: FAC001")
         print("   Name: Jane Smith")
         print("   Role: Faculty")
         print("   Position: Professor")
@@ -99,16 +99,16 @@ def create_sample_accounts():
         
         print("\n�� ADMIN ACCOUNT:")
         print("   Username: admin")
-        print("   Password: admin123")
+        print("   Password: admin")
         print("   Name: Admin User")
         print("   Role: Admin")
         
         print("\n" + "="*60)
         print("🔐 LOGIN CREDENTIALS SUMMARY")
         print("="*60)
-        print("Student:  STU001 / student123")
-        print("Faculty:  FAC001 / faculty123")
-        print("Admin:    admin / admin123")
+        print("Student:  STU001 / STU001")
+        print("Faculty:  FAC001 / FAC001")
+        print("Admin:    admin / admin")
         
     except Exception as e:
         print(f"❌ Error creating accounts: {e}")
