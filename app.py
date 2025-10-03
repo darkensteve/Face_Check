@@ -1538,6 +1538,51 @@ def delete_event(event_id):
     
     return redirect(url_for('admin_events'))
 
+@app.route('/admin/attendance')
+def admin_attendance():
+    if 'user_id' not in session or session['role'] != 'admin':
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    
+    # Get all attendance records with student and class information
+    attendance_records = conn.execute('''
+        SELECT 
+            a.attendance_id,
+            a.attendance_date,
+            a.attendance_status,
+            u.firstname,
+            u.lastname,
+            u.idno,
+            c.class_name,
+            c.edpcode,
+            fu.firstname as faculty_firstname,
+            fu.lastname as faculty_lastname
+        FROM attendance a
+        JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+        JOIN student s ON sc.student_id = s.student_id
+        JOIN user u ON s.user_id = u.user_id
+        JOIN class c ON sc.class_id = c.class_id
+        JOIN faculty f ON c.faculty_id = f.faculty_id
+        JOIN user fu ON f.user_id = fu.user_id
+        ORDER BY a.attendance_date DESC, u.lastname, u.firstname
+    ''').fetchall()
+    
+    # Get attendance statistics
+    total_records = len(attendance_records)
+    present_count = len([r for r in attendance_records if r['attendance_status'] == 'present'])
+    absent_count = total_records - present_count
+    attendance_rate = (present_count / total_records * 100) if total_records > 0 else 0
+    
+    conn.close()
+    
+    return render_template('admin_attendance.html', 
+                         attendance_records=attendance_records,
+                         total_records=total_records,
+                         present_count=present_count,
+                         absent_count=absent_count,
+                         attendance_rate=round(attendance_rate, 1))
+
 
 # Faculty Manage Students
 @app.route('/manage_students')
