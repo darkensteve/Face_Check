@@ -33,9 +33,9 @@
                     Dashboard
                 </a>
                 
-                <a href="/attendance" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
-                    <i class="fas fa-camera mr-3"></i>
-                    Take Attendance
+                <a href="/manage_students" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-users mr-3"></i>
+                    Manage Students
                 </a>
                 
                 <a href="/my_classes" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
@@ -44,13 +44,13 @@
                 </a>
                 
                 <a href="/attendance_reports" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
-                    <i class="fas fa-chart-bar mr-3"></i>
-                    Reports
+                    <i class="fas fa-chart-line mr-3"></i>
+                    Reports and Analytics
                 </a>
-                
-                <a href="/manage_students" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+
+                <a href="/faculty/register_face" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-user-plus mr-3"></i>
-                    Manage Students
+                    Register Face
                 </a>
             </nav>
             
@@ -106,6 +106,32 @@
                 </div>
             </div>
         </div>
+
+        <!-- Face Registration Alert -->
+        {% if not has_face_registered %}
+        <div class="bg-yellow-50 border border-yellow-200 rounded-xl shadow-lg p-6 mb-8">
+            <div class="flex items-center">
+                <div class="flex-shrink-0">
+                    <i class="fas fa-exclamation-triangle text-yellow-600 text-2xl"></i>
+                </div>
+                <div class="ml-4">
+                    <h3 class="text-lg font-medium text-yellow-800">Face Registration Required</h3>
+                    <div class="mt-2">
+                        <p class="text-yellow-700">
+                            You need to register your face before using attendance features. 
+                            Please complete your face registration to proceed.
+                        </p>
+                    </div>
+                    <div class="mt-4">
+                        <a href="/faculty/register_face" class="inline-flex items-center px-4 py-2 bg-yellow-600 text-white text-sm font-medium rounded-lg hover:bg-yellow-700 transition duration-200">
+                            <i class="fas fa-camera mr-2"></i>
+                            Register My Face
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
 
         <!-- Stats Cards -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -190,3 +216,5 @@
     </div>
 </body>
 </html>
+
+
