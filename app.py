@@ -190,15 +190,17 @@ def create_user():
         firstname = request.form.get('firstname')
         lastname = request.form.get('lastname')
         role = request.form.get('role')
-        password = request.form.get('password')
         dept_id = request.form.get('dept_id')
         year_level = request.form.get('year_level')
         course_id = request.form.get('course_id')
         position = request.form.get('position')
         
-        if not all([idno, firstname, lastname, role, password]):
+        if not all([idno, firstname, lastname, role]):
             flash('Please fill in all required fields', 'error')
             return redirect(url_for('admin_users'))
+        
+        # Use ID number as default password
+        password = idno
         
         conn = get_db_connection()
         
