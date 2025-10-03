@@ -87,17 +87,17 @@ def get_db_connection():
         # Enable foreign key constraints
         conn.execute('PRAGMA foreign_keys = ON')
         # Ensure expected schema exists (idempotent)
-    try:
-        cur = conn.cursor()
-        cur.execute("PRAGMA table_info(faculty)")
-        columns = [row[1] for row in cur.fetchall()]
-        if 'attendance_image' not in columns:
-            cur.execute("ALTER TABLE faculty ADD COLUMN attendance_image VARCHAR(255)")
-            conn.commit()
-    except Exception:
-        # Ignore if PRAGMA/ALTER not applicable; app may still function without this column
-        pass
-    return conn
+        try:
+            cur = conn.cursor()
+            cur.execute("PRAGMA table_info(faculty)")
+            columns = [row[1] for row in cur.fetchall()]
+            if 'attendance_image' not in columns:
+                cur.execute("ALTER TABLE faculty ADD COLUMN attendance_image VARCHAR(255)")
+                conn.commit()
+        except Exception:
+            # Ignore if PRAGMA/ALTER not applicable; app may still function without this column
+            pass
+        return conn
     except sqlite3.Error as e:
         print(f"Database connection error: {e}")
         raise
@@ -3011,103 +3011,6 @@ def faculty_reports_export(fmt):
             
     except Exception as e:
         return jsonify({'error': f'Export failed: {str(e)}'}), 500
-
-@app.route('/api/anti-spoofing/analyze', methods=['POST'])
-def api_anti_spoofing_analyze():
-    """Dedicated endpoint for anti-spoofing analysis"""
-    if 'user_id' not in session:
-        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
-    
-    filepath = None
-    try:
-        # Get the uploaded image
-        if 'image' not in request.files:
-            return jsonify({'success': False, 'message': 'No image provided'}), 400
-        
-        file = request.files['image']
-        if file.filename == '':
-            return jsonify({'success': False, 'message': 'No image selected'}), 400
-        
-        # Save the image temporarily
-        import uuid
-        safe_filename = f"antispoofing_{session['user_id']}_{uuid.uuid4().hex[:8]}.jpg"
-        filepath = os.path.join('temp', safe_filename)
-        os.makedirs('temp', mode=0o755, exist_ok=True)
-        
-        # Validate file size
-        file.seek(0, os.SEEK_END)
-        file_size = file.tell()
-        file.seek(0)
-        
-        if file_size > 10 * 1024 * 1024:  # 10MB limit
-            return jsonify({'success': False, 'message': 'File too large'}), 400
-        
-        file.save(filepath)
-        
-        # Check if anti-spoofing is available
-        if not ANTI_SPOOFING_AVAILABLE:
-            return jsonify({
-                'success': False, 
-                'message': 'Anti-spoofing module not available',
-                'is_live': True,  # Default to allowing if module unavailable
-                'confidence': 0.5
-            })
-        
-        # Load and process the image
-        image = cv2.imread(filepath)
-        if image is None:
-            return jsonify({'success': False, 'message': 'Could not load image'}), 400
-        
-        # Convert to RGB
-        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        
-        # Detect faces
-        if FACE_RECOGNITION_AVAILABLE:
-            face_locations = face_recognition.face_locations(rgb_image, model="hog")
-            face_landmarks = face_recognition.face_landmarks(rgb_image, face_locations)
-        else:
-            return jsonify({'success': False, 'message': 'Face detection not available'}), 400
-        
-        if not face_locations or not face_landmarks:
-            return jsonify({'success': False, 'message': 'No face detected'}), 400
-        
-        # Perform anti-spoofing analysis
-        anti_spoofing_result = anti_spoofing_detector.comprehensive_anti_spoofing_check(
-            rgb_image, face_landmarks[0], face_locations[0]
-        )
-        
-        return jsonify({
-            'success': True,
-            'is_live': anti_spoofing_result['is_live'],
-            'confidence': anti_spoofing_result['confidence'],
-            'details': anti_spoofing_result['details'],
-            'checks': anti_spoofing_result['checks']
-        })
-        
-    except Exception as e:
-        return jsonify({'success': False, 'message': f'Analysis error: {str(e)}'}), 500
-    finally:
-        # Clean up temp file
-        if filepath and os.path.exists(filepath):
-            try:
-                os.remove(filepath)
-            except Exception as e:
-                print(f"Warning: Failed to clean up temp file {filepath}: {e}")
-
-@app.route('/api/anti-spoofing/reset', methods=['POST'])
-def api_anti_spoofing_reset():
-    """Reset anti-spoofing detector state"""
-    if 'user_id' not in session:
-        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
-    
-    try:
-        if ANTI_SPOOFING_AVAILABLE:
-            anti_spoofing_detector.reset_state()
-            return jsonify({'success': True, 'message': 'Anti-spoofing state reset'})
-        else:
-            return jsonify({'success': False, 'message': 'Anti-spoofing not available'})
-    except Exception as e:
-        return jsonify({'success': False, 'message': f'Reset error: {str(e)}'}), 500
 
 @app.route('/api/anti-spoofing/analyze', methods=['POST'])
 def api_anti_spoofing_analyze():
