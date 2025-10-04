@@ -1367,6 +1367,14 @@ def faculty_dashboard():
                          today_attendance=formatted_attendance,
                          has_face_registered=has_face_registered)
 
+# Faculty Attendance Route
+@app.route('/attendance')
+def faculty_attendance():
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return redirect(url_for('login'))
+    
+    return render_template('faculty/faculty_attendance.html')
+
 # API Routes
 @app.route('/api/register_face', methods=['POST'])
 def api_register_face():
