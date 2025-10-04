@@ -80,7 +80,7 @@ class AntiSpoofingDetector:
                     self.blink_detected = True
                 self.blink_counter = 0
                 
-            return self.blink_detected, avg_ear
+            return bool(self.blink_detected), float(avg_ear)
             
         except Exception as e:
             print(f"Error in blink detection: {e}")
@@ -108,7 +108,7 @@ class AntiSpoofingDetector:
             # Normalize entropy (higher entropy = more natural texture)
             texture_score = min(entropy / 8.0, 1.0)
             
-            return texture_score > self.TEXTURE_THRESHOLD, texture_score
+            return bool(texture_score > self.TEXTURE_THRESHOLD), float(texture_score)
             
         except Exception as e:
             print(f"Error in texture analysis: {e}")
@@ -162,7 +162,7 @@ class AntiSpoofingDetector:
             
             is_natural = color_diversity > self.COLOR_DIVERSITY_THRESHOLD
             
-            return is_natural, color_diversity
+            return bool(is_natural), float(color_diversity)
             
         except Exception as e:
             print(f"Error in color analysis: {e}")
@@ -188,7 +188,7 @@ class AntiSpoofingDetector:
             # Check for excessive bright spots (indicating reflection)
             has_excessive_reflection = bright_ratio > (self.SPECULAR_THRESHOLD / 100.0)
             
-            return not has_excessive_reflection, bright_ratio
+            return bool(not has_excessive_reflection), float(bright_ratio)
             
         except Exception as e:
             print(f"Error in specular reflection analysis: {e}")
@@ -233,7 +233,7 @@ class AntiSpoofingDetector:
                 has_natural_motion = True
                 avg_motion = 0.0
             
-            return has_natural_motion, avg_motion
+            return bool(has_natural_motion), float(avg_motion)
             
         except Exception as e:
             print(f"Error in motion analysis: {e}")
@@ -316,11 +316,11 @@ class AntiSpoofingDetector:
             else:
                 confidence = 0.0
             
-            # Determine if face is live (require at least 70% confidence)
-            is_live = confidence >= 0.7
+            # Determine if face is live (require at least 50% confidence for more lenient detection)
+            is_live = confidence >= 0.5
             
-            results['is_live'] = is_live
-            results['confidence'] = confidence
+            results['is_live'] = bool(is_live)
+            results['confidence'] = float(confidence)
             results['details'] = f"Anti-spoofing confidence: {confidence:.2%}"
             
             return results

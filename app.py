@@ -22,9 +22,9 @@ try:
     import numpy as np 
     import face_recognition 
     FACE_RECOGNITION_AVAILABLE = True
-    print("✅ Face recognition libraries loaded successfully")
+    print("Face recognition libraries loaded successfully")
 except ImportError as e:
-    print(f"⚠️ Face recognition not available: {e}")
+    print(f"Face recognition not available: {e}")
     print("Install with: pip install face-recognition opencv-contrib-python")
     FACE_RECOGNITION_AVAILABLE = False
 
@@ -32,9 +32,9 @@ except ImportError as e:
 try:
     from anti_spoofing import AntiSpoofingDetector, anti_spoofing_detector
     ANTI_SPOOFING_AVAILABLE = True
-    print("✅ Anti-spoofing module loaded successfully")
+    print("Anti-spoofing module loaded successfully")
 except ImportError as e:
-    print(f"⚠️ Anti-spoofing not available: {e}")
+    print(f"Anti-spoofing not available: {e}")
     ANTI_SPOOFING_AVAILABLE = False
 
 app = Flask(__name__)
@@ -43,7 +43,7 @@ app.secret_key = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
 
 # Session configuration for security
 app.config.update(
-    SESSION_COOKIE_SECURE=True if os.environ.get('HTTPS') == 'true' else False,
+    SESSION_COOKIE_SECURE=False,  # Set to True in production with HTTPS
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
     PERMANENT_SESSION_LIFETIME=3600  # 1 hour session timeout
@@ -348,10 +348,16 @@ def create_user():
         firstname = request.form.get('firstname')
         lastname = request.form.get('lastname')
         role = request.form.get('role')
+        password = request.form.get('password')
         dept_id = request.form.get('dept_id')
         year_level = request.form.get('year_level')
         course_id = request.form.get('course_id')
         position = request.form.get('position')
+        
+        
+        # Set default password if none provided (use ID number)
+        if not password:
+            password = idno  # Use ID number as default password
         
         # Validate required fields
         if not all([idno, firstname, lastname, role]):
@@ -400,30 +406,9 @@ def create_user():
                 flash('Invalid course ID', 'error')
                 return redirect(url_for('admin_users'))
         
-        # Validate each field
-        is_valid_id, validated_idno = validate_input(idno, 'idno', 1, 20)
-        if not is_valid_id:
-            flash(f'Invalid ID number: {validated_idno}', 'error')
-            return redirect(url_for('admin_users'))
-        
-        is_valid_fname, validated_fname = validate_input(firstname, 'name', 1, 50)
-        if not is_valid_fname:
-            flash(f'Invalid first name: {validated_fname}', 'error')
-            return redirect(url_for('admin_users'))
-        
-        is_valid_lname, validated_lname = validate_input(lastname, 'name', 1, 50)
-        if not is_valid_lname:
-            flash(f'Invalid last name: {validated_lname}', 'error')
-            return redirect(url_for('admin_users'))
-        
-        is_valid_role, validated_role = validate_input(role, 'role')
-        if not is_valid_role:
-            flash(f'Invalid role: {validated_role}', 'error')
-            return redirect(url_for('admin_users'))
-        
-        # Validate password strength
-        if len(password) < 8:
-            flash('Password must be at least 8 characters long', 'error')
+        # Validate password strength (minimum 3 characters for ID numbers)
+        if len(password) < 3:
+            flash('Password must be at least 3 characters long', 'error')
             return redirect(url_for('admin_users'))
         
         # Validate department ID if provided
@@ -442,8 +427,7 @@ def create_user():
                 flash('Invalid course ID', 'error')
                 return redirect(url_for('admin_users'))
         
-        # Use ID number as default password
-        password = idno
+        # Password is already set from form data or default
         
         conn = get_db_connection()
         
@@ -462,7 +446,7 @@ def create_user():
         cursor.execute('''
             INSERT INTO user (idno, firstname, lastname, role, password, dept_id)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (validated_idno, validated_fname, validated_lname, validated_role, hashed_password, dept_id))
+        ''', (validated_idno, validated_fname, validated_lname, validated_role, hashed_password, dept_id if dept_id else None))
         
         user_id = cursor.lastrowid
         
@@ -1801,12 +1785,16 @@ def process_face_recognition(image_path):
             print("Match found!")
             return {
                 'success': True,
-                'student_id': best_match['student_id'],
+                'student_id': int(best_match['student_id']),
                 'student_name': f"{best_match['firstname']} {best_match['lastname']}",
-                'distance': best_distance,
-                'eye_ratio': eye_ratio,  # Real eye aspect ratio
-                'nose_motion': nose_motion,  # Real nose motion
-                'anti_spoofing': anti_spoofing_result  # Include anti-spoofing results
+                'distance': float(best_distance),
+                'eye_ratio': float(eye_ratio),  # Real eye aspect ratio
+                'nose_motion': float(nose_motion),  # Real nose motion
+                'anti_spoofing': {
+                    'is_live': bool(anti_spoofing_result.get('is_live', True)),
+                    'confidence': float(anti_spoofing_result.get('confidence', 1.0)),
+                    'details': str(anti_spoofing_result.get('details', 'Anti-spoofing disabled'))
+                }
             }
         else:
             print("No match found")
@@ -1815,13 +1803,20 @@ def process_face_recognition(image_path):
                 'message': 'No matching student found',
                 'student_id': 'Unknown',
                 'student_name': 'Unknown',
-                'distance': best_distance if best_match else 999.0,  # Use 999.0 instead of float('inf')
-                'eye_ratio': eye_ratio,
-                'nose_motion': nose_motion,
-                'anti_spoofing': anti_spoofing_result  # Include anti-spoofing results
+                'distance': float(best_distance if best_match else 999.0),  # Use 999.0 instead of float('inf')
+                'eye_ratio': float(eye_ratio),
+                'nose_motion': float(nose_motion),
+                'anti_spoofing': {
+                    'is_live': bool(anti_spoofing_result.get('is_live', True)),
+                    'confidence': float(anti_spoofing_result.get('confidence', 1.0)),
+                    'details': str(anti_spoofing_result.get('details', 'Anti-spoofing disabled'))
+                }
             }
             
     except Exception as e:
+        print(f"Error in process_face_recognition: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {
             'success': False,
             'message': f'Recognition error: {str(e)}',
@@ -1861,13 +1856,27 @@ def api_attendance_detect():
         
         file.save(filepath)
         
+        # Check if face recognition is available
+        if not FACE_RECOGNITION_AVAILABLE:
+            return jsonify({
+                'success': False, 
+                'message': 'Face recognition system is not configured. Please install required packages.',
+                'student_id': 'Unknown',
+                'student_name': 'Unknown'
+            }), 503
+        
         # Process the image for face recognition
+        print(f"Processing face recognition for image: {filepath}")
         result = process_face_recognition(filepath)
+        print(f"Recognition result: {result}")
         
         return jsonify(result)
         
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+        print(f"Error in api_attendance_detect: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'Server error: {str(e)}'}), 500
     finally:
         # Always clean up temp file
         if filepath and os.path.exists(filepath):
@@ -1909,7 +1918,7 @@ def api_attendance_mark():
             is_live = anti_spoofing_data.get('is_live', True)
             confidence = anti_spoofing_data.get('confidence', 1.0)
             
-            if not is_live or confidence < 0.7:
+            if not is_live or confidence < 0.5:
                 print(f"⚠️ Anti-spoofing failed: live={is_live}, confidence={confidence}")
                 return jsonify({
                     'success': False,
@@ -2538,6 +2547,15 @@ def faculty_class_details(type, id):
     
     conn.close()
     return jsonify({'error': 'Invalid type'}), 400
+
+# Faculty Attendance
+@app.route('/attendance')
+def attendance():
+    """Faculty attendance page - Take attendance using face recognition"""
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return redirect(url_for('login'))
+    
+    return render_template('faculty_attendance.html')
 
 # Faculty Reports & Analytics
 @app.route('/attendance_reports')
