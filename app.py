@@ -46,7 +46,8 @@ app.config.update(
     SESSION_COOKIE_SECURE=False,  # Set to True in production with HTTPS
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
-    PERMANENT_SESSION_LIFETIME=3600  # 1 hour session timeout
+    PERMANENT_SESSION_LIFETIME=7200,  # 2 hours session timeout (increased from 1 hour)
+    SESSION_REFRESH_EACH_REQUEST=True  # Refresh session on each request
 )
 
 # Rate limiting for login attempts
@@ -1781,13 +1782,28 @@ def process_face_recognition(image_path):
         print(f"Best distance: {best_distance}")
         print(f"Tolerance: {MATCH_TOLERANCE}")
         
+        # Get face location coordinates for drawing box
+        # face_locations format: (top, right, bottom, left)
+        face_box = None
+        if face_locations:
+            top, right, bottom, left = face_locations[0]
+            face_box = {
+                'x': int(left),
+                'y': int(top),
+                'width': int(right - left),
+                'height': int(bottom - top)
+            }
+        
         if best_match and best_distance <= MATCH_TOLERANCE:
             print("Match found!")
+            confidence = int((1 - best_distance) * 100)  # Convert distance to confidence percentage
             return {
                 'success': True,
                 'student_id': int(best_match['student_id']),
                 'student_name': f"{best_match['firstname']} {best_match['lastname']}",
                 'distance': float(best_distance),
+                'confidence': confidence,
+                'face_box': face_box,  # Add face location for drawing box
                 'eye_ratio': float(eye_ratio),  # Real eye aspect ratio
                 'nose_motion': float(nose_motion),  # Real nose motion
                 'anti_spoofing': {
@@ -1804,6 +1820,8 @@ def process_face_recognition(image_path):
                 'student_id': 'Unknown',
                 'student_name': 'Unknown',
                 'distance': float(best_distance if best_match else 999.0),  # Use 999.0 instead of float('inf')
+                'confidence': 0,
+                'face_box': face_box,  # Still provide face box even if no match
                 'eye_ratio': float(eye_ratio),
                 'nose_motion': float(nose_motion),
                 'anti_spoofing': {
@@ -1827,8 +1845,30 @@ def process_face_recognition(image_path):
 @app.route('/api/attendance/detect', methods=['POST'])
 def api_attendance_detect():
     """Face detection and recognition endpoint"""
-    if 'user_id' not in session or session['role'] != 'faculty':
-        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    # Debug session info
+    print(f"Session contents: {dict(session)}")
+    print(f"Session has user_id: {'user_id' in session}")
+    print(f"Session role: {session.get('role', 'NO ROLE')}")
+    
+    if 'user_id' not in session:
+        print("ERROR: No user_id in session! User needs to login again.")
+        return jsonify({
+            'success': False, 
+            'message': 'Your session has expired. Please logout and login again to continue.',
+            'expired': True,
+            'redirect': '/login'
+        }), 401
+    
+    # Allow both faculty and admin to access this endpoint
+    user_role = session.get('role')
+    if user_role not in ['faculty', 'admin']:
+        print(f"ERROR: Invalid role: {user_role}")
+        return jsonify({
+            'success': False, 
+            'message': f'Only faculty and admin can access this feature. You are logged in as: {user_role}',
+            'wrong_role': True,
+            'current_role': user_role
+        }), 401
     
     filepath = None
     try:
@@ -1888,8 +1928,12 @@ def api_attendance_detect():
 @app.route('/api/attendance/mark', methods=['POST'])
 def api_attendance_mark():
     """Mark attendance for a recognized student"""
-    if 'user_id' not in session or session['role'] != 'faculty':
-        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized - Please login'}), 401
+    
+    # Allow both faculty and admin to access this endpoint
+    if session.get('role') not in ['faculty', 'admin']:
+        return jsonify({'success': False, 'message': 'Unauthorized - Faculty or Admin access required'}), 401
     
     try:
         data = request.get_json()
@@ -2185,6 +2229,211 @@ def admin_attendance():
                          present_count=present_count,
                          absent_count=absent_count,
                          attendance_rate=round(attendance_rate, 1))
+
+@app.route('/reports')
+def admin_reports():
+    """Render admin reports and analytics page"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    
+    return render_template('admin_reports.html')
+
+@app.route('/api/admin/reports/<report_type>')
+def api_admin_reports(report_type):
+    """Get report data for admin"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    
+    try:
+        conn = get_db_connection()
+        
+        if report_type == 'class':
+            # Class attendance summary
+            data = conn.execute('''
+                SELECT 
+                    DATE(a.attendance_date) as date,
+                    c.class_name as name,
+                    COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) as present,
+                    COUNT(CASE WHEN a.attendance_status = 'absent' THEN 1 END) as absent,
+                    COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late,
+                    ROUND(COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) * 100.0 / COUNT(*), 1) as rate
+                FROM attendance a
+                JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+                JOIN class c ON sc.class_id = c.class_id
+                WHERE DATE(a.attendance_date) BETWEEN ? AND ?
+                GROUP BY DATE(a.attendance_date), c.class_id
+                ORDER BY date DESC
+            ''', (date_from, date_to)).fetchall()
+            
+        elif report_type == 'event':
+            # Event attendance summary
+            data = conn.execute('''
+                SELECT 
+                    DATE(ea.attendance_time) as date,
+                    e.event_name as name,
+                    COUNT(CASE WHEN ea.status = 'present' THEN 1 END) as present,
+                    COUNT(CASE WHEN ea.status = 'absent' THEN 1 END) as absent,
+                    COUNT(CASE WHEN ea.status = 'late' THEN 1 END) as late,
+                    ROUND(COUNT(CASE WHEN ea.status = 'present' THEN 1 END) * 100.0 / COUNT(*), 1) as rate
+                FROM event_attendance ea
+                JOIN event e ON ea.event_id = e.event_id
+                WHERE DATE(ea.attendance_time) BETWEEN ? AND ?
+                GROUP BY DATE(ea.attendance_time), e.event_id
+                ORDER BY date DESC
+            ''', (date_from, date_to)).fetchall()
+            
+        elif report_type == 'absence':
+            # Absence patterns
+            data = conn.execute('''
+                SELECT 
+                    u.lastname || ', ' || u.firstname as name,
+                    DATE(a.attendance_date) as date,
+                    0 as present,
+                    COUNT(CASE WHEN a.attendance_status = 'absent' THEN 1 END) as absent,
+                    COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late,
+                    0 as rate
+                FROM attendance a
+                JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+                JOIN student s ON sc.student_id = s.student_id
+                JOIN user u ON s.user_id = u.user_id
+                WHERE DATE(a.attendance_date) BETWEEN ? AND ?
+                    AND a.attendance_status IN ('absent', 'late')
+                GROUP BY u.user_id, DATE(a.attendance_date)
+                ORDER BY date DESC, name
+            ''', (date_from, date_to)).fetchall()
+            
+        elif report_type == 'monthly':
+            # Monthly summary
+            data = conn.execute('''
+                SELECT 
+                    strftime('%Y-%m', a.attendance_date) as date,
+                    'Monthly Total' as name,
+                    COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) as present,
+                    COUNT(CASE WHEN a.attendance_status = 'absent' THEN 1 END) as absent,
+                    COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late,
+                    ROUND(COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) * 100.0 / COUNT(*), 1) as rate
+                FROM attendance a
+                WHERE DATE(a.attendance_date) BETWEEN ? AND ?
+                GROUP BY strftime('%Y-%m', a.attendance_date)
+                ORDER BY date DESC
+            ''', (date_from, date_to)).fetchall()
+        else:
+            return jsonify({'success': False, 'error': 'Invalid report type'}), 400
+        
+        # Convert to list of dicts
+        details = []
+        for row in data:
+            details.append({
+                'date': row['date'],
+                'name': row['name'],
+                'present': row['present'],
+                'absent': row['absent'],
+                'late': row['late'],
+                'rate': row['rate']
+            })
+        
+        # Calculate summary
+        total_present = sum(d['present'] for d in details)
+        total_absent = sum(d['absent'] for d in details)
+        total_late = sum(d['late'] for d in details)
+        total = total_present + total_absent + total_late
+        attendance_rate = round(total_present * 100.0 / total, 1) if total > 0 else 0
+        
+        # Generate trend data
+        trend_labels = []
+        trend_present = []
+        trend_absent = []
+        trend_late = []
+        
+        for d in details[:10]:  # Last 10 entries for trend
+            trend_labels.insert(0, d['date'])
+            trend_present.insert(0, d['present'])
+            trend_absent.insert(0, d['absent'])
+            trend_late.insert(0, d['late'])
+        
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'summary': {
+                'total_present': total_present,
+                'total_absent': total_absent,
+                'total_late': total_late,
+                'attendance_rate': attendance_rate
+            },
+            'trend': {
+                'labels': trend_labels,
+                'present': trend_present,
+                'absent': trend_absent,
+                'late': trend_late
+            },
+            'details': details
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/admin/reports/export/<fmt>')
+def export_reports(fmt):
+    """Export reports in various formats"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    report_type = request.args.get('type', 'class')
+    
+    try:
+        conn = get_db_connection()
+        
+        # Get data based on report type (reuse logic from api_admin_reports)
+        if report_type == 'class':
+            data = conn.execute('''
+                SELECT 
+                    DATE(a.attendance_date) as date,
+                    c.class_name as name,
+                    COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) as present,
+                    COUNT(CASE WHEN a.attendance_status = 'absent' THEN 1 END) as absent,
+                    COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late
+                FROM attendance a
+                JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+                JOIN class c ON sc.class_id = c.class_id
+                WHERE DATE(a.attendance_date) BETWEEN ? AND ?
+                GROUP BY DATE(a.attendance_date), c.class_id
+                ORDER BY date DESC
+            ''', (date_from, date_to)).fetchall()
+        else:
+            # Simple default for other types
+            data = []
+        
+        conn.close()
+        
+        if fmt == 'csv':
+            import io
+            import csv
+            
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(['Date', 'Class/Event', 'Present', 'Absent', 'Late'])
+            
+            for row in data:
+                writer.writerow([row['date'], row['name'], row['present'], row['absent'], row['late']])
+            
+            response = app.make_response(output.getvalue())
+            response.headers['Content-Type'] = 'text/csv'
+            response.headers['Content-Disposition'] = f'attachment; filename=report_{report_type}_{date_from}_{date_to}.csv'
+            return response
+            
+        else:
+            flash('Export format not yet implemented', 'info')
+            return redirect(url_for('admin_reports'))
+            
+    except Exception as e:
+        flash(f'Export error: {str(e)}', 'error')
+        return redirect(url_for('admin_reports'))
 
 
 # Faculty Manage Students
@@ -2552,10 +2801,45 @@ def faculty_class_details(type, id):
 @app.route('/attendance')
 def attendance():
     """Faculty attendance page - Take attendance using face recognition"""
-    if 'user_id' not in session or session['role'] != 'faculty':
+    if 'user_id' not in session:
+        flash('Please login to access attendance', 'error')
         return redirect(url_for('login'))
     
-    return render_template('faculty_attendance.html')
+    # Allow both faculty and admin
+    if session.get('role') not in ['faculty', 'admin']:
+        flash('Only faculty and admin can access this page', 'error')
+        return redirect(url_for('login'))
+    
+    # Get classes for faculty
+    conn = get_db_connection()
+    classes = []
+    
+    if session.get('role') == 'faculty':
+        # Get faculty's classes
+        faculty = conn.execute('''
+            SELECT f.faculty_id FROM faculty f 
+            JOIN user u ON f.user_id = u.user_id 
+            WHERE u.user_id = ?
+        ''', (session['user_id'],)).fetchone()
+        
+        if faculty:
+            classes = conn.execute('''
+                SELECT c.class_id, c.class_name, c.edpcode
+                FROM class c
+                WHERE c.faculty_id = ?
+                ORDER BY c.class_name
+            ''', (faculty['faculty_id'],)).fetchall()
+    elif session.get('role') == 'admin':
+        # Admin can see all classes
+        classes = conn.execute('''
+            SELECT c.class_id, c.class_name, c.edpcode
+            FROM class c
+            ORDER BY c.class_name
+        ''').fetchall()
+    
+    conn.close()
+    
+    return render_template('faculty_attendance.html', classes=classes)
 
 # Faculty Reports & Analytics
 @app.route('/attendance_reports')
@@ -3126,6 +3410,217 @@ def api_anti_spoofing_reset():
             return jsonify({'success': False, 'message': 'Anti-spoofing not available'})
     except Exception as e:
         return jsonify({'success': False, 'message': f'Reset error: {str(e)}'}), 500
+
+# ==================== SYSTEM CONFIGURATION MODULE ====================
+
+@app.route('/settings')
+def admin_settings():
+    """Render admin settings page"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    
+    return render_template('admin_settings.html')
+
+@app.route('/api/settings/all', methods=['GET'])
+def api_get_all_settings():
+    """Get all system settings"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    try:
+        conn = get_db_connection()
+        settings = conn.execute('SELECT setting_key, setting_value FROM system_settings').fetchall()
+        conn.close()
+        
+        settings_dict = {row['setting_key']: row['setting_value'] for row in settings}
+        
+        return jsonify({'success': True, 'settings': settings_dict})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/settings/save', methods=['POST'])
+def api_save_settings():
+    """Save system settings"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    try:
+        settings = request.get_json()
+        conn = get_db_connection()
+        
+        for key, value in settings.items():
+            conn.execute('''
+                UPDATE system_settings 
+                SET setting_value = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?
+                WHERE setting_key = ?
+            ''', (str(value), session['user_id'], key))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': 'Settings saved successfully'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/settings/test-email', methods=['POST'])
+def api_test_email():
+    """Test email configuration"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    try:
+        # Get email settings from database
+        conn = get_db_connection()
+        settings = conn.execute('''
+            SELECT setting_key, setting_value 
+            FROM system_settings 
+            WHERE setting_type = 'email'
+        ''').fetchall()
+        conn.close()
+        
+        email_settings = {row['setting_key']: row['setting_value'] for row in settings}
+        
+        # Check if email is enabled
+        if email_settings.get('email_enabled') != 'true':
+            return jsonify({'success': False, 'error': 'Email notifications are disabled'})
+        
+        # Validate required fields
+        required_fields = ['smtp_server', 'smtp_port', 'smtp_username', 'smtp_password', 'email_from']
+        missing_fields = [f for f in required_fields if not email_settings.get(f)]
+        
+        if missing_fields:
+            return jsonify({'success': False, 'error': f'Missing required fields: {", ".join(missing_fields)}'})
+        
+        # Import email libraries
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        
+        # Create test email
+        msg = MIMEMultipart()
+        msg['From'] = email_settings['email_from']
+        msg['To'] = email_settings['email_from']  # Send to self for testing
+        msg['Subject'] = 'FaceCheck - Test Email'
+        
+        body = '''
+        <html>
+        <body>
+            <h2>Test Email Successful!</h2>
+            <p>This is a test email from your FaceCheck system.</p>
+            <p>Your email configuration is working correctly.</p>
+            <p><strong>System:</strong> FaceCheck Attendance System</p>
+            <p><strong>Time:</strong> {}</p>
+        </body>
+        </html>
+        '''.format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        
+        msg.attach(MIMEText(body, 'html'))
+        
+        # Send email
+        server = smtplib.SMTP(email_settings['smtp_server'], int(email_settings['smtp_port']))
+        server.starttls()
+        server.login(email_settings['smtp_username'], email_settings['smtp_password'])
+        server.send_message(msg)
+        server.quit()
+        
+        return jsonify({'success': True, 'message': 'Test email sent successfully'})
+        
+    except smtplib.SMTPAuthenticationError:
+        return jsonify({'success': False, 'error': 'SMTP authentication failed. Check username and password.'})
+    except smtplib.SMTPException as e:
+        return jsonify({'success': False, 'error': f'SMTP error: {str(e)}'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/settings/backup-now', methods=['POST'])
+def api_backup_now():
+    """Create database backup"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    try:
+        import shutil
+        from datetime import datetime
+        
+        # Create backups directory if not exists
+        backup_dir = 'backups'
+        if not os.path.exists(backup_dir):
+            os.makedirs(backup_dir)
+        
+        # Generate backup filename with timestamp
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_filename = f'facecheck_backup_{timestamp}.db'
+        backup_path = os.path.join(backup_dir, backup_filename)
+        
+        # Copy database file
+        shutil.copy2('facecheck.db', backup_path)
+        
+        # Log the backup
+        conn = get_db_connection()
+        conn.execute('''
+            INSERT INTO system_settings (setting_key, setting_value, setting_type, description)
+            VALUES (?, ?, 'backup', ?)
+        ''', (f'backup_{timestamp}', backup_filename, f'Database backup created at {datetime.now()}'))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True, 
+            'message': 'Backup created successfully',
+            'filename': backup_filename
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/settings/optimize-db', methods=['POST'])
+def api_optimize_db():
+    """Optimize database"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    try:
+        conn = get_db_connection()
+        
+        # Run VACUUM to optimize database
+        conn.execute('VACUUM')
+        
+        # Analyze tables for query optimization
+        conn.execute('ANALYZE')
+        
+        conn.close()
+        
+        return jsonify({'success': True, 'message': 'Database optimized successfully'})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/admin/logs')
+def admin_logs():
+    """View activity logs (placeholder for future implementation)"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    
+    # This is a placeholder - you can implement full logging later
+    flash('Activity logs feature coming soon!', 'info')
+    return redirect(url_for('admin_settings'))
+
+# Session check endpoint
+@app.route('/api/check-session')
+def check_session():
+    """Check if user session is valid"""
+    if 'user_id' in session:
+        return jsonify({
+            'valid': True,
+            'user_id': session['user_id'],
+            'role': session.get('role'),
+            'name': f"{session.get('firstname', '')} {session.get('lastname', '')}".strip()
+        })
+    else:
+        return jsonify({
+            'valid': False,
+            'message': 'No active session'
+        }), 401
 
 # Error handlers
 @app.errorhandler(404)

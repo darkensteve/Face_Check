@@ -160,6 +160,8 @@
                         <div class="relative bg-gray-900 rounded-lg overflow-hidden" style="height: 400px;">
                             <video id="video" autoplay muted class="w-full h-full object-cover"></video>
                             <canvas id="canvas" class="hidden"></canvas>
+                            <!-- Overlay canvas for face detection box -->
+                            <canvas id="overlayCanvas" class="absolute top-0 left-0 w-full h-full pointer-events-none"></canvas>
                             
                             <!-- Camera Controls -->
                             <div class="absolute bottom-4 left-4 right-4">
@@ -253,7 +255,7 @@
     </div>
     
     <script>
-        let video, canvas, ctx;
+        let video, canvas, ctx, overlayCanvas, overlayCtx;
         let stream = null;
         let isRecognizing = false;
         let isDetecting = false;
@@ -267,6 +269,7 @@
         let detectionInterval = null;
         let recognitionInterval = null;
         let livenessTimeout = null;
+        let currentFaceBox = null; // Store current face detection box
         
         // Face recognition parameters (from face_recog_test.py)
         const MATCH_TOLERANCE = 0.62;
@@ -291,6 +294,8 @@
             video = document.getElementById('video');
             canvas = document.getElementById('canvas');
             ctx = canvas.getContext('2d');
+            overlayCanvas = document.getElementById('overlayCanvas');
+            overlayCtx = overlayCanvas.getContext('2d');
             
             // Initialize anti-spoofing manager
             initializeAntiSpoofing();
@@ -307,6 +312,75 @@
             // Load faculty classes
             await loadFacultyClasses();
         });
+        
+        // Function to draw face detection box on overlay
+        function drawFaceBox(studentName, confidence, x, y, width, height) {
+            // Clear previous drawings
+            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            
+            // Calculate position relative to video dimensions
+            const videoRect = video.getBoundingClientRect();
+            overlayCanvas.width = videoRect.width;
+            overlayCanvas.height = videoRect.height;
+            
+            // Scale coordinates
+            const scaleX = overlayCanvas.width / video.videoWidth;
+            const scaleY = overlayCanvas.height / video.videoHeight;
+            
+            const boxX = x * scaleX;
+            const boxY = y * scaleY;
+            const boxWidth = width * scaleX;
+            const boxHeight = height * scaleY;
+            
+            // Draw green box
+            overlayCtx.strokeStyle = '#00ff00';
+            overlayCtx.lineWidth = 3;
+            overlayCtx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+            
+            // Draw label background
+            const label = `${studentName} (${confidence}%)`;
+            overlayCtx.font = 'bold 16px Arial';
+            const textWidth = overlayCtx.measureText(label).width;
+            const padding = 8;
+            
+            // Background for text
+            overlayCtx.fillStyle = '#00ff00';
+            overlayCtx.fillRect(boxX, boxY - 30, textWidth + padding * 2, 28);
+            
+            // Draw text
+            overlayCtx.fillStyle = '#000000';
+            overlayCtx.fillText(label, boxX + padding, boxY - 10);
+            
+            // Store current box
+            currentFaceBox = { studentName, confidence, x, y, width, height };
+        }
+        
+        // Function to clear face detection box
+        function clearFaceBox() {
+            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            currentFaceBox = null;
+        }
+        
+        // Update overlay canvas size when video resizes
+        function updateOverlaySize() {
+            if (video && overlayCanvas) {
+                const videoRect = video.getBoundingClientRect();
+                overlayCanvas.width = videoRect.width;
+                overlayCanvas.height = videoRect.height;
+                
+                // Redraw current box if exists
+                if (currentFaceBox) {
+                    drawFaceBox(
+                        currentFaceBox.studentName,
+                        currentFaceBox.confidence,
+                        currentFaceBox.x,
+                        currentFaceBox.y,
+                        currentFaceBox.width,
+                        currentFaceBox.height
+                    );
+                }
+            }
+        }
         
         // Initialize anti-spoofing manager
         function initializeAntiSpoofing() {
@@ -333,6 +407,10 @@
                     </div>
                 `;
             }
+            
+            // Add resize listener for overlay
+            window.addEventListener('resize', updateOverlaySize);
+            video.addEventListener('loadedmetadata', updateOverlaySize);
         }
         
         // Start camera
@@ -377,6 +455,9 @@
             }
             
             video.srcObject = null;
+            
+            // Clear face detection box
+            clearFaceBox();
             
             // Stop anti-spoofing analysis
             if (antiSpoofingManager) {
@@ -494,6 +575,20 @@
             
             if (result.success && result.student_id && result.student_id !== 'Unknown') {
                 console.log('Student recognized successfully:', result.student_name);
+                
+                // Draw face detection box
+                if (result.face_box) {
+                    const confidence = result.confidence || Math.round((1 - (result.distance || 0)) * 100);
+                    drawFaceBox(
+                        result.student_name,
+                        confidence,
+                        result.face_box.x,
+                        result.face_box.y,
+                        result.face_box.width,
+                        result.face_box.height
+                    );
+                }
+                
                 // Student recognized and passed anti-spoofing
                 if (currentStudent && currentStudent.student_id === result.student_id) {
                     // Same student, continue liveness detection
@@ -532,7 +627,22 @@
                     }
                 }
             } else {
-                // No student recognized
+                // No student recognized but maybe face detected
+                if (result.face_box) {
+                    // Draw box for unknown face
+                    drawFaceBox(
+                        'Unknown',
+                        0,
+                        result.face_box.x,
+                        result.face_box.y,
+                        result.face_box.width,
+                        result.face_box.height
+                    );
+                } else {
+                    // No face at all
+                    clearFaceBox();
+                }
+                
                 console.log('No student recognized. Result:', result);
                 currentStudent = null;
                 livenessActive = false;

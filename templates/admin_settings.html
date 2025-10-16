@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FaceCheck - System Configuration</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <div class="flex h-screen">
+        <!-- Sidebar -->
+        <div class="w-64 bg-gray-800 text-white">
+            <!-- Logo -->
+            <div class="p-6 border-b border-gray-700">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center mr-3">
+                        <i class="fas fa-user-check text-white"></i>
+                    </div>
+                    <h1 class="text-xl font-bold">FaceCheck</h1>
+                </div>
+            </div>
+            
+            <!-- Navigation -->
+            <nav class="mt-6">
+                <div class="px-3">
+                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Main Menu</div>
+                </div>
+                
+                <a href="{{ url_for('dashboard') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-tachometer-alt mr-3"></i>
+                    Dashboard
+                </a>
+                
+                <a href="{{ url_for('admin_users') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-users mr-3"></i>
+                    User Management
+                </a>
+                
+                <a href="{{ url_for('admin_classes') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-chalkboard-teacher mr-3"></i>
+                    Class Management
+                </a>
+                
+                <a href="{{ url_for('admin_events') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-calendar-alt mr-3"></i>
+                    Event Management
+                </a>
+                
+                <a href="{{ url_for('admin_attendance') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-clipboard-check mr-3"></i>
+                    View Attendance Record
+                </a>
+                
+                <a href="/reports" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-chart-bar mr-3"></i>
+                    Reports
+                </a>
+                
+                <a href="/settings" class="flex items-center px-6 py-3 bg-gray-700 text-white">
+                    <i class="fas fa-cog mr-3"></i>
+                    Settings
+                </a>
+            </nav>
+            
+            <!-- User Info -->
+            <div class="absolute bottom-0 w-64 p-6 border-t border-gray-700">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center mr-3">
+                        <i class="fas fa-user text-white text-sm"></i>
+                    </div>
+                    <div>
+                        <div class="text-sm font-medium">Admin User</div>
+                        <div class="text-xs text-gray-400">Administrator</div>
+                    </div>
+                </div>
+                <a href="{{ url_for('logout') }}" class="mt-3 flex items-center text-gray-300 hover:text-white transition duration-200">
+                    <i class="fas fa-sign-out-alt mr-2"></i>
+                    Logout
+                </a>
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Top Header -->
+            <header class="bg-white shadow-sm border-b border-gray-200">
+                <div class="px-6 py-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-bold text-gray-800">System Configuration Module</h2>
+                            <p class="text-gray-600">Configure and manage system settings</p>
+                        </div>
+                        <button onclick="saveAllSettings()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                            <i class="fas fa-save mr-2"></i>Save All Settings
+                        </button>
+                    </div>
+                </div>
+            </header>
+            
+            <!-- Main Content Area -->
+            <main class="flex-1 overflow-y-auto p-6">
+                <!-- Alert Messages -->
+                <div id="alertContainer" class="hidden mb-6">
+                    <div class="rounded-lg p-4" id="alertBox">
+                        <p id="alertMessage"></p>
+                    </div>
+                </div>
+
+                <!-- Configuration Sections -->
+                <div class="bg-white rounded-xl shadow-lg mb-6">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h3 class="text-lg font-semibold text-gray-900">Configuration Sections</h3>
+                    </div>
+                    <div class="p-6 grid grid-cols-1 md:grid-cols-5 gap-4">
+                        <button onclick="showSection('attendance')" class="config-section-btn p-4 border-2 border-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition" data-section="attendance">
+                            <i class="fas fa-clipboard-check text-2xl text-blue-600 mb-2"></i>
+                            <p class="text-sm font-semibold text-gray-900">Set Attendance Rules</p>
+                        </button>
+                        <button onclick="showSection('email')" class="config-section-btn p-4 border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition" data-section="email">
+                            <i class="fas fa-envelope text-2xl text-gray-600 mb-2"></i>
+                            <p class="text-sm font-semibold text-gray-900">Configure Email Notifications</p>
+                        </button>
+                        <button onclick="showSection('security')" class="config-section-btn p-4 border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition" data-section="security">
+                            <i class="fas fa-shield-alt text-2xl text-gray-600 mb-2"></i>
+                            <p class="text-sm font-semibold text-gray-900">Security Management</p>
+                        </button>
+                        <button onclick="showSection('system')" class="config-section-btn p-4 border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition" data-section="system">
+                            <i class="fas fa-cogs text-2xl text-gray-600 mb-2"></i>
+                            <p class="text-sm font-semibold text-gray-900">Change System Settings</p>
+                        </button>
+                        <button onclick="showSection('database')" class="config-section-btn p-4 border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition" data-section="database">
+                            <i class="fas fa-database text-2xl text-gray-600 mb-2"></i>
+                            <p class="text-sm font-semibold text-gray-900">Manage Database Settings</p>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Section 1: Attendance Rules -->
+                <div id="section-attendance" class="config-section bg-white rounded-xl shadow-lg">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h3 class="text-xl font-semibold text-gray-900">
+                            <i class="fas fa-clipboard-check mr-2 text-blue-600"></i>
+                            Set Attendance Rules
+                        </h3>
+                        <p class="text-sm text-gray-600 mt-1">Configure attendance tracking rules and thresholds</p>
+                    </div>
+                    <div class="p-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Late Threshold (minutes)</label>
+                                <input type="number" id="late_threshold_minutes" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                <p class="text-xs text-gray-500 mt-1">Minutes after start time to mark as late</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Grace Period (minutes)</label>
+                                <input type="number" id="attendance_grace_period" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                <p class="text-xs text-gray-500 mt-1">Grace period before class starts</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Minimum Attendance (%)</label>
+                                <input type="number" id="minimum_attendance_percentage" min="0" max="100" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                <p class="text-xs text-gray-500 mt-1">Required minimum attendance percentage</p>
+                            </div>
+                            <div>
+                                <label class="flex items-center cursor-pointer">
+                                    <input type="checkbox" id="absent_auto_mark" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                                    <span class="ml-2 text-sm font-medium text-gray-700">Auto-mark as Absent</span>
+                                </label>
+                                <p class="text-xs text-gray-500 mt-1">Automatically mark students as absent if not recorded</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 2: Email Notifications -->
+                <div id="section-email" class="config-section hidden bg-white rounded-xl shadow-lg">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h3 class="text-xl font-semibold text-gray-900">
+                            <i class="fas fa-envelope mr-2 text-blue-600"></i>
+                            Configure Email Notifications
+                        </h3>
+                        <p class="text-sm text-gray-600 mt-1">Setup email server and notification preferences</p>
+                    </div>
+                    <div class="p-6">
+                        <div class="grid grid-cols-1 gap-6">
+                            <div>
+                                <label class="flex items-center cursor-pointer mb-4">
+                                    <input type="checkbox" id="email_enabled" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                                    <span class="ml-2 text-sm font-medium text-gray-700">Enable Email Notifications</span>
+                                </label>
+                            </div>
+                            
+                            <div class="border-t pt-4">
+                                <h4 class="font-semibold text-gray-900 mb-4">SMTP Server Configuration</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">SMTP Server</label>
+                                        <input type="text" id="smtp_server" placeholder="smtp.gmail.com" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">SMTP Port</label>
+                                        <input type="number" id="smtp_port" placeholder="587" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Username</label>
+                                        <input type="text" id="smtp_username" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
+                                        <input type="password" id="smtp_password" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                    </div>
+                                    <div class="md:col-span-2">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">From Email Address</label>
+                                        <input type="email" id="email_from" placeholder="noreply@facecheck.com" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="border-t pt-4">
+                                <h4 class="font-semibold text-gray-900 mb-4">Notification Preferences</h4>
+                                <div class="space-y-3">
+                                    <label class="flex items-center cursor-pointer">
+                                        <input type="checkbox" id="notify_absences" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                                        <span class="ml-2 text-sm text-gray-700">Send notifications for absences</span>
+                                    </label>
+                                    <label class="flex items-center cursor-pointer">
+                                        <input type="checkbox" id="notify_low_attendance" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                                        <span class="ml-2 text-sm text-gray-700">Send notifications for low attendance warnings</span>
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div class="border-t pt-4">
+                                <button onclick="testEmail()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
+                                    <i class="fas fa-paper-plane mr-2"></i>Send Test Email
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 3: Security Management -->
+                <div id="section-security" class="config-section hidden bg-white rounded-xl shadow-lg">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h3 class="text-xl font-semibold text-gray-900">
+                            <i class="fas fa-shield-alt mr-2 text-blue-600"></i>
+                            Security Management
+                        </h3>
+                        <p class="text-sm text-gray-600 mt-1">Configure security policies and authentication settings</p>
+                    </div>
+                    <div class="p-6">
+                        <div class="grid grid-cols-1 gap-6">
+                            <div class="border-b pb-4">
+                                <h4 class="font-semibold text-gray-900 mb-4">Session Management</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Session Timeout (seconds)</label>
+                                        <input type="number" id="session_timeout" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                        <p class="text-xs text-gray-500 mt-1">Idle time before automatic logout (3600 = 1 hour)</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="border-b pb-4">
+                                <h4 class="font-semibold text-gray-900 mb-4">Login Security</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Max Login Attempts</label>
+                                        <input type="number" id="max_login_attempts" min="1" max="10" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Lockout Duration (minutes)</label>
+                                        <input type="number" id="lockout_duration" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="border-b pb-4">
+                                <h4 class="font-semibold text-gray-900 mb-4">Password Policy</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Minimum Length</label>
+                                        <input type="number" id="password_min_length" min="6" max="20" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                    </div>
+                                    <div class="space-y-3">
+                                        <label class="flex items-center cursor-pointer">
+                                            <input type="checkbox" id="password_require_special" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                                            <span class="ml-2 text-sm text-gray-700">Require special characters</span>
+                                        </label>
+                                        <label class="flex items-center cursor-pointer">
+                                            <input type="checkbox" id="password_require_number" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                                            <span class="ml-2 text-sm text-gray-700">Require numbers</span>
+                                        </label>
+                                        <label class="flex items-center cursor-pointer">
+                                            <input type="checkbox" id="password_require_uppercase" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                                            <span class="ml-2 text-sm text-gray-700">Require uppercase letters</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <h4 class="font-semibold text-gray-900 mb-4">Two-Factor Authentication</h4>
+                                <label class="flex items-center cursor-pointer">
+                                    <input type="checkbox" id="enable_2fa" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                                    <span class="ml-2 text-sm text-gray-700">Enable Two-Factor Authentication (2FA)</span>
+                                </label>
+                                <p class="text-xs text-gray-500 mt-1">Requires users to verify identity with a second device</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 4: System Settings -->
+                <div id="section-system" class="config-section hidden bg-white rounded-xl shadow-lg">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h3 class="text-xl font-semibold text-gray-900">
+                            <i class="fas fa-cogs mr-2 text-blue-600"></i>
+                            Change System Settings
+                        </h3>
+                        <p class="text-sm text-gray-600 mt-1">Configure general system preferences and display settings</p>
+                    </div>
+                    <div class="p-6">
+                        <div class="grid grid-cols-1 gap-6">
+                            <div class="border-b pb-4">
+                                <h4 class="font-semibold text-gray-900 mb-4">System Information</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">System Name</label>
+                                        <input type="text" id="system_name" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Institution Name</label>
+                                        <input type="text" id="institution_name" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="border-b pb-4">
+                                <h4 class="font-semibold text-gray-900 mb-4">Localization</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Timezone</label>
+                                        <select id="timezone" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                            <option value="Asia/Manila">Asia/Manila (GMT+8)</option>
+                                            <option value="America/New_York">America/New York (EST)</option>
+                                            <option value="Europe/London">Europe/London (GMT)</option>
+                                            <option value="Asia/Tokyo">Asia/Tokyo (JST)</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Date Format</label>
+                                        <select id="date_format" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                            <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+                                            <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                                            <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Time Format</label>
+                                        <select id="time_format" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                            <option value="24h">24-hour</option>
+                                            <option value="12h">12-hour (AM/PM)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="border-b pb-4">
+                                <h4 class="font-semibold text-gray-900 mb-4">Language</h4>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">System Language</label>
+                                    <select id="language" class="w-full md:w-1/2 px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                        <option value="en">English</option>
+                                        <option value="ceb">Cebuano</option>
+                                        <option value="tl">Tagalog</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <h4 class="font-semibold text-gray-900 mb-4">Maintenance Mode</h4>
+                                <label class="flex items-center cursor-pointer">
+                                    <input type="checkbox" id="maintenance_mode" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                                    <span class="ml-2 text-sm text-gray-700">Enable Maintenance Mode</span>
+                                </label>
+                                <p class="text-xs text-gray-500 mt-1">Temporarily disable system access for maintenance</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 5: Database Settings -->
+                <div id="section-database" class="config-section hidden bg-white rounded-xl shadow-lg">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h3 class="text-xl font-semibold text-gray-900">
+                            <i class="fas fa-database mr-2 text-blue-600"></i>
+                            Manage Database Settings
+                        </h3>
+                        <p class="text-sm text-gray-600 mt-1">Configure database backup and logging preferences</p>
+                    </div>
+                    <div class="p-6">
+                        <div class="grid grid-cols-1 gap-6">
+                            <div class="border-b pb-4">
+                                <h4 class="font-semibold text-gray-900 mb-4">Automatic Backup</h4>
+                                <div class="space-y-4">
+                                    <label class="flex items-center cursor-pointer">
+                                        <input type="checkbox" id="auto_backup" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                                        <span class="ml-2 text-sm font-medium text-gray-700">Enable Automatic Backups</span>
+                                    </label>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">Backup Frequency</label>
+                                            <select id="backup_frequency" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                                <option value="hourly">Hourly</option>
+                                                <option value="daily">Daily</option>
+                                                <option value="weekly">Weekly</option>
+                                                <option value="monthly">Monthly</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">Retention Period (days)</label>
+                                            <input type="number" id="backup_retention_days" min="1" max="365" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="border-b pb-4">
+                                <h4 class="font-semibold text-gray-900 mb-4">Database Information</h4>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Database Path</label>
+                                    <input type="text" id="database_path" readonly class="w-full px-3 py-2 border border-gray-300 bg-gray-50 rounded-lg">
+                                </div>
+                            </div>
+                            
+                            <div class="border-b pb-4">
+                                <h4 class="font-semibold text-gray-900 mb-4">Activity Logging</h4>
+                                <div class="space-y-4">
+                                    <label class="flex items-center cursor-pointer">
+                                        <input type="checkbox" id="enable_logging" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                                        <span class="ml-2 text-sm font-medium text-gray-700">Enable Activity Logging</span>
+                                    </label>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Log Retention Period (days)</label>
+                                        <input type="number" id="log_retention_days" min="7" max="365" class="w-full md:w-1/2 px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <h4 class="font-semibold text-gray-900 mb-4">Database Actions</h4>
+                                <div class="flex flex-wrap gap-3">
+                                    <button onclick="backupNow()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                                        <i class="fas fa-download mr-2"></i>Backup Now
+                                    </button>
+                                    <button onclick="optimizeDB()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
+                                        <i class="fas fa-tachometer-alt mr-2"></i>Optimize Database
+                                    </button>
+                                    <button onclick="viewLogs()" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition">
+                                        <i class="fas fa-file-alt mr-2"></i>View Activity Logs
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        // Load settings on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadSettings();
+        });
+
+        // Show specific configuration section
+        function showSection(section) {
+            // Hide all sections
+            document.querySelectorAll('.config-section').forEach(s => s.classList.add('hidden'));
+            
+            // Remove active state from all buttons
+            document.querySelectorAll('.config-section-btn').forEach(btn => {
+                btn.classList.remove('border-blue-600', 'bg-blue-50');
+                btn.classList.add('border-gray-300');
+            });
+            
+            // Show selected section
+            document.getElementById('section-' + section).classList.remove('hidden');
+            
+            // Add active state to selected button
+            const activeBtn = document.querySelector(`[data-section="${section}"]`);
+            activeBtn.classList.add('border-blue-600', 'bg-blue-50');
+            activeBtn.classList.remove('border-gray-300');
+        }
+
+        // Load all settings from server
+        async function loadSettings() {
+            try {
+                const response = await fetch('/api/settings/all');
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Populate form fields
+                    for (const [key, value] of Object.entries(data.settings)) {
+                        const element = document.getElementById(key);
+                        if (element) {
+                            if (element.type === 'checkbox') {
+                                element.checked = value === 'true' || value === true;
+                            } else {
+                                element.value = value;
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading settings:', error);
+                showAlert('Error loading settings', 'error');
+            }
+        }
+
+        // Save all settings
+        async function saveAllSettings() {
+            const settings = {};
+            
+            // Gather all input values
+            const inputs = document.querySelectorAll('input, select');
+            inputs.forEach(input => {
+                if (input.id) {
+                    if (input.type === 'checkbox') {
+                        settings[input.id] = input.checked ? 'true' : 'false';
+                    } else {
+                        settings[input.id] = input.value;
+                    }
+                }
+            });
+            
+            try {
+                const response = await fetch('/api/settings/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings)
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert('Settings saved successfully!', 'success');
+                } else {
+                    showAlert('Error saving settings: ' + data.error, 'error');
+                }
+            } catch (error) {
+                console.error('Error saving settings:', error);
+                showAlert('Error saving settings', 'error');
+            }
+        }
+
+        // Test email configuration
+        async function testEmail() {
+            showAlert('Sending test email...', 'info');
+            
+            try {
+                const response = await fetch('/api/settings/test-email', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert('Test email sent successfully!', 'success');
+                } else {
+                    showAlert('Failed to send test email: ' + data.error, 'error');
+                }
+            } catch (error) {
+                console.error('Error sending test email:', error);
+                showAlert('Error sending test email', 'error');
+            }
+        }
+
+        // Backup database now
+        async function backupNow() {
+            showAlert('Creating backup...', 'info');
+            
+            try {
+                const response = await fetch('/api/settings/backup-now', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert('Database backup created successfully!', 'success');
+                } else {
+                    showAlert('Backup failed: ' + data.error, 'error');
+                }
+            } catch (error) {
+                console.error('Error creating backup:', error);
+                showAlert('Error creating backup', 'error');
+            }
+        }
+
+        // Optimize database
+        async function optimizeDB() {
+            if (!confirm('This will optimize the database. Continue?')) return;
+            
+            showAlert('Optimizing database...', 'info');
+            
+            try {
+                const response = await fetch('/api/settings/optimize-db', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert('Database optimized successfully!', 'success');
+                } else {
+                    showAlert('Optimization failed: ' + data.error, 'error');
+                }
+            } catch (error) {
+                console.error('Error optimizing database:', error);
+                showAlert('Error optimizing database', 'error');
+            }
+        }
+
+        // View activity logs
+        function viewLogs() {
+            window.location.href = '/admin/logs';
+        }
+
+        // Show alert message
+        function showAlert(message, type) {
+            const alertContainer = document.getElementById('alertContainer');
+            const alertBox = document.getElementById('alertBox');
+            const alertMessage = document.getElementById('alertMessage');
+            
+            alertContainer.classList.remove('hidden');
+            alertMessage.textContent = message;
+            
+            // Set colors based on type
+            alertBox.className = 'rounded-lg p-4 ';
+            if (type === 'success') {
+                alertBox.className += 'bg-green-100 border-l-4 border-green-500 text-green-700';
+            } else if (type === 'error') {
+                alertBox.className += 'bg-red-100 border-l-4 border-red-500 text-red-700';
+            } else if (type === 'info') {
+                alertBox.className += 'bg-blue-100 border-l-4 border-blue-500 text-blue-700';
+            }
+            
+            // Auto-hide after 3 seconds for success/info
+            if (type !== 'error') {
+                setTimeout(() => {
+                    alertContainer.classList.add('hidden');
+                }, 3000);
+            }
+        }
+    </script>
+</body>
+</html>
+

@@ -32,7 +32,7 @@ class TestSecurityFeatures(unittest.TestCase):
         
         # Test weak passwords
         weak_passwords = [
-            ('123', False), 
+            ('123', False),
             ('password', False),
             ('PASSWORD', False),
             ('Password', False),
