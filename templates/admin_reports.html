@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reports & Analytics - FaceCheck</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <div class="flex h-screen">
+        <div class="w-64 bg-gray-800 text-white">
+            <div class="p-6 border-b border-gray-700">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center mr-3">
+                        <i class="fas fa-user-check text-white"></i>
+                    </div>
+                    <h1 class="text-xl font-bold">FaceCheck</h1>
+                </div>
+            </div>
+            <nav class="mt-6">
+                <div class="px-3">
+                    <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Main Menu</div>
+                </div>
+                <a href="{{ url_for('dashboard') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-tachometer-alt mr-3"></i>Dashboard
+                </a>
+                <a href="{{ url_for('admin_users') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-users mr-3"></i>User Management
+                </a>
+                <a href="{{ url_for('admin_classes') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-chalkboard-teacher mr-3"></i>Class Management
+                </a>
+                <a href="{{ url_for('admin_events') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-calendar-alt mr-3"></i>Event Management
+                </a>
+                <a href="{{ url_for('admin_attendance') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-clipboard-check mr-3"></i>View Attendance Record
+                </a>
+                <a href="{{ url_for('admin_reports') }}" class="flex items-center px-6 py-3 bg-gray-700 text-white">
+                    <i class="fas fa-chart-line mr-3"></i>Reports & Analytics
+                </a>
+                <a href="/settings" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-cog mr-3"></i>Settings
+                </a>
+            </nav>
+            <!-- User Info -->
+            <div class="absolute bottom-0 w-64 p-6 border-t border-gray-700">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center mr-3">
+                        <i class="fas fa-user text-white text-sm"></i>
+                    </div>
+                    <div>
+                        <div class="text-sm font-medium">Admin User</div>
+                        <div class="text-xs text-gray-400">Administrator</div>
+                    </div>
+                </div>
+                <a href="{{ url_for('logout') }}" class="mt-3 flex items-center text-gray-300 hover:text-white transition duration-200">
+                    <i class="fas fa-sign-out-alt mr-2"></i>
+                    Logout
+                </a>
+            </div>
+        </div>
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <header class="bg-white shadow-sm border-b border-gray-200">
+                <div class="px-6 py-4 flex items-center justify-between">
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-800">Reports & Analytics</h2>
+                        <p class="text-gray-600">Class and Event summaries, absence patterns, and monthly graphs</p>
+                    </div>
+                    <div class="inline-flex rounded-md shadow-sm" role="group">
+                        <button onclick="exportReports('csv')" class="bg-green-600 text-white px-4 py-2 rounded-l-lg hover:bg-green-700 transition duration-200"><i class="fas fa-file-csv mr-2"></i>CSV</button>
+                        <button onclick="exportReports('xlsx')" class="bg-green-600 text-white px-4 py-2 hover:bg-green-700 transition duration-200"><i class="fas fa-file-excel mr-2"></i>Excel</button>
+                        <button onclick="exportReports('pdf')" class="bg-green-600 text-white px-4 py-2 rounded-r-lg hover:bg-green-700 transition duration-200"><i class="fas fa-file-pdf mr-2"></i>PDF</button>
+                    </div>
+                </div>
+            </header>
+            <main class="flex-1 overflow-y-auto p-6">
+                <!-- Filters -->
+                <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Filters</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Date From</label>
+                            <input type="date" id="dateFrom" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Date To</label>
+                            <input type="date" id="dateTo" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div class="flex items-end">
+                            <button onclick="refreshAll()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition duration-200"><i class="fas fa-sync-alt mr-2"></i>Apply</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Class Attendance Summaries -->
+                <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold text-gray-900">Class Attendance Summaries</h3>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">EDP Code</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Present</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unique Students</th>
+                                </tr>
+                            </thead>
+                            <tbody id="classSummaryBody" class="bg-white divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Event Attendance Summaries -->
+                <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold text-gray-900">Event Attendance Summaries</h3>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Event</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Present</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unique Attendees</th>
+                                </tr>
+                            </thead>
+                            <tbody id="eventSummaryBody" class="bg-white divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Absence Patterns -->
+                <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold text-gray-900">Absence Patterns</h3>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Present Count</th>
+                                </tr>
+                            </thead>
+                            <tbody id="absenceBody" class="bg-white divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Monthly Graphs -->
+                <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold text-gray-900">Monthly Attendance</h3>
+                    </div>
+                    <div class="w-full">
+                        <canvas id="monthlyChart" height="120"></canvas>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script>
+        function getDates() {
+            const start = document.getElementById('dateFrom').value;
+            const end = document.getElementById('dateTo').value;
+            return { start, end };
+        }
+
+        async function loadClassSummary() {
+            const { start, end } = getDates();
+            const params = new URLSearchParams();
+            if (start) params.append('start', start); if (end) params.append('end', end);
+            const resp = await fetch('/api/admin/reports/class-summary?' + params.toString());
+            const data = await resp.json();
+            const tbody = document.getElementById('classSummaryBody');
+            tbody.innerHTML = '';
+            data.forEach(r => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="px-6 py-3 whitespace-nowrap">${r.class_name || ''}</td>
+                    <td class="px-6 py-3 whitespace-nowrap">${r.edpcode || ''}</td>
+                    <td class="px-6 py-3 whitespace-nowrap">${r.present_count}</td>
+                    <td class="px-6 py-3 whitespace-nowrap">${r.unique_students}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function loadEventSummary() {
+            const { start, end } = getDates();
+            const params = new URLSearchParams();
+            if (start) params.append('start', start); if (end) params.append('end', end);
+            const resp = await fetch('/api/admin/reports/event-summary?' + params.toString());
+            const data = await resp.json();
+            const tbody = document.getElementById('eventSummaryBody');
+            tbody.innerHTML = '';
+            data.forEach(r => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="px-6 py-3 whitespace-nowrap">${r.event_name || ''}</td>
+                    <td class="px-6 py-3 whitespace-nowrap">${r.event_date || ''}</td>
+                    <td class="px-6 py-3 whitespace-nowrap">${r.present_count}</td>
+                    <td class="px-6 py-3 whitespace-nowrap">${r.unique_attendees}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function loadAbsence() {
+            const { start, end } = getDates();
+            const params = new URLSearchParams();
+            if (start) params.append('start', start); if (end) params.append('end', end);
+            const resp = await fetch('/api/admin/reports/absence-patterns?' + params.toString());
+            const data = await resp.json();
+            const tbody = document.getElementById('absenceBody');
+            tbody.innerHTML = '';
+            data.forEach(r => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="px-6 py-3 whitespace-nowrap">${r.student_name || ''}</td>
+                    <td class="px-6 py-3 whitespace-nowrap">${r.class_name || ''}</td>
+                    <td class="px-6 py-3 whitespace-nowrap">${r.present_count}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        let monthlyChart;
+        async function loadMonthly() {
+            const year = new Date().getFullYear();
+            const resp = await fetch('/api/admin/reports/monthly?year=' + year);
+            const data = await resp.json();
+            const labels = data.map(d => d.month);
+            const values = data.map(d => d.present_count);
+            const ctx = document.getElementById('monthlyChart').getContext('2d');
+            if (monthlyChart) monthlyChart.destroy();
+            monthlyChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [{ label: 'Present Count', data: values, backgroundColor: '#3b82f6' }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        }
+
+        function refreshAll() { loadClassSummary(); loadEventSummary(); loadAbsence(); loadMonthly(); }
+
+        function exportReports(fmt) {
+            const { start, end } = getDates();
+            const params = new URLSearchParams();
+            if (start) params.append('start', start); if (end) params.append('end', end);
+            window.location.href = '/admin/reports/export/' + fmt + '?' + params.toString();
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            refreshAll();
+        });
+    </script>
+</body>
+</html>
+
+

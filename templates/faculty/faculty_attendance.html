@@ -89,7 +89,7 @@
                     <div class="flex items-center justify-between">
                         <div>
                             <h2 class="text-2xl font-bold text-gray-800">Take Attendance</h2>
-                            <p class="text-gray-600">Use face recognition to mark student attendance</p>
+                            <p class="text-gray-600">Use face recognition to mark attendance for classes or events</p>
                         </div>
                         <div class="flex items-center space-x-4">
                             <div class="text-sm text-gray-500">
@@ -121,6 +121,18 @@
             
             <!-- Main Content Area -->
             <main class="flex-1 overflow-y-auto p-6">
+                <!-- Mode Tabs -->
+                <div class="bg-white rounded-xl shadow-lg p-4 mb-4">
+                    <div class="inline-flex rounded-md shadow-sm" role="group">
+                        <button id="tabClasses" type="button" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-l-lg border border-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500">
+                            <i class="fas fa-chalkboard mr-2"></i>Classes
+                        </button>
+                        <button id="tabEvents" type="button" class="px-4 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-200 rounded-r-lg hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-2 focus:ring-blue-500">
+                            <i class="fas fa-calendar-check mr-2"></i>Events
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Class Selection Section -->
                 <div id="classSelectionSection" class="bg-white rounded-xl shadow-lg p-6 mb-6">
                     <h3 class="text-lg font-semibold text-gray-900 mb-4">Select Class for Attendance</h3>
@@ -136,6 +148,21 @@
                         <p class="text-sm">Contact your administrator to get assigned to classes.</p>
                     </div>
                 </div>
+
+                <!-- Event Selection Section -->
+                <div id="eventSelectionSection" class="bg-white rounded-xl shadow-lg p-6 mb-6" style="display: none;">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Select Event for Attendance</h3>
+                    <p class="text-gray-600 mb-4">Choose the event you want to take attendance for:</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="eventsList">
+                        <!-- Events will be loaded here -->
+                    </div>
+
+                    <div id="noEventsMessage" class="text-center py-8 text-gray-500" style="display: none;">
+                        <i class="fas fa-calendar-times text-gray-400 text-4xl mb-4"></i>
+                        <p>No events assigned to you yet.</p>
+                    </div>
+                </div>
                 
                 <!-- Camera Section (hidden initially) -->
                 <div id="cameraSection" class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full" style="display: none;">
@@ -144,17 +171,15 @@
                         <div class="mb-4">
                             <div class="flex items-center justify-between mb-2">
                                 <h3 class="text-lg font-semibold text-gray-900">Camera Feed</h3>
-                                <button id="backToClasses" class="text-blue-600 hover:text-blue-800 text-sm">
-                                    <i class="fas fa-arrow-left mr-1"></i>Change Class
+                                <button id="backToSelection" class="text-blue-600 hover:text-blue-800 text-sm">
+                                    <i class="fas fa-arrow-left mr-1"></i>Change Selection
                                 </button>
                             </div>
                             <p class="text-sm text-gray-600">Position students in front of the camera for face recognition</p>
                         </div>
                         
-                        <!-- Selected Class Info -->
-                        <div id="selectedClassInfo" class="mb-4 p-3 bg-blue-50 rounded-lg">
-                            <!-- Selected class info will be shown here -->
-                        </div>
+                        <!-- Selected Target Info -->
+                        <div id="selectedTargetInfo" class="mb-4 p-3 bg-blue-50 rounded-lg"></div>
                         
                         <!-- Camera Container -->
                         <div class="relative bg-gray-900 rounded-lg overflow-hidden" style="height: 400px;">
@@ -212,7 +237,7 @@
                         <div class="grid grid-cols-3 gap-4 mb-6">
                             <div class="text-center p-3 bg-blue-50 rounded-lg">
                                 <div class="text-2xl font-bold text-blue-600" id="totalStudents">0</div>
-                                <div class="text-xs text-blue-600">Total Students</div>
+                                <div class="text-xs text-blue-600">Total</div>
                             </div>
                             <div class="text-center p-3 bg-green-50 rounded-lg">
                                 <div class="text-2xl font-bold text-green-600" id="presentCount">0</div>
@@ -229,7 +254,7 @@
                             <table class="min-w-full divide-y divide-gray-200">
                                 <thead class="bg-gray-50">
                                     <tr>
-                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Participant</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                                     </tr>
@@ -276,7 +301,9 @@
         const EAR_CONSEC_FRAMES = 2;
         const MOTION_MIN_NOSE_PIX = 1.0; // Minimum nose motion threshold for liveness
         let selectedClass = null;
+        let selectedEvent = null;
         let facultyClasses = [];
+        let facultyEvents = [];
         
         // Anti-spoofing manager
         let antiSpoofingManager = null; // will be initialized in initializeAntiSpoofing()
@@ -298,14 +325,16 @@
             // Set up event listeners
             document.getElementById('startCamera').addEventListener('click', startCamera);
             document.getElementById('stopCamera').addEventListener('click', stopCamera);
-            document.getElementById('backToClasses').addEventListener('click', backToClassSelection);
+            document.getElementById('backToSelection').addEventListener('click', backToSelection);
+            document.getElementById('tabClasses').addEventListener('click', () => switchMode('class'));
+            document.getElementById('tabEvents').addEventListener('click', () => switchMode('event'));
             
             // Update time and date
             updateDateTime();
             setInterval(updateDateTime, 1000);
             
-            // Load faculty classes
-            await loadFacultyClasses();
+            // Load faculty classes and events
+            await Promise.all([loadFacultyClasses(), loadFacultyEvents()]);
         });
         
         // Initialize anti-spoofing manager
@@ -436,7 +465,8 @@
                     
                     console.log('Sending frame for detection...');
                     
-                    const response = await fetch('/api/attendance/detect', {
+                    const endpoint = selectedEvent ? '/api/event/detect' : '/api/attendance/detect';
+                    const response = await fetch(endpoint, {
                         method: 'POST',
                         body: formData
                     });
@@ -463,6 +493,21 @@
         
         // Handle recognition result
         function handleRecognitionResult(result) {
+            // Event mode (faculty participants)
+            if (selectedEvent) {
+                if (result.success && result.user_id && result.user_id !== 'Unknown') {
+                    const participant = { user_id: result.user_id, name: result.name };
+                    // Directly mark attendance for events (no liveness loop for simplicity)
+                    markEventAttendance(selectedEvent.event_id, participant.user_id, participant.name);
+                    document.getElementById('recognitionStatus').textContent = `Recognized: ${participant.name}`;
+                    document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-green-400 rounded-full';
+                } else {
+                    document.getElementById('recognitionStatus').textContent = 'No faculty detected';
+                    document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-gray-400 rounded-full';
+                }
+                return;
+            }
+
             // Check for spoofing detection first
             if (result.student_id === 'SPOOFING_DETECTED') {
                 document.getElementById('recognitionStatus').textContent = '⚠️ Spoofing attempt detected!';
@@ -645,6 +690,31 @@
                 showNotification(`Error marking attendance: ${error.message}`, 'error');
             }
         }
+
+        // Mark event attendance (faculty participant)
+        async function markEventAttendance(eventId, userId, name) {
+            try {
+                const payload = { event_id: eventId, user_id: userId, name: name, status: 'present' };
+                const resp = await fetch('/api/event/attendance/mark', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.success) {
+                        addAttendanceRecord(name, userId, new Date().toLocaleTimeString());
+                        showNotification(`Event attendance marked for ${name}`, 'success');
+                    } else {
+                        showNotification(data.message || 'Failed to mark attendance', 'error');
+                    }
+                } else {
+                    showNotification(`HTTP ${resp.status} while marking event attendance`, 'error');
+                }
+            } catch (e) {
+                showNotification(`Error: ${e.message}`, 'error');
+            }
+        }
         
         // Load today's marked students
         async function loadTodayMarked() {
@@ -745,6 +815,21 @@
                 document.getElementById('noClassesMessage').style.display = 'block';
             }
         }
+
+        // Load faculty events
+        async function loadFacultyEvents() {
+            try {
+                const response = await fetch('/api/faculty/events');
+                if (response.ok) {
+                    facultyEvents = await response.json();
+                    displayEvents();
+                } else {
+                    document.getElementById('noEventsMessage').style.display = 'block';
+                }
+            } catch (error) {
+                document.getElementById('noEventsMessage').style.display = 'block';
+            }
+        }
         
         // Display classes
         function displayClasses() {
@@ -775,17 +860,47 @@
                 classesList.appendChild(classCard);
             });
         }
+
+        // Display events
+        function displayEvents() {
+            const eventsList = document.getElementById('eventsList');
+            const noEventsMessage = document.getElementById('noEventsMessage');
+
+            if (!facultyEvents || facultyEvents.length === 0) {
+                noEventsMessage.style.display = 'block';
+                return;
+            }
+
+            eventsList.innerHTML = '';
+            facultyEvents.forEach(evt => {
+                const card = document.createElement('div');
+                card.className = 'bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition duration-200 cursor-pointer';
+                card.onclick = () => selectEvent(evt);
+                const when = `${evt.event_date || ''} ${evt.start_time || ''}`.trim();
+                card.innerHTML = `
+                    <div class="flex items-center mb-2">
+                        <i class="fas fa-calendar-check text-blue-600 mr-2"></i>
+                        <h4 class="font-semibold text-gray-900">${evt.event_name}</h4>
+                    </div>
+                    <p class="text-sm text-gray-600 mb-2">${when || 'Schedule TBA'}</p>
+                    <p class="text-xs text-gray-500">Room: ${evt.room || 'TBA'}</p>
+                `;
+                eventsList.appendChild(card);
+            });
+        }
         
         // Select class
         function selectClass(classInfo) {
             selectedClass = classInfo;
+            selectedEvent = null;
             
             // Hide class selection, show camera section
             document.getElementById('classSelectionSection').style.display = 'none';
+            document.getElementById('eventSelectionSection').style.display = 'none';
             document.getElementById('cameraSection').style.display = 'grid';
             
             // Update selected class info
-            document.getElementById('selectedClassInfo').innerHTML = `
+            document.getElementById('selectedTargetInfo').innerHTML = `
                 <div class="flex items-center">
                     <i class="fas fa-chalkboard-teacher text-blue-600 mr-2"></i>
                     <div>
@@ -800,8 +915,28 @@
             loadTodayMarked();
         }
         
-        // Back to class selection
-        function backToClassSelection() {
+        // Select event
+        function selectEvent(evt) {
+            selectedEvent = evt;
+            selectedClass = null;
+
+            document.getElementById('classSelectionSection').style.display = 'none';
+            document.getElementById('eventSelectionSection').style.display = 'none';
+            document.getElementById('cameraSection').style.display = 'grid';
+
+            document.getElementById('selectedTargetInfo').innerHTML = `
+                <div class="flex items-center">
+                    <i class="fas fa-calendar-check text-blue-600 mr-2"></i>
+                    <div>
+                        <h4 class="font-semibold text-gray-900">${evt.event_name}</h4>
+                        <p class="text-sm text-gray-600">${(evt.event_date || '')} ${(evt.start_time || '')}</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Back to selection
+        function backToSelection() {
             // Stop camera if running
             if (stream) {
                 stopCamera();
@@ -809,10 +944,35 @@
             
             // Hide camera section, show class selection
             document.getElementById('cameraSection').style.display = 'none';
-            document.getElementById('classSelectionSection').style.display = 'block';
+            if (currentMode === 'event') {
+                document.getElementById('eventSelectionSection').style.display = 'block';
+            } else {
+                document.getElementById('classSelectionSection').style.display = 'block';
+            }
             
             // Reset selected class
             selectedClass = null;
+            selectedEvent = null;
+        }
+
+        // Switch mode between class and event
+        let currentMode = 'class';
+        function switchMode(mode) {
+            currentMode = mode;
+            // Tabs styling
+            const tabClasses = document.getElementById('tabClasses');
+            const tabEvents = document.getElementById('tabEvents');
+            if (mode === 'class') {
+                tabClasses.className = 'px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-l-lg border border-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500';
+                tabEvents.className = 'px-4 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-200 rounded-r-lg hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-2 focus:ring-blue-500';
+                document.getElementById('classSelectionSection').style.display = 'block';
+                document.getElementById('eventSelectionSection').style.display = 'none';
+            } else {
+                tabEvents.className = 'px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-r-lg border border-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500';
+                tabClasses.className = 'px-4 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-200 rounded-l-lg hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-2 focus:ring-blue-500';
+                document.getElementById('classSelectionSection').style.display = 'none';
+                document.getElementById('eventSelectionSection').style.display = 'block';
+            }
         }
         
         // Show notification
