@@ -312,19 +312,35 @@
             try {
                 let url = `/attendance_reports/export/${fmt}?start=${start}&end=${end}`;
                 if (classEventFilter) {
-                    url += `&filter=${classEventFilter}`;
+                    url += `&filter=${encodeURIComponent(classEventFilter)}`;
                 }
                 
                 // Show loading notification
                 showNotification(`Generating ${fmt.toUpperCase()} report...`, 'info');
                 
+                // Fetch the file to check for errors
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
+                    showNotification(`Error: ${errorData.error || 'Failed to generate report'}`, 'error');
+                    return;
+                }
+                
+                // Get the blob data
+                const blob = await response.blob();
+                
                 // Create a temporary link to trigger download
                 const link = document.createElement('a');
-                link.href = url;
+                const blobUrl = window.URL.createObjectURL(blob);
+                link.href = blobUrl;
                 link.download = `faculty_reports_${start}_to_${end}.${fmt}`;
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
+                
+                // Clean up the blob URL
+                window.URL.revokeObjectURL(blobUrl);
                 
                 // Show success notification after a short delay
                 setTimeout(() => {
@@ -333,7 +349,7 @@
                 
             } catch (error) {
                 console.error('Export error:', error);
-                showNotification(`Error generating ${fmt.toUpperCase()} report`, 'error');
+                showNotification(`Error generating ${fmt.toUpperCase()} report: ${error.message}`, 'error');
             }
         }
 

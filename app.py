@@ -3363,6 +3363,7 @@ def faculty_reports_export(fmt):
     try:
         start = request.args.get('start')
         end = request.args.get('end')
+        filter_param = request.args.get('filter', '')
         if not start or not end:
             today = datetime.now().strftime('%Y-%m-%d')
             start = today
@@ -3379,48 +3380,113 @@ def faculty_reports_export(fmt):
             conn.close()
             return jsonify({'error': 'No faculty record found'}), 404
         
-        # Get class attendance summaries
-        summary = conn.execute('''
-            SELECT c.class_name, c.edpcode,
-                   COUNT(a.attendance_id) AS present_count,
-                   COUNT(DISTINCT sc.student_id) AS unique_students
-            FROM class c
-            JOIN student_class sc ON sc.class_id = c.class_id
-            LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
-                AND DATE(a.attendance_date) BETWEEN ? AND ?
-            WHERE c.faculty_id = ?
-            GROUP BY c.class_id
-            ORDER BY c.class_name
-        ''', (start, end, faculty['faculty_id'])).fetchall()
+        # Get class attendance summaries with filter support
+        if filter_param.startswith('class_'):
+            class_id = filter_param.replace('class_', '')
+            summary = conn.execute('''
+                SELECT c.class_name, c.edpcode,
+                       COUNT(a.attendance_id) AS present_count,
+                       COUNT(DISTINCT sc.student_id) AS unique_students
+                FROM class c
+                JOIN student_class sc ON sc.class_id = c.class_id
+                LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
+                    AND DATE(a.attendance_date) BETWEEN ? AND ?
+                WHERE c.faculty_id = ? AND c.class_id = ?
+                GROUP BY c.class_id
+                ORDER BY c.class_name
+            ''', (start, end, faculty['faculty_id'], class_id)).fetchall()
+        elif filter_param.startswith('event_'):
+            event_id = filter_param.replace('event_', '')
+            summary = conn.execute('''
+                SELECT e.event_name AS class_name, '' AS edpcode,
+                       COUNT(DISTINCT ea.user_id) AS present_count,
+                       COUNT(DISTINCT ea.user_id) AS unique_students
+                FROM event e
+                LEFT JOIN event_attendance ea ON ea.event_id = e.event_id
+                    AND DATE(ea.attendance_date) BETWEEN ? AND ?
+                WHERE e.faculty_id = ? AND e.event_id = ?
+                GROUP BY e.event_id
+                ORDER BY e.event_name
+            ''', (start, end, faculty['faculty_id'], event_id)).fetchall()
+        else:
+            summary = conn.execute('''
+                SELECT c.class_name, c.edpcode,
+                       COUNT(a.attendance_id) AS present_count,
+                       COUNT(DISTINCT sc.student_id) AS unique_students
+                FROM class c
+                JOIN student_class sc ON sc.class_id = c.class_id
+                LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
+                    AND DATE(a.attendance_date) BETWEEN ? AND ?
+                WHERE c.faculty_id = ?
+                GROUP BY c.class_id
+                ORDER BY c.class_name
+            ''', (start, end, faculty['faculty_id'])).fetchall()
         
-        # Get absence patterns
-        absence = conn.execute('''
-            SELECT (u.firstname || ' ' || u.lastname) AS student_name,
-                   c.class_name,
-                   COUNT(a.attendance_id) AS present_count
-            FROM class c
-            JOIN student_class sc ON sc.class_id = c.class_id
-            JOIN student s ON sc.student_id = s.student_id
-            JOIN user u ON s.user_id = u.user_id
-            LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
-                AND DATE(a.attendance_date) BETWEEN ? AND ?
-            WHERE c.faculty_id = ?
-            GROUP BY sc.student_id, c.class_id
-            ORDER BY present_count ASC, student_name
-        ''', (start, end, faculty['faculty_id'])).fetchall()
+        # Get absence patterns with filter support
+        if filter_param.startswith('class_'):
+            class_id = filter_param.replace('class_', '')
+            absence = conn.execute('''
+                SELECT (u.firstname || ' ' || u.lastname) AS student_name,
+                       c.class_name,
+                       COUNT(a.attendance_id) AS present_count
+                FROM class c
+                JOIN student_class sc ON sc.class_id = c.class_id
+                JOIN student s ON sc.student_id = s.student_id
+                JOIN user u ON s.user_id = u.user_id
+                LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
+                    AND DATE(a.attendance_date) BETWEEN ? AND ?
+                WHERE c.faculty_id = ? AND c.class_id = ?
+                GROUP BY sc.student_id, c.class_id
+                ORDER BY present_count ASC, student_name
+            ''', (start, end, faculty['faculty_id'], class_id)).fetchall()
+        elif filter_param.startswith('event_'):
+            # Events don't have absence patterns in the same way
+            absence = []
+        else:
+            absence = conn.execute('''
+                SELECT (u.firstname || ' ' || u.lastname) AS student_name,
+                       c.class_name,
+                       COUNT(a.attendance_id) AS present_count
+                FROM class c
+                JOIN student_class sc ON sc.class_id = c.class_id
+                JOIN student s ON sc.student_id = s.student_id
+                JOIN user u ON s.user_id = u.user_id
+                LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
+                    AND DATE(a.attendance_date) BETWEEN ? AND ?
+                WHERE c.faculty_id = ?
+                GROUP BY sc.student_id, c.class_id
+                ORDER BY present_count ASC, student_name
+            ''', (start, end, faculty['faculty_id'])).fetchall()
         
-        # Get monthly attendance data
-        monthly = conn.execute('''
-            SELECT strftime('%Y', a.attendance_date) AS year,
-                   strftime('%m', a.attendance_date) AS month,
-                   COUNT(a.attendance_id) AS present_count
-            FROM attendance a
-            JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
-            JOIN class c ON sc.class_id = c.class_id
-            WHERE c.faculty_id = ?
-            GROUP BY strftime('%Y', a.attendance_date), strftime('%m', a.attendance_date)
-            ORDER BY year, month
-        ''', (faculty['faculty_id'],)).fetchall()
+        # Get monthly attendance data with filter support
+        if filter_param.startswith('class_'):
+            class_id = filter_param.replace('class_', '')
+            monthly = conn.execute('''
+                SELECT strftime('%Y', a.attendance_date) AS year,
+                       strftime('%m', a.attendance_date) AS month,
+                       COUNT(a.attendance_id) AS present_count
+                FROM attendance a
+                JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+                JOIN class c ON sc.class_id = c.class_id
+                WHERE c.faculty_id = ? AND c.class_id = ?
+                GROUP BY strftime('%Y', a.attendance_date), strftime('%m', a.attendance_date)
+                ORDER BY year, month
+            ''', (faculty['faculty_id'], class_id)).fetchall()
+        elif filter_param.startswith('event_'):
+            # Events don't have monthly attendance in the same way
+            monthly = []
+        else:
+            monthly = conn.execute('''
+                SELECT strftime('%Y', a.attendance_date) AS year,
+                       strftime('%m', a.attendance_date) AS month,
+                       COUNT(a.attendance_id) AS present_count
+                FROM attendance a
+                JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+                JOIN class c ON sc.class_id = c.class_id
+                WHERE c.faculty_id = ?
+                GROUP BY strftime('%Y', a.attendance_date), strftime('%m', a.attendance_date)
+                ORDER BY year, month
+            ''', (faculty['faculty_id'],)).fetchall()
         
         conn.close()
 
@@ -3473,235 +3539,232 @@ def faculty_reports_export(fmt):
             csv_data = output.getvalue()
             output.close()
             
+            from urllib.parse import quote
+            filename = f'faculty_reports_{start}_to_{end}.csv'
             return app.response_class(
                 csv_data,
                 mimetype='text/csv',
                 headers={
-                    'Content-Disposition': f'attachment; filename=faculty_reports_{start}_to_{end}.csv',
+                    'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{quote(filename)}',
                     'Content-Type': 'text/csv; charset=utf-8'
                 }
             )
             
         elif fmt == 'xlsx':
-            try:
-                from io import BytesIO
-                from openpyxl import Workbook
-                from openpyxl.styles import Font, PatternFill, Alignment
-                
-                wb = Workbook()
-                
-                # Remove default sheet and create new ones
-                wb.remove(wb.active)
-                
-                # Summary sheet
-                ws1 = wb.create_sheet('Class Summaries')
-                ws1.append([f'Faculty Reports & Analytics ({start} to {end})'])
-                ws1.append([f'Generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'])
-                ws1.append([])
-                ws1.append(['Class Name', 'EDP Code', 'Present Count', 'Unique Students'])
-                
-                # Style header row
-                header_font = Font(bold=True)
-                header_fill = PatternFill(start_color='CCCCCC', end_color='CCCCCC', fill_type='solid')
-                for cell in ws1[4]:
-                    cell.font = header_font
-                    cell.fill = header_fill
-                
-                for r in summary:
-                    ws1.append([
-                        r['class_name'] or '', 
-                        r['edpcode'] or '', 
-                        r['present_count'] or 0, 
-                        r['unique_students'] or 0
-                    ])
-                
-                # Absence patterns sheet
-                ws2 = wb.create_sheet('Absence Patterns')
-                ws2.append([f'Faculty Reports & Analytics ({start} to {end})'])
-                ws2.append([f'Generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'])
-                ws2.append([])
-                ws2.append(['Student Name', 'Class Name', 'Present Count'])
-                
-                # Style header row
-                for cell in ws2[4]:
-                    cell.font = header_font
-                    cell.fill = header_fill
-                
-                for r in absence:
-                    ws2.append([
-                        r['student_name'] or '', 
-                        r['class_name'] or '', 
-                        r['present_count'] or 0
-                    ])
-                
-                # Monthly attendance sheet
-                ws3 = wb.create_sheet('Monthly Attendance')
-                ws3.append([f'Faculty Reports & Analytics ({start} to {end})'])
-                ws3.append([f'Generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'])
-                ws3.append([])
-                ws3.append(['Year', 'Month', 'Present Count'])
-                
-                # Style header row
-                for cell in ws3[4]:
-                    cell.font = header_font
-                    cell.fill = header_fill
-                
-                for r in monthly:
-                    ws3.append([
-                        r['year'] or '', 
-                        r['month'] or '', 
-                        r['present_count'] or 0
-                    ])
-                
-                # Auto-adjust column widths
-                for ws in [ws1, ws2, ws3]:
-                    for column in ws.columns:
-                        max_length = 0
-                        column_letter = column[0].column_letter
-                        for cell in column:
-                            try:
-                                if len(str(cell.value)) > max_length:
-                                    max_length = len(str(cell.value))
-                            except:
-                                pass
-                        adjusted_width = min(max_length + 2, 50)
-                        ws.column_dimensions[column_letter].width = adjusted_width
-                
-                stream = BytesIO()
-                wb.save(stream)
-                stream.seek(0)
-                
-                return app.response_class(
-                    stream.read(),
-                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                    headers={'Content-Disposition': f'attachment; filename=faculty_reports_{start}_to_{end}.xlsx'}
-                )
-                
-            except ImportError as e:
-                return jsonify({'error': f'Excel export requires openpyxl. Error: {str(e)}'}), 500
-            except Exception as e:
-                return jsonify({'error': f'Excel export failed: {str(e)}'}), 500
+            # Generate HTML that Excel can open
+            html_content = f'''<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Faculty Reports & Analytics</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; }}
+        h1 {{ color: #333; border-bottom: 2px solid #4CAF50; padding-bottom: 10px; }}
+        h2 {{ color: #555; margin-top: 30px; }}
+        .meta {{ color: #666; font-size: 12px; margin-bottom: 20px; }}
+        table {{ border-collapse: collapse; width: 100%; margin-bottom: 30px; }}
+        th {{ background-color: #4CAF50; color: white; padding: 12px; text-align: left; font-weight: bold; }}
+        td {{ border: 1px solid #ddd; padding: 10px; }}
+        tr:nth-child(even) {{ background-color: #f2f2f2; }}
+        tr:hover {{ background-color: #ddd; }}
+        .section {{ page-break-after: always; }}
+        @media print {{ .section {{ page-break-after: always; }} }}
+    </style>
+</head>
+<body>
+    <h1>Faculty Reports & Analytics</h1>
+    <div class="meta">Period: {start} to {end}<br>Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+    
+    <div class="section">
+        <h2>Class Attendance Summaries</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Class Name</th>
+                    <th>EDP Code</th>
+                    <th>Present Count</th>
+                    <th>Unique Students</th>
+                </tr>
+            </thead>
+            <tbody>
+'''
+            for r in summary:
+                html_content += f'''                <tr>
+                    <td>{r['class_name'] or ''}</td>
+                    <td>{r['edpcode'] or ''}</td>
+                    <td>{r['present_count'] or 0}</td>
+                    <td>{r['unique_students'] or 0}</td>
+                </tr>
+'''
+            html_content += '''            </tbody>
+        </table>
+    </div>
+    
+    <div class="section">
+        <h2>Absence Patterns (by low presence)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Student Name</th>
+                    <th>Class Name</th>
+                    <th>Present Count</th>
+                </tr>
+            </thead>
+            <tbody>
+'''
+            for r in absence:
+                html_content += f'''                <tr>
+                    <td>{r['student_name'] or ''}</td>
+                    <td>{r['class_name'] or ''}</td>
+                    <td>{r['present_count'] or 0}</td>
+                </tr>
+'''
+            html_content += '''            </tbody>
+        </table>
+    </div>
+    
+    <div class="section">
+        <h2>Monthly Attendance</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Year</th>
+                    <th>Month</th>
+                    <th>Present Count</th>
+                </tr>
+            </thead>
+            <tbody>
+'''
+            for r in monthly:
+                html_content += f'''                <tr>
+                    <td>{r['year'] or ''}</td>
+                    <td>{r['month'] or ''}</td>
+                    <td>{r['present_count'] or 0}</td>
+                </tr>
+'''
+            html_content += '''            </tbody>
+        </table>
+    </div>
+</body>
+</html>'''
+            
+            from urllib.parse import quote
+            filename = f'faculty_reports_{start}_to_{end}.xlsx'
+            return app.response_class(
+                html_content,
+                mimetype='application/vnd.ms-excel',
+                headers={'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{quote(filename)}'}
+            )
                 
         elif fmt == 'pdf':
-            try:
-                from io import BytesIO
-                from reportlab.lib.pagesizes import letter
-                from reportlab.pdfgen import canvas
-                from reportlab.lib.units import inch
-                from reportlab.lib import colors
-                from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-                from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-                from reportlab.lib.enums import TA_CENTER, TA_LEFT
-                
-                buffer = BytesIO()
-                doc = SimpleDocTemplate(buffer, pagesize=letter)
-                styles = getSampleStyleSheet()
-                story = []
-                
-                # Title
-                title_style = ParagraphStyle(
-                    'CustomTitle',
-                    parent=styles['Heading1'],
-                    fontSize=16,
-                    spaceAfter=30,
-                    alignment=TA_CENTER
-                )
-                story.append(Paragraph(f"Faculty Reports & Analytics ({start} to {end})", title_style))
-                story.append(Paragraph(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
-                story.append(Spacer(1, 20))
-                
-                # Class Attendance Summaries
-                story.append(Paragraph("Class Attendance Summaries", styles['Heading2']))
-                story.append(Spacer(1, 12))
-                
-                summary_data = [['Class Name', 'EDP Code', 'Present Count', 'Unique Students']]
-                for r in summary:
-                    summary_data.append([
-                        r['class_name'] or '', 
-                        r['edpcode'] or '', 
-                        str(r['present_count'] or 0), 
-                        str(r['unique_students'] or 0)
-                    ])
-                
-                summary_table = Table(summary_data)
-                summary_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 12),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
-                ]))
-                story.append(summary_table)
-                story.append(Spacer(1, 20))
-                
-                # Absence Patterns
-                story.append(Paragraph("Absence Patterns (by low presence)", styles['Heading2']))
-                story.append(Spacer(1, 12))
-                
-                absence_data = [['Student Name', 'Class Name', 'Present Count']]
-                for r in absence:
-                    absence_data.append([
-                        r['student_name'] or '', 
-                        r['class_name'] or '', 
-                        str(r['present_count'] or 0)
-                    ])
-                
-                absence_table = Table(absence_data)
-                absence_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 12),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
-                ]))
-                story.append(absence_table)
-                story.append(Spacer(1, 20))
-                
-                # Monthly Attendance
-                story.append(Paragraph("Monthly Attendance", styles['Heading2']))
-                story.append(Spacer(1, 12))
-                
-                monthly_data = [['Year', 'Month', 'Present Count']]
-                for r in monthly:
-                    monthly_data.append([
-                        r['year'] or '', 
-                        r['month'] or '', 
-                        str(r['present_count'] or 0)
-                    ])
-                
-                monthly_table = Table(monthly_data)
-                monthly_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 12),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
-                ]))
-                story.append(monthly_table)
-                
-                doc.build(story)
-                pdf = buffer.getvalue()
-                buffer.close()
-                
-                return app.response_class(
-                    pdf,
-                    mimetype='application/pdf',
-                    headers={'Content-Disposition': f'attachment; filename=faculty_reports_{start}_to_{end}.pdf'}
-                )
-                
-            except ImportError as e:
-                return jsonify({'error': f'PDF export requires reportlab. Error: {str(e)}'}), 500
-            except Exception as e:
-                return jsonify({'error': f'PDF export failed: {str(e)}'}), 500
+            # Generate HTML that can be printed to PDF
+            html_content = f'''<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Faculty Reports & Analytics</title>
+    <style>
+        @page {{ margin: 2cm; }}
+        body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; }}
+        h1 {{ color: #333; border-bottom: 2px solid #4CAF50; padding-bottom: 10px; page-break-after: avoid; }}
+        h2 {{ color: #555; margin-top: 30px; page-break-after: avoid; }}
+        .meta {{ color: #666; font-size: 12px; margin-bottom: 20px; }}
+        table {{ border-collapse: collapse; width: 100%; margin-bottom: 30px; page-break-inside: avoid; }}
+        th {{ background-color: #4CAF50; color: white; padding: 12px; text-align: left; font-weight: bold; }}
+        td {{ border: 1px solid #ddd; padding: 10px; }}
+        tr:nth-child(even) {{ background-color: #f2f2f2; }}
+        .section {{ page-break-after: always; }}
+        @media print {{ 
+            body {{ margin: 0; }}
+            .section {{ page-break-after: always; }}
+            table {{ page-break-inside: avoid; }}
+        }}
+    </style>
+</head>
+<body>
+    <h1>Faculty Reports & Analytics</h1>
+    <div class="meta">Period: {start} to {end}<br>Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+    
+    <div class="section">
+        <h2>Class Attendance Summaries</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Class Name</th>
+                    <th>EDP Code</th>
+                    <th>Present Count</th>
+                    <th>Unique Students</th>
+                </tr>
+            </thead>
+            <tbody>s
+'''
+            for r in summary:
+                html_content += f'''                <tr>
+                    <td>{r['class_name'] or ''}</td>
+                    <td>{r['edpcode'] or ''}</td>
+                    <td>{r['present_count'] or 0}</td>
+                    <td>{r['unique_students'] or 0}</td>
+                </tr>
+'''
+            html_content += '''            </tbody>
+        </table>
+    </div>
+    
+    <div class="section">
+        <h2>Absence Patterns (by low presence)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Student Name</th>
+                    <th>Class Name</th>
+                    <th>Present Count</th>
+                </tr>
+            </thead>
+            <tbody>
+'''
+            for r in absence:
+                html_content += f'''                <tr>
+                    <td>{r['student_name'] or ''}</td>
+                    <td>{r['class_name'] or ''}</td>
+                    <td>{r['present_count'] or 0}</td>
+                </tr>
+'''
+            html_content += '''            </tbody>
+        </table>
+    </div>
+    
+    <div class="section">
+        <h2>Monthly Attendance</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Year</th>
+                    <th>Month</th>
+                    <th>Present Count</th>
+                </tr>
+            </thead>
+            <tbody>
+'''
+            for r in monthly:
+                html_content += f'''                <tr>
+                    <td>{r['year'] or ''}</td>
+                    <td>{r['month'] or ''}</td>
+                    <td>{r['present_count'] or 0}</td>
+                </tr>
+'''
+            html_content += '''            </tbody>
+        </table>
+    </div>
+</body>
+</html>'''
+            
+            from urllib.parse import quote
+            filename = f'faculty_reports_{start}_to_{end}.pdf'
+            return app.response_class(
+                html_content,
+                mimetype='text/html',
+                headers={'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{quote(filename)}'}
+            )
         else:
             return jsonify({'error': 'Unsupported format. Supported formats: csv, xlsx, pdf'}), 400
             
