@@ -2761,8 +2761,15 @@ def faculty_manage_students():
         ORDER BY e.event_date DESC
     ''', (faculty['faculty_id'],)).fetchall()
     
+    # Get all courses for the course dropdown
+    courses = conn.execute('''
+        SELECT course_id, course_name
+        FROM course
+        ORDER BY course_name
+    ''').fetchall()
+    
     conn.close()
-    return render_template('faculty/faculty_manage_students.html', classes=classes, events=events)
+    return render_template('faculty/faculty_manage_students.html', classes=classes, events=events, courses=courses)
 
 @app.route('/faculty/students/<path:selection>')
 def faculty_get_students(selection):
@@ -2789,7 +2796,7 @@ def faculty_get_students(selection):
         # Get students enrolled in this class
         students = conn.execute('''
             SELECT u.user_id, u.idno, u.firstname, u.lastname, u.is_active,
-                   s.year_level, c.course_name
+                   s.year_level, s.course_id, c.course_name
             FROM student_class sc
             JOIN student s ON sc.student_id = s.student_id
             JOIN user u ON s.user_id = u.user_id
@@ -2804,7 +2811,7 @@ def faculty_get_students(selection):
         # Get students who have attended this event
         students = conn.execute('''
             SELECT DISTINCT u.user_id, u.idno, u.firstname, u.lastname, u.is_active,
-                   s.year_level, c.course_name
+                   s.year_level, s.course_id, c.course_name
             FROM event_attendance ea
             JOIN user u ON ea.user_id = u.user_id
             JOIN student s ON u.user_id = s.user_id
@@ -2828,6 +2835,7 @@ def faculty_edit_student():
         firstname = data.get('firstname')
         lastname = data.get('lastname')
         year_level = data.get('year_level')
+        course_id = data.get('course_id')
         is_active = data.get('is_active')
         
         if not all([user_id, firstname, lastname]):
@@ -2868,12 +2876,24 @@ def faculty_edit_student():
             WHERE user_id = ?
         ''', (firstname, lastname, is_active, user_id))
         
-        # Update student information if year_level is provided
-        if year_level:
-            conn.execute('''
-                UPDATE student SET year_level = ?
+        # Update student information if year_level or course_id is provided
+        if year_level or course_id:
+            updates = []
+            params = []
+            
+            if year_level:
+                updates.append('year_level = ?')
+                params.append(year_level)
+            
+            if course_id:
+                updates.append('course_id = ?')
+                params.append(course_id)
+            
+            params.append(user_id)
+            conn.execute(f'''
+                UPDATE student SET {', '.join(updates)}
                 WHERE user_id = ?
-            ''', (year_level, user_id))
+            ''', tuple(params))
         
         conn.commit()
         conn.close()
@@ -3091,7 +3111,39 @@ def faculty_class_details(type, id):
 def faculty_reports():
     if 'user_id' not in session or session['role'] != 'faculty':
         return redirect(url_for('login'))
-    return render_template('faculty/faculty_reports.html')
+    
+    conn = get_db_connection()
+    
+    # Get faculty info
+    faculty = conn.execute('''
+        SELECT f.faculty_id FROM faculty f 
+        JOIN user u ON f.user_id = u.user_id 
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    
+    if not faculty:
+        conn.close()
+        flash('Faculty record not found', 'error')
+        return redirect(url_for('faculty_dashboard'))
+    
+    # Get classes assigned to this faculty
+    classes = conn.execute('''
+        SELECT c.class_id, c.class_name, c.edpcode
+        FROM class c
+        WHERE c.faculty_id = ?
+        ORDER BY c.class_name
+    ''', (faculty['faculty_id'],)).fetchall()
+    
+    # Get events assigned to this faculty
+    events = conn.execute('''
+        SELECT e.event_id, e.event_name, e.event_date
+        FROM event e
+        WHERE e.faculty_id = ?
+        ORDER BY e.event_date DESC
+    ''', (faculty['faculty_id'],)).fetchall()
+    
+    conn.close()
+    return render_template('faculty/faculty_reports.html', classes=classes, events=events)
 
 @app.route('/api/faculty/reports/summary')
 def api_faculty_reports_summary():
@@ -3099,6 +3151,7 @@ def api_faculty_reports_summary():
         return jsonify([]), 401
     start = request.args.get('start')
     end = request.args.get('end')
+    filter_param = request.args.get('filter', '')
     if not start or not end:
         today = datetime.now().strftime('%Y-%m-%d')
         start = today
@@ -3111,18 +3164,49 @@ def api_faculty_reports_summary():
     if not faculty:
         conn.close()
         return jsonify([])
-    rows = conn.execute('''
-        SELECT c.class_name, c.edpcode,
-               COUNT(a.attendance_id) AS present_count,
-               COUNT(DISTINCT sc.student_id) AS unique_students
-        FROM class c
-        JOIN student_class sc ON sc.class_id = c.class_id
-        LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
-            AND DATE(a.attendance_date) BETWEEN ? AND ?
-        WHERE c.faculty_id = ?
-        GROUP BY c.class_id
-        ORDER BY c.class_name
-    ''', (start, end, faculty['faculty_id'])).fetchall()
+    
+    # Build query based on filter
+    if filter_param.startswith('class_'):
+        class_id = filter_param.replace('class_', '')
+        rows = conn.execute('''
+            SELECT c.class_name, c.edpcode,
+                   COUNT(a.attendance_id) AS present_count,
+                   COUNT(DISTINCT sc.student_id) AS unique_students
+            FROM class c
+            JOIN student_class sc ON sc.class_id = c.class_id
+            LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
+                AND DATE(a.attendance_date) BETWEEN ? AND ?
+            WHERE c.faculty_id = ? AND c.class_id = ?
+            GROUP BY c.class_id
+            ORDER BY c.class_name
+        ''', (start, end, faculty['faculty_id'], class_id)).fetchall()
+    elif filter_param.startswith('event_'):
+        event_id = filter_param.replace('event_', '')
+        rows = conn.execute('''
+            SELECT e.event_name AS class_name, '' AS edpcode,
+                   COUNT(DISTINCT ea.user_id) AS present_count,
+                   COUNT(DISTINCT ea.user_id) AS unique_students
+            FROM event e
+            LEFT JOIN event_attendance ea ON ea.event_id = e.event_id
+                AND DATE(ea.attendance_date) BETWEEN ? AND ?
+            WHERE e.faculty_id = ? AND e.event_id = ?
+            GROUP BY e.event_id
+            ORDER BY e.event_name
+        ''', (start, end, faculty['faculty_id'], event_id)).fetchall()
+    else:
+        rows = conn.execute('''
+            SELECT c.class_name, c.edpcode,
+                   COUNT(a.attendance_id) AS present_count,
+                   COUNT(DISTINCT sc.student_id) AS unique_students
+            FROM class c
+            JOIN student_class sc ON sc.class_id = c.class_id
+            LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
+                AND DATE(a.attendance_date) BETWEEN ? AND ?
+            WHERE c.faculty_id = ?
+            GROUP BY c.class_id
+            ORDER BY c.class_name
+        ''', (start, end, faculty['faculty_id'])).fetchall()
+    
     conn.close()
     return jsonify([{
         'class_name': r['class_name'],
@@ -3137,6 +3221,7 @@ def api_faculty_reports_absence_patterns():
         return jsonify([]), 401
     start = request.args.get('start')
     end = request.args.get('end')
+    filter_param = request.args.get('filter', '')
     if not start or not end:
         today = datetime.now().strftime('%Y-%m-%d')
         start = today
@@ -3149,22 +3234,60 @@ def api_faculty_reports_absence_patterns():
     if not faculty:
         conn.close()
         return jsonify([])
-    rows = conn.execute('''
-        SELECT (u.firstname || ' ' || u.lastname) AS student_name,
-               c.class_name,
-               COUNT(a.attendance_id) AS present_count
-        FROM class c
-        JOIN student_class sc ON sc.class_id = c.class_id
-        JOIN student s ON sc.student_id = s.student_id
-        JOIN user u ON s.user_id = u.user_id
-        LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
-            AND DATE(a.attendance_date) BETWEEN ? AND ?
-        WHERE c.faculty_id = ?
-        GROUP BY sc.student_id, c.class_id
-        HAVING present_count >= 0
-        ORDER BY present_count ASC, student_name
-        LIMIT 200
-    ''', (start, end, faculty['faculty_id'])).fetchall()
+    
+    # Build query based on filter
+    if filter_param.startswith('class_'):
+        class_id = filter_param.replace('class_', '')
+        rows = conn.execute('''
+            SELECT (u.firstname || ' ' || u.lastname) AS student_name,
+                   c.class_name,
+                   COUNT(a.attendance_id) AS present_count
+            FROM class c
+            JOIN student_class sc ON sc.class_id = c.class_id
+            JOIN student s ON sc.student_id = s.student_id
+            JOIN user u ON s.user_id = u.user_id
+            LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
+                AND DATE(a.attendance_date) BETWEEN ? AND ?
+            WHERE c.faculty_id = ? AND c.class_id = ?
+            GROUP BY sc.student_id, c.class_id
+            HAVING present_count >= 0
+            ORDER BY present_count ASC, student_name
+            LIMIT 200
+        ''', (start, end, faculty['faculty_id'], class_id)).fetchall()
+    elif filter_param.startswith('event_'):
+        event_id = filter_param.replace('event_', '')
+        rows = conn.execute('''
+            SELECT (u.firstname || ' ' || u.lastname) AS student_name,
+                   e.event_name AS class_name,
+                   COUNT(DISTINCT ea.attendance_id) AS present_count
+            FROM event e
+            JOIN event_attendance ea ON ea.event_id = e.event_id
+            JOIN user u ON ea.user_id = u.user_id
+            WHERE e.faculty_id = ? AND e.event_id = ?
+                AND DATE(ea.attendance_date) BETWEEN ? AND ?
+            GROUP BY ea.user_id, e.event_id
+            HAVING present_count >= 0
+            ORDER BY present_count ASC, student_name
+            LIMIT 200
+        ''', (faculty['faculty_id'], event_id, start, end)).fetchall()
+    else:
+        rows = conn.execute('''
+            SELECT (u.firstname || ' ' || u.lastname) AS student_name,
+                   c.class_name,
+                   COUNT(a.attendance_id) AS present_count
+            FROM class c
+            JOIN student_class sc ON sc.class_id = c.class_id
+            JOIN student s ON sc.student_id = s.student_id
+            JOIN user u ON s.user_id = u.user_id
+            LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
+                AND DATE(a.attendance_date) BETWEEN ? AND ?
+            WHERE c.faculty_id = ?
+            GROUP BY sc.student_id, c.class_id
+            HAVING present_count >= 0
+            ORDER BY present_count ASC, student_name
+            LIMIT 200
+        ''', (start, end, faculty['faculty_id'])).fetchall()
+    
     conn.close()
     return jsonify([{
         'student_name': r['student_name'],
@@ -3177,6 +3300,7 @@ def api_faculty_reports_monthly():
     if 'user_id' not in session or session['role'] != 'faculty':
         return jsonify([]), 401
     year = request.args.get('year', datetime.now().strftime('%Y'))
+    filter_param = request.args.get('filter', '')
     conn = get_db_connection()
     faculty = conn.execute('''
         SELECT f.faculty_id FROM faculty f JOIN user u ON f.user_id = u.user_id
@@ -3187,15 +3311,40 @@ def api_faculty_reports_monthly():
         return jsonify([])
     # Initialize months 1..12 to 0
     month_counts = {str(m).zfill(2): 0 for m in range(1, 13)}
-    rows = conn.execute('''
-        SELECT strftime('%m', a.attendance_date) AS month,
-               COUNT(a.attendance_id) AS present_count
-        FROM attendance a
-        JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
-        JOIN class c ON sc.class_id = c.class_id
-        WHERE c.faculty_id = ? AND strftime('%Y', a.attendance_date) = ?
-        GROUP BY strftime('%m', a.attendance_date)
-    ''', (faculty['faculty_id'], str(year))).fetchall()
+    
+    # Build query based on filter
+    if filter_param.startswith('class_'):
+        class_id = filter_param.replace('class_', '')
+        rows = conn.execute('''
+            SELECT strftime('%m', a.attendance_date) AS month,
+                   COUNT(a.attendance_id) AS present_count
+            FROM attendance a
+            JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+            JOIN class c ON sc.class_id = c.class_id
+            WHERE c.faculty_id = ? AND c.class_id = ? AND strftime('%Y', a.attendance_date) = ?
+            GROUP BY strftime('%m', a.attendance_date)
+        ''', (faculty['faculty_id'], class_id, str(year))).fetchall()
+    elif filter_param.startswith('event_'):
+        event_id = filter_param.replace('event_', '')
+        rows = conn.execute('''
+            SELECT strftime('%m', ea.attendance_date) AS month,
+                   COUNT(DISTINCT ea.user_id) AS present_count
+            FROM event_attendance ea
+            JOIN event e ON ea.event_id = e.event_id
+            WHERE e.faculty_id = ? AND e.event_id = ? AND strftime('%Y', ea.attendance_date) = ?
+            GROUP BY strftime('%m', ea.attendance_date)
+        ''', (faculty['faculty_id'], event_id, str(year))).fetchall()
+    else:
+        rows = conn.execute('''
+            SELECT strftime('%m', a.attendance_date) AS month,
+                   COUNT(a.attendance_id) AS present_count
+            FROM attendance a
+            JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+            JOIN class c ON sc.class_id = c.class_id
+            WHERE c.faculty_id = ? AND strftime('%Y', a.attendance_date) = ?
+            GROUP BY strftime('%m', a.attendance_date)
+        ''', (faculty['faculty_id'], str(year))).fetchall()
+    
     conn.close()
     for r in rows:
         month_counts[r['month']] = r['present_count'] or 0
