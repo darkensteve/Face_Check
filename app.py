@@ -1783,9 +1783,49 @@ def process_face_recognition(image_path):
         print(f"Tolerance: {MATCH_TOLERANCE}")
         
         # Get face location coordinates for drawing box
-        # face_locations format: (top, right, bottom, left)
+        # Use landmarks for more accurate face bounding box (like real-world systems)
         face_box = None
-        if face_locations:
+        if face_landmarks and len(face_landmarks) > 0:
+            # Calculate precise bounding box from facial landmarks
+            landmarks = face_landmarks[0]
+            all_points = []
+            
+            # Collect all landmark points
+            for feature_name in ['chin', 'left_eyebrow', 'right_eyebrow', 'nose_bridge', 
+                                 'nose_tip', 'left_eye', 'right_eye', 'top_lip', 'bottom_lip']:
+                if feature_name in landmarks:
+                    all_points.extend(landmarks[feature_name])
+            
+            if all_points:
+                # Find min and max coordinates
+                all_x = [p[0] for p in all_points]
+                all_y = [p[1] for p in all_points]
+                
+                min_x = min(all_x)
+                max_x = max(all_x)
+                min_y = min(all_y)
+                max_y = max(all_y)
+                
+                # Add small margin for better visualization (10% padding)
+                width = max_x - min_x
+                height = max_y - min_y
+                margin_x = int(width * 0.15)  # 15% horizontal margin
+                margin_y = int(height * 0.20)  # 20% vertical margin (more for forehead/hair)
+                
+                # Apply margins with boundary checking
+                min_x = max(0, min_x - margin_x)
+                min_y = max(0, min_y - margin_y)
+                max_x = min(rgb_image.shape[1], max_x + margin_x)
+                max_y = min(rgb_image.shape[0], max_y + margin_y)
+                
+                face_box = {
+                    'x': int(min_x),
+                    'y': int(min_y),
+                    'width': int(max_x - min_x),
+                    'height': int(max_y - min_y)
+                }
+        elif face_locations:
+            # Fallback to basic face_locations if landmarks not available
             top, right, bottom, left = face_locations[0]
             face_box = {
                 'x': int(left),
