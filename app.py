@@ -43,10 +43,11 @@ app.secret_key = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
 
 # Session configuration for security
 app.config.update(
-    SESSION_COOKIE_SECURE=True if os.environ.get('HTTPS') == 'true' else False,
+    SESSION_COOKIE_SECURE=False,  # Set to True in production with HTTPS
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
-    PERMANENT_SESSION_LIFETIME=3600  # 1 hour session timeout
+    PERMANENT_SESSION_LIFETIME=7200,  # 2 hours session timeout (increased from 1 hour)
+    SESSION_REFRESH_EACH_REQUEST=True  # Refresh session on each request
 )
 
 # Rate limiting for login attempts
@@ -1331,10 +1332,46 @@ def faculty_dashboard():
 # Faculty Attendance Route
 @app.route('/attendance')
 def faculty_attendance():
-    if 'user_id' not in session or session['role'] != 'faculty':
+    """Faculty attendance page - Take attendance using face recognition"""
+    if 'user_id' not in session:
+        flash('Please login to access attendance', 'error')
         return redirect(url_for('login'))
     
-    return render_template('faculty/faculty_attendance.html')
+    # Allow both faculty and admin
+    if session.get('role') not in ['faculty', 'admin']:
+        flash('Only faculty and admin can access this page', 'error')
+        return redirect(url_for('login'))
+    
+    # Get classes for faculty
+    conn = get_db_connection()
+    classes = []
+    
+    if session.get('role') == 'faculty':
+        # Get faculty's classes
+        faculty = conn.execute('''
+            SELECT f.faculty_id FROM faculty f 
+            JOIN user u ON f.user_id = u.user_id 
+            WHERE u.user_id = ?
+        ''', (session['user_id'],)).fetchone()
+        
+        if faculty:
+            classes = conn.execute('''
+                SELECT c.class_id, c.class_name, c.edpcode
+                FROM class c
+                WHERE c.faculty_id = ?
+                ORDER BY c.class_name
+            ''', (faculty['faculty_id'],)).fetchall()
+    elif session.get('role') == 'admin':
+        # Admin can see all classes
+        classes = conn.execute('''
+            SELECT c.class_id, c.class_name, c.edpcode
+            FROM class c
+            ORDER BY c.class_name
+        ''').fetchall()
+    
+    conn.close()
+    
+    return render_template('faculty/faculty_attendance.html', classes=classes)
 
 # API Routes
 @app.route('/api/register_face', methods=['POST'])
@@ -1990,8 +2027,30 @@ def api_event_attendance_mark():
 @app.route('/api/attendance/detect', methods=['POST'])
 def api_attendance_detect():
     """Face detection and recognition endpoint"""
-    if 'user_id' not in session or session['role'] != 'faculty':
-        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    # Debug session info
+    print(f"Session contents: {dict(session)}")
+    print(f"Session has user_id: {'user_id' in session}")
+    print(f"Session role: {session.get('role', 'NO ROLE')}")
+    
+    if 'user_id' not in session:
+        print("ERROR: No user_id in session! User needs to login again.")
+        return jsonify({
+            'success': False, 
+            'message': 'Your session has expired. Please logout and login again to continue.',
+            'expired': True,
+            'redirect': '/login'
+        }), 401
+    
+    # Allow both faculty and admin to access this endpoint
+    user_role = session.get('role')
+    if user_role not in ['faculty', 'admin']:
+        print(f"ERROR: Invalid role: {user_role}")
+        return jsonify({
+            'success': False, 
+            'message': f'Only faculty and admin can access this feature. You are logged in as: {user_role}',
+            'wrong_role': True,
+            'current_role': user_role
+        }), 401
     
     filepath = None
     try:
@@ -2019,13 +2078,48 @@ def api_attendance_detect():
         
         file.save(filepath)
         
+        # Check if face recognition is available
+        if not FACE_RECOGNITION_AVAILABLE:
+            return jsonify({
+                'success': False, 
+                'message': 'Face recognition system is not configured. Please install required packages.',
+                'student_id': 'Unknown',
+                'student_name': 'Unknown'
+            }), 503
+        
         # Process the image for face recognition
+        print(f"Processing face recognition for image: {filepath}")
+        print(f"File exists: {os.path.exists(filepath)}")
+        print(f"File size: {os.path.getsize(filepath) if os.path.exists(filepath) else 'N/A'} bytes")
+        
         result = process_face_recognition(filepath)
+        print(f"Recognition result type: {type(result)}")
+        print(f"Recognition result: {result}")
+        
+        # Make sure result is JSON serializable
+        if result is None:
+            print("ERROR: process_face_recognition returned None!")
+            return jsonify({
+                'success': False,
+                'message': 'Face recognition returned no result',
+                'student_id': 'Unknown',
+                'student_name': 'Unknown'
+            }), 500
         
         return jsonify(result)
         
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+        print(f"ERROR in api_attendance_detect: {str(e)}")
+        print(f"Error type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False, 
+            'message': f'Recognition error: {str(e)}',
+            'error_type': type(e).__name__,
+            'student_id': 'Unknown',
+            'student_name': 'Unknown'
+        }), 500
     finally:
         # Always clean up temp file
         if filepath and os.path.exists(filepath):
@@ -2037,8 +2131,20 @@ def api_attendance_detect():
 @app.route('/api/attendance/mark', methods=['POST'])
 def api_attendance_mark():
     """Mark attendance for a recognized student"""
-    if 'user_id' not in session or session['role'] != 'faculty':
-        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    if 'user_id' not in session:
+        return jsonify({
+            'success': False, 
+            'message': 'Your session has expired. Please logout and login again.',
+            'expired': True
+        }), 401
+    
+    # Allow both faculty and admin
+    if session.get('role') not in ['faculty', 'admin']:
+        return jsonify({
+            'success': False, 
+            'message': 'Only faculty and admin can mark attendance.',
+            'wrong_role': True
+        }), 401
     
     try:
         data = request.get_json()
