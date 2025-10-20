@@ -229,8 +229,23 @@
                     <!-- Attendance Table Section -->
                     <div class="bg-white rounded-xl shadow-lg p-6">
                         <div class="mb-4">
-                            <h3 class="text-lg font-semibold text-gray-900 mb-2">Today's Attendance</h3>
-                            <p class="text-sm text-gray-600">Real-time attendance tracking</p>
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h3 class="text-lg font-semibold text-gray-900 mb-2">Today's Attendance</h3>
+                                    <p class="text-sm text-gray-600">Real-time attendance tracking</p>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <button id="exportCsv" class="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm rounded-md border" title="Export CSV">
+                                        <i class="fas fa-file-csv mr-1"></i>CSV
+                                    </button>
+                                    <button id="exportXlsx" class="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm rounded-md border" title="Export Excel">
+                                        <i class="fas fa-file-excel mr-1"></i>Excel
+                                    </button>
+                                    <button id="exportPdf" class="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm rounded-md border" title="Export PDF">
+                                        <i class="fas fa-file-pdf mr-1"></i>PDF
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                         
                         <!-- Attendance Stats -->
@@ -335,6 +350,14 @@
             
             // Load faculty classes and events
             await Promise.all([loadFacultyClasses(), loadFacultyEvents()]);
+
+            // Export buttons
+            const exportCsvBtn = document.getElementById('exportCsv');
+            const exportXlsxBtn = document.getElementById('exportXlsx');
+            const exportPdfBtn = document.getElementById('exportPdf');
+            if (exportCsvBtn) exportCsvBtn.addEventListener('click', () => exportAttendance('csv'));
+            if (exportXlsxBtn) exportXlsxBtn.addEventListener('click', () => exportAttendance('xlsx'));
+            if (exportPdfBtn) exportPdfBtn.addEventListener('click', () => exportAttendance('pdf'));
         });
         
         // Initialize anti-spoofing manager
@@ -362,6 +385,24 @@
                     </div>
                 `;
             }
+        }
+
+        // Export today's attendance for selected class
+        function exportAttendance(fmt) {
+            if (!selectedClass) {
+                showNotification('Please select a class first.', 'error');
+                return;
+            }
+            const date = new Date().toISOString().slice(0,10); // YYYY-MM-DD
+            const url = `/api/faculty/attendance/export/${encodeURIComponent(fmt)}?class_id=${encodeURIComponent(selectedClass.class_id)}&date=${encodeURIComponent(date)}`;
+
+            // Trigger download in a safe way
+            const a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
         }
         
         // Start camera
