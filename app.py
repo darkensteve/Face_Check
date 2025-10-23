@@ -22,9 +22,9 @@ try:
     import numpy as np 
     import face_recognition 
     FACE_RECOGNITION_AVAILABLE = True
-    print("✅ Face recognition libraries loaded successfully")
+    print("Face recognition libraries loaded successfully")
 except ImportError as e:
-    print(f"⚠️ Face recognition not available: {e}")
+    print(f"Face recognition not available: {e}")
     print("Install with: pip install face-recognition opencv-contrib-python")
     FACE_RECOGNITION_AVAILABLE = False
 
@@ -32,9 +32,9 @@ except ImportError as e:
 try:
     from anti_spoofing import AntiSpoofingDetector, anti_spoofing_detector
     ANTI_SPOOFING_AVAILABLE = True
-    print("✅ Anti-spoofing module loaded successfully")
+    print("Anti-spoofing module loaded successfully")
 except ImportError as e:
-    print(f"⚠️ Anti-spoofing not available: {e}")
+    print(f"Anti-spoofing not available: {e}")
     ANTI_SPOOFING_AVAILABLE = False
 
 app = Flask(__name__)
@@ -349,12 +349,16 @@ def create_user():
         firstname = request.form.get('firstname')
         lastname = request.form.get('lastname')
         role = request.form.get('role')
+        password = request.form.get('password')
         dept_id = request.form.get('dept_id')
         year_level = request.form.get('year_level')
         course_id = request.form.get('course_id')
         position = request.form.get('position')
-        # Default password uses ID number unless a custom password field is later added
-        password = idno or ''
+        
+        
+        # Set default password if none provided (use ID number)
+        if not password:
+            password = idno  # Use ID number as default password
         
         # Validate required fields
         if not all([idno, firstname, lastname, role]):
@@ -382,7 +386,7 @@ def create_user():
             flash(f'Invalid role: {validated_role}', 'error')
             return redirect(url_for('admin_users'))
         
-        # Validate password strength (default uses ID number)
+        # Validate password strength
         if len(password) < 8:
             flash('Password must be at least 8 characters long', 'error')
             return redirect(url_for('admin_users'))
@@ -403,9 +407,28 @@ def create_user():
                 flash('Invalid course ID', 'error')
                 return redirect(url_for('admin_users'))
         
-        # (Duplicate block removed)
+        # Validate password strength (minimum 3 characters for ID numbers)
+        if len(password) < 3:
+            flash('Password must be at least 3 characters long', 'error')
+            return redirect(url_for('admin_users'))
         
-        # Use ID number as default password (already set above)
+        # Validate department ID if provided
+        if dept_id:
+            try:
+                dept_id = int(dept_id)
+            except ValueError:
+                flash('Invalid department ID', 'error')
+                return redirect(url_for('admin_users'))
+        
+        # Validate course ID for students
+        if validated_role == 'student' and course_id:
+            try:
+                course_id = int(course_id)
+            except ValueError:
+                flash('Invalid course ID', 'error')
+                return redirect(url_for('admin_users'))
+        
+        # Password is already set from form data or default
         
         conn = get_db_connection()
         
@@ -424,7 +447,7 @@ def create_user():
         cursor.execute('''
             INSERT INTO user (idno, firstname, lastname, role, password, dept_id)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (validated_idno, validated_fname, validated_lname, validated_role, hashed_password, dept_id))
+        ''', (validated_idno, validated_fname, validated_lname, validated_role, hashed_password, dept_id if dept_id else None))
         
         user_id = cursor.lastrowid
         
@@ -1329,50 +1352,6 @@ def faculty_dashboard():
                          today_attendance=formatted_attendance,
                          has_face_registered=has_face_registered)
 
-# Faculty Attendance Route
-@app.route('/attendance')
-def faculty_attendance():
-    """Faculty attendance page - Take attendance using face recognition"""
-    if 'user_id' not in session:
-        flash('Please login to access attendance', 'error')
-        return redirect(url_for('login'))
-    
-    # Allow both faculty and admin
-    if session.get('role') not in ['faculty', 'admin']:
-        flash('Only faculty and admin can access this page', 'error')
-        return redirect(url_for('login'))
-    
-    # Get classes for faculty
-    conn = get_db_connection()
-    classes = []
-    
-    if session.get('role') == 'faculty':
-        # Get faculty's classes
-        faculty = conn.execute('''
-            SELECT f.faculty_id FROM faculty f 
-            JOIN user u ON f.user_id = u.user_id 
-            WHERE u.user_id = ?
-        ''', (session['user_id'],)).fetchone()
-        
-        if faculty:
-            classes = conn.execute('''
-                SELECT c.class_id, c.class_name, c.edpcode
-                FROM class c
-                WHERE c.faculty_id = ?
-                ORDER BY c.class_name
-            ''', (faculty['faculty_id'],)).fetchall()
-    elif session.get('role') == 'admin':
-        # Admin can see all classes
-        classes = conn.execute('''
-            SELECT c.class_id, c.class_name, c.edpcode
-            FROM class c
-            ORDER BY c.class_name
-        ''').fetchall()
-    
-    conn.close()
-    
-    return render_template('faculty/faculty_attendance.html', classes=classes)
-
 # API Routes
 @app.route('/api/register_face', methods=['POST'])
 def api_register_face():
@@ -1803,16 +1782,75 @@ def process_face_recognition(image_path):
         print(f"Best distance: {best_distance}")
         print(f"Tolerance: {MATCH_TOLERANCE}")
         
+        # Get face location coordinates for drawing box
+        # Use landmarks for more accurate face bounding box (like real-world systems)
+        face_box = None
+        if face_landmarks and len(face_landmarks) > 0:
+            # Calculate precise bounding box from facial landmarks
+            landmarks = face_landmarks[0]
+            all_points = []
+            
+            # Collect all landmark points
+            for feature_name in ['chin', 'left_eyebrow', 'right_eyebrow', 'nose_bridge', 
+                                 'nose_tip', 'left_eye', 'right_eye', 'top_lip', 'bottom_lip']:
+                if feature_name in landmarks:
+                    all_points.extend(landmarks[feature_name])
+            
+            if all_points:
+                # Find min and max coordinates
+                all_x = [p[0] for p in all_points]
+                all_y = [p[1] for p in all_points]
+                
+                min_x = min(all_x)
+                max_x = max(all_x)
+                min_y = min(all_y)
+                max_y = max(all_y)
+                
+                # Add small margin for better visualization (10% padding)
+                width = max_x - min_x
+                height = max_y - min_y
+                margin_x = int(width * 0.15)  # 15% horizontal margin
+                margin_y = int(height * 0.20)  # 20% vertical margin (more for forehead/hair)
+                
+                # Apply margins with boundary checking
+                min_x = max(0, min_x - margin_x)
+                min_y = max(0, min_y - margin_y)
+                max_x = min(rgb_image.shape[1], max_x + margin_x)
+                max_y = min(rgb_image.shape[0], max_y + margin_y)
+                
+                face_box = {
+                    'x': int(min_x),
+                    'y': int(min_y),
+                    'width': int(max_x - min_x),
+                    'height': int(max_y - min_y)
+                }
+        elif face_locations:
+            # Fallback to basic face_locations if landmarks not available
+            top, right, bottom, left = face_locations[0]
+            face_box = {
+                'x': int(left),
+                'y': int(top),
+                'width': int(right - left),
+                'height': int(bottom - top)
+            }
+        
         if best_match and best_distance <= MATCH_TOLERANCE:
             print("Match found!")
+            confidence = int((1 - best_distance) * 100)  # Convert distance to confidence percentage
             return {
                 'success': True,
-                'student_id': best_match['student_id'],
+                'student_id': int(best_match['student_id']),
                 'student_name': f"{best_match['firstname']} {best_match['lastname']}",
-                'distance': best_distance,
-                'eye_ratio': eye_ratio,  # Real eye aspect ratio
-                'nose_motion': nose_motion,  # Real nose motion
-                'anti_spoofing': anti_spoofing_result  # Include anti-spoofing results
+                'distance': float(best_distance),
+                'confidence': confidence,
+                'face_box': face_box,  # Add face location for drawing box
+                'eye_ratio': float(eye_ratio),  # Real eye aspect ratio
+                'nose_motion': float(nose_motion),  # Real nose motion
+                'anti_spoofing': {
+                    'is_live': bool(anti_spoofing_result.get('is_live', True)),
+                    'confidence': float(anti_spoofing_result.get('confidence', 1.0)),
+                    'details': str(anti_spoofing_result.get('details', 'Anti-spoofing disabled'))
+                }
             }
         else:
             print("No match found")
@@ -1821,208 +1859,28 @@ def process_face_recognition(image_path):
                 'message': 'No matching student found',
                 'student_id': 'Unknown',
                 'student_name': 'Unknown',
-                'distance': best_distance if best_match else 999.0,  # Use 999.0 instead of float('inf')
-                'eye_ratio': eye_ratio,
-                'nose_motion': nose_motion,
-                'anti_spoofing': anti_spoofing_result  # Include anti-spoofing results
+                'distance': float(best_distance if best_match else 999.0),  # Use 999.0 instead of float('inf')
+                'confidence': 0,
+                'face_box': face_box,  # Still provide face box even if no match
+                'eye_ratio': float(eye_ratio),
+                'nose_motion': float(nose_motion),
+                'anti_spoofing': {
+                    'is_live': bool(anti_spoofing_result.get('is_live', True)),
+                    'confidence': float(anti_spoofing_result.get('confidence', 1.0)),
+                    'details': str(anti_spoofing_result.get('details', 'Anti-spoofing disabled'))
+                }
             }
             
     except Exception as e:
+        print(f"Error in process_face_recognition: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {
             'success': False,
             'message': f'Recognition error: {str(e)}',
             'student_id': 'Unknown',
             'student_name': 'Unknown'
         }
-
-def process_faculty_face_recognition(image_path):
-    """Recognize faculty faces for event attendance using stored faculty images."""
-    try:
-        if not FACE_RECOGNITION_AVAILABLE:
-            try:
-                from opencv_face_detector import fallback_face_recognition
-                return fallback_face_recognition(image_path)
-            except ImportError as e:
-                return {
-                    'success': False,
-                    'message': f'Face recognition not configured: {e}',
-                    'user_id': 'Unknown',
-                    'name': 'Unknown'
-                }
-
-        # Load known faculty faces from database
-        conn = get_db_connection()
-        faculty_rows = conn.execute('''
-            SELECT f.faculty_id, u.user_id, u.firstname, u.lastname, f.attendance_image
-            FROM faculty f
-            JOIN user u ON f.user_id = u.user_id
-            WHERE f.attendance_image IS NOT NULL AND u.is_active = 1
-        ''').fetchall()
-        conn.close()
-
-        if not faculty_rows:
-            return {
-                'success': False,
-                'message': 'No registered faculty faces found',
-                'user_id': 'Unknown',
-                'name': 'Unknown'
-            }
-
-        # Load the image to recognize
-        image = cv2.imread(image_path)
-        if image is None:
-            return {
-                'success': False,
-                'message': 'Could not load image',
-                'user_id': 'Unknown',
-                'name': 'Unknown'
-            }
-
-        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        face_locations = face_recognition.face_locations(rgb_image, number_of_times_to_upsample=1, model="hog")
-        if not face_locations:
-            return {
-                'success': False,
-                'message': 'No face detected',
-                'user_id': 'Unknown',
-                'name': 'Unknown'
-            }
-
-        face_encodings = face_recognition.face_encodings(rgb_image, face_locations)
-        if not face_encodings:
-            return {
-                'success': False,
-                'message': 'Could not encode face',
-                'user_id': 'Unknown',
-                'name': 'Unknown'
-            }
-
-        target_enc = face_encodings[0]
-
-        # Compare with known faculty faces
-        best_match = None
-        best_distance = float('inf')
-
-        for row in faculty_rows:
-            if not row['attendance_image'] or not os.path.exists(row['attendance_image']):
-                continue
-            known_img = cv2.imread(row['attendance_image'])
-            if known_img is None:
-                continue
-            known_rgb = cv2.cvtColor(known_img, cv2.COLOR_BGR2RGB)
-            known_encs = face_recognition.face_encodings(known_rgb)
-            if not known_encs:
-                continue
-            distances = face_recognition.face_distance(known_encs, target_enc)
-            min_dist = min(distances)
-            if min_dist < best_distance:
-                best_distance = min_dist
-                best_match = row
-
-        MATCH_TOLERANCE = 0.62
-        if best_match and best_distance <= MATCH_TOLERANCE:
-            return {
-                'success': True,
-                'user_id': best_match['user_id'],
-                'name': f"{best_match['firstname']} {best_match['lastname']}",
-                'distance': float(best_distance)
-            }
-
-        return {
-            'success': False,
-            'message': 'No matching faculty found',
-            'user_id': 'Unknown',
-            'name': 'Unknown',
-            'distance': float(best_distance) if best_distance != float('inf') else 999.0
-        }
-    except Exception as e:
-        return {
-            'success': False,
-            'message': f'Faculty recognition error: {str(e)}',
-            'user_id': 'Unknown',
-            'name': 'Unknown'
-        }
-
-@app.route('/api/event/detect', methods=['POST'])
-def api_event_detect():
-    """Detect and recognize faculty face for event attendance."""
-    if 'user_id' not in session or session['role'] != 'faculty':
-        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
-    filepath = None
-    try:
-        if 'image' not in request.files:
-            return jsonify({'success': False, 'message': 'No image provided'}), 400
-        file = request.files['image']
-        if file.filename == '':
-            return jsonify({'success': False, 'message': 'No image selected'}), 400
-        import uuid
-        safe_filename = f"event_{session['user_id']}_{uuid.uuid4().hex[:8]}.jpg"
-        filepath = os.path.join('temp', safe_filename)
-        os.makedirs('temp', mode=0o755, exist_ok=True)
-        file.save(filepath)
-
-        result = process_faculty_face_recognition(filepath)
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-    finally:
-        if filepath and os.path.exists(filepath):
-            try:
-                os.remove(filepath)
-            except Exception:
-                pass
-
-@app.route('/api/event/attendance/mark', methods=['POST'])
-def api_event_attendance_mark():
-    """Mark event attendance for a recognized faculty participant."""
-    if 'user_id' not in session or session['role'] != 'faculty':
-        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
-    try:
-        data = request.get_json()
-        event_id = data.get('event_id')
-        participant_user_id = data.get('user_id')
-        participant_name = data.get('name')
-        status = data.get('status', 'present')
-        if not event_id or not participant_user_id:
-            return jsonify({'success': False, 'message': 'Missing event or participant info'}), 400
-
-        conn = get_db_connection()
-        # Verify current faculty owns the event
-        owner = conn.execute('''
-            SELECT e.event_id FROM event e
-            JOIN faculty f ON e.faculty_id = f.faculty_id
-            WHERE e.event_id = ? AND f.user_id = ?
-        ''', (event_id, session['user_id'])).fetchone()
-        if not owner:
-            conn.close()
-            return jsonify({'success': False, 'message': 'Not authorized for this event'}), 403
-
-        # Ensure participant is a faculty user
-        participant = conn.execute('SELECT role FROM user WHERE user_id = ?', (participant_user_id,)).fetchone()
-        if not participant or participant['role'] != 'faculty':
-            conn.close()
-            return jsonify({'success': False, 'message': 'Participant is not faculty'}), 400
-
-        # Prevent duplicate marks for the same day
-        today = datetime.now().strftime('%Y-%m-%d')
-        existing = conn.execute('''
-            SELECT event_attend_id FROM event_attendance
-            WHERE event_id = ? AND user_id = ? AND DATE(attendance_time) = ?
-        ''', (event_id, participant_user_id, today)).fetchone()
-        if existing:
-            conn.close()
-            return jsonify({'success': False, 'message': 'Already marked today'})
-
-        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        conn.execute('''
-            INSERT INTO event_attendance (attendance_time, status, event_id, user_id)
-            VALUES (?, ?, ?, ?)
-        ''', (current_time, status, event_id, participant_user_id))
-        conn.commit()
-        conn.close()
-        return jsonify({'success': True, 'message': f'Event attendance marked for {participant_name}', 'time': current_time})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/attendance/detect', methods=['POST'])
 def api_attendance_detect():
@@ -2089,37 +1947,16 @@ def api_attendance_detect():
         
         # Process the image for face recognition
         print(f"Processing face recognition for image: {filepath}")
-        print(f"File exists: {os.path.exists(filepath)}")
-        print(f"File size: {os.path.getsize(filepath) if os.path.exists(filepath) else 'N/A'} bytes")
-        
         result = process_face_recognition(filepath)
-        print(f"Recognition result type: {type(result)}")
         print(f"Recognition result: {result}")
-        
-        # Make sure result is JSON serializable
-        if result is None:
-            print("ERROR: process_face_recognition returned None!")
-            return jsonify({
-                'success': False,
-                'message': 'Face recognition returned no result',
-                'student_id': 'Unknown',
-                'student_name': 'Unknown'
-            }), 500
         
         return jsonify(result)
         
     except Exception as e:
-        print(f"ERROR in api_attendance_detect: {str(e)}")
-        print(f"Error type: {type(e).__name__}")
+        print(f"Error in api_attendance_detect: {str(e)}")
         import traceback
         traceback.print_exc()
-        return jsonify({
-            'success': False, 
-            'message': f'Recognition error: {str(e)}',
-            'error_type': type(e).__name__,
-            'student_id': 'Unknown',
-            'student_name': 'Unknown'
-        }), 500
+        return jsonify({'success': False, 'message': f'Server error: {str(e)}'}), 500
     finally:
         # Always clean up temp file
         if filepath and os.path.exists(filepath):
@@ -2132,19 +1969,11 @@ def api_attendance_detect():
 def api_attendance_mark():
     """Mark attendance for a recognized student"""
     if 'user_id' not in session:
-        return jsonify({
-            'success': False, 
-            'message': 'Your session has expired. Please logout and login again.',
-            'expired': True
-        }), 401
+        return jsonify({'success': False, 'message': 'Unauthorized - Please login'}), 401
     
-    # Allow both faculty and admin
+    # Allow both faculty and admin to access this endpoint
     if session.get('role') not in ['faculty', 'admin']:
-        return jsonify({
-            'success': False, 
-            'message': 'Only faculty and admin can mark attendance.',
-            'wrong_role': True
-        }), 401
+        return jsonify({'success': False, 'message': 'Unauthorized - Faculty or Admin access required'}), 401
     
     try:
         data = request.get_json()
@@ -2173,7 +2002,7 @@ def api_attendance_mark():
             is_live = anti_spoofing_data.get('is_live', True)
             confidence = anti_spoofing_data.get('confidence', 1.0)
             
-            if not is_live or confidence < 0.7:
+            if not is_live or confidence < 0.5:
                 print(f"⚠️ Anti-spoofing failed: live={is_live}, confidence={confidence}")
                 return jsonify({
                     'success': False,
@@ -2341,28 +2170,6 @@ def api_faculty_classes():
     conn.close()
     return jsonify([dict(record) for record in classes])
 
-@app.route('/api/faculty/events')
-def api_faculty_events():
-    """Get events assigned to the current faculty member"""
-    if 'user_id' not in session or session['role'] != 'faculty':
-        return jsonify({'error': 'Unauthorized'}), 401
-    conn = get_db_connection()
-    faculty = conn.execute('''
-        SELECT f.faculty_id FROM faculty f
-        WHERE f.user_id = ?
-    ''', (session['user_id'],)).fetchone()
-    if not faculty:
-        conn.close()
-        return jsonify([])
-    events = conn.execute('''
-        SELECT e.event_id, e.event_name, e.event_date, e.start_time, e.end_time, e.room
-        FROM event e
-        WHERE e.faculty_id = ?
-        ORDER BY e.event_date DESC, e.start_time DESC
-    ''', (faculty['faculty_id'],)).fetchall()
-    conn.close()
-    return jsonify([dict(record) for record in events])
-
 @app.route('/admin/classes/<int:class_id>/delete', methods=['POST'])
 def delete_class(class_id):
     if 'user_id' not in session or session['role'] != 'admin':
@@ -2463,491 +2270,210 @@ def admin_attendance():
                          absent_count=absent_count,
                          attendance_rate=round(attendance_rate, 1))
 
-# Admin Reports & Analytics
 @app.route('/reports')
 def admin_reports():
-    if 'user_id' not in session or session['role'] != 'admin':
+    """Render admin reports and analytics page"""
+    if 'user_id' not in session or session.get('role') != 'admin':
         return redirect(url_for('login'))
+    
     return render_template('admin_reports.html')
 
-@app.route('/api/admin/reports/class-summary')
-def api_admin_reports_class_summary():
-    if 'user_id' not in session or session['role'] != 'admin':
-        return jsonify([]), 401
-    start = request.args.get('start')
-    end = request.args.get('end')
-    if not start or not end:
-        today = datetime.now().strftime('%Y-%m-%d')
-        start = today
-        end = today
-    conn = get_db_connection()
-    rows = conn.execute('''
-        SELECT c.class_name, c.edpcode,
-               COUNT(a.attendance_id) AS present_count,
-               COUNT(DISTINCT sc.student_id) AS unique_students
-        FROM class c
-        JOIN student_class sc ON sc.class_id = c.class_id
-        LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
-            AND DATE(a.attendance_date) BETWEEN ? AND ?
-        GROUP BY c.class_id
-        ORDER BY c.class_name
-    ''', (start, end)).fetchall()
-    conn.close()
-    return jsonify([{
-        'class_name': r['class_name'],
-        'edpcode': r['edpcode'],
-        'present_count': r['present_count'] or 0,
-        'unique_students': r['unique_students'] or 0
-    } for r in rows])
-
-@app.route('/api/admin/reports/event-summary')
-def api_admin_reports_event_summary():
-    if 'user_id' not in session or session['role'] != 'admin':
-        return jsonify([]), 401
-    start = request.args.get('start')
-    end = request.args.get('end')
-    if not start or not end:
-        today = datetime.now().strftime('%Y-%m-%d')
-        start = today
-        end = today
-    conn = get_db_connection()
-    rows = conn.execute('''
-        SELECT e.event_name, e.event_date,
-               COUNT(ea.event_attend_id) AS present_count,
-               COUNT(DISTINCT ea.user_id) AS unique_attendees
-        FROM event e
-        LEFT JOIN event_attendance ea ON ea.event_id = e.event_id
-            AND DATE(ea.attendance_time) BETWEEN ? AND ?
-        GROUP BY e.event_id
-        ORDER BY e.event_date DESC
-    ''', (start, end)).fetchall()
-    conn.close()
-    return jsonify([{
-        'event_name': r['event_name'],
-        'event_date': r['event_date'],
-        'present_count': r['present_count'] or 0,
-        'unique_attendees': r['unique_attendees'] or 0
-    } for r in rows])
-
-@app.route('/api/admin/reports/absence-patterns')
-def api_admin_reports_absence_patterns():
-    if 'user_id' not in session or session['role'] != 'admin':
-        return jsonify([]), 401
-    start = request.args.get('start')
-    end = request.args.get('end')
-    if not start or not end:
-        today = datetime.now().strftime('%Y-%m-%d')
-        start = today
-        end = today
-    conn = get_db_connection()
-    rows = conn.execute('''
-        SELECT (u.firstname || ' ' || u.lastname) AS student_name,
-               c.class_name,
-               COUNT(a.attendance_id) AS present_count
-        FROM class c
-        JOIN student_class sc ON sc.class_id = c.class_id
-        JOIN student s ON sc.student_id = s.student_id
-        JOIN user u ON s.user_id = u.user_id
-        LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
-            AND DATE(a.attendance_date) BETWEEN ? AND ?
-        GROUP BY sc.student_id, c.class_id
-        HAVING present_count >= 0
-        ORDER BY present_count ASC, student_name
-        LIMIT 300
-    ''', (start, end)).fetchall()
-    conn.close()
-    return jsonify([{
-        'student_name': r['student_name'],
-        'class_name': r['class_name'],
-        'present_count': r['present_count'] or 0
-    } for r in rows])
-
-@app.route('/api/admin/reports/monthly')
-def api_admin_reports_monthly():
-    if 'user_id' not in session or session['role'] != 'admin':
-        return jsonify([]), 401
-    year = request.args.get('year', datetime.now().strftime('%Y'))
-    conn = get_db_connection()
-    # Initialize months 1..12 to 0
-    month_counts = {str(m).zfill(2): 0 for m in range(1, 13)}
-    rows = conn.execute('''
-        SELECT strftime('%m', a.attendance_date) AS month,
-               COUNT(a.attendance_id) AS present_count
-        FROM attendance a
-        WHERE strftime('%Y', a.attendance_date) = ?
-        GROUP BY strftime('%m', a.attendance_date)
-    ''', (str(year),)).fetchall()
-    conn.close()
-    for r in rows:
-        month_counts[r['month']] = r['present_count'] or 0
-    month_names = {
-        '01': 'Jan','02': 'Feb','03': 'Mar','04': 'Apr','05': 'May','06': 'Jun',
-        '07': 'Jul','08': 'Aug','09': 'Sep','10': 'Oct','11': 'Nov','12': 'Dec'
-    }
-    return jsonify([{ 'month': month_names[m], 'present_count': month_counts[m] } for m in sorted(month_counts.keys())])
+@app.route('/api/admin/reports/<report_type>')
+def api_admin_reports(report_type):
+    """Get report data for admin"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    
+    try:
+        conn = get_db_connection()
+        
+        if report_type == 'class':
+            # Class attendance summary
+            data = conn.execute('''
+                SELECT 
+                    DATE(a.attendance_date) as date,
+                    c.class_name as name,
+                    COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) as present,
+                    COUNT(CASE WHEN a.attendance_status = 'absent' THEN 1 END) as absent,
+                    COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late,
+                    ROUND(COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) * 100.0 / COUNT(*), 1) as rate
+                FROM attendance a
+                JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+                JOIN class c ON sc.class_id = c.class_id
+                WHERE DATE(a.attendance_date) BETWEEN ? AND ?
+                GROUP BY DATE(a.attendance_date), c.class_id
+                ORDER BY date DESC
+            ''', (date_from, date_to)).fetchall()
+            
+        elif report_type == 'event':
+            # Event attendance summary
+            data = conn.execute('''
+                SELECT 
+                    DATE(ea.attendance_time) as date,
+                    e.event_name as name,
+                    COUNT(CASE WHEN ea.status = 'present' THEN 1 END) as present,
+                    COUNT(CASE WHEN ea.status = 'absent' THEN 1 END) as absent,
+                    COUNT(CASE WHEN ea.status = 'late' THEN 1 END) as late,
+                    ROUND(COUNT(CASE WHEN ea.status = 'present' THEN 1 END) * 100.0 / COUNT(*), 1) as rate
+                FROM event_attendance ea
+                JOIN event e ON ea.event_id = e.event_id
+                WHERE DATE(ea.attendance_time) BETWEEN ? AND ?
+                GROUP BY DATE(ea.attendance_time), e.event_id
+                ORDER BY date DESC
+            ''', (date_from, date_to)).fetchall()
+            
+        elif report_type == 'absence':
+            # Absence patterns
+            data = conn.execute('''
+                SELECT 
+                    u.lastname || ', ' || u.firstname as name,
+                    DATE(a.attendance_date) as date,
+                    0 as present,
+                    COUNT(CASE WHEN a.attendance_status = 'absent' THEN 1 END) as absent,
+                    COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late,
+                    0 as rate
+                FROM attendance a
+                JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+                JOIN student s ON sc.student_id = s.student_id
+                JOIN user u ON s.user_id = u.user_id
+                WHERE DATE(a.attendance_date) BETWEEN ? AND ?
+                    AND a.attendance_status IN ('absent', 'late')
+                GROUP BY u.user_id, DATE(a.attendance_date)
+                ORDER BY date DESC, name
+            ''', (date_from, date_to)).fetchall()
+            
+        elif report_type == 'monthly':
+            # Monthly summary
+            data = conn.execute('''
+                SELECT 
+                    strftime('%Y-%m', a.attendance_date) as date,
+                    'Monthly Total' as name,
+                    COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) as present,
+                    COUNT(CASE WHEN a.attendance_status = 'absent' THEN 1 END) as absent,
+                    COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late,
+                    ROUND(COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) * 100.0 / COUNT(*), 1) as rate
+                FROM attendance a
+                WHERE DATE(a.attendance_date) BETWEEN ? AND ?
+                GROUP BY strftime('%Y-%m', a.attendance_date)
+                ORDER BY date DESC
+            ''', (date_from, date_to)).fetchall()
+        else:
+            return jsonify({'success': False, 'error': 'Invalid report type'}), 400
+        
+        # Convert to list of dicts
+        details = []
+        for row in data:
+            details.append({
+                'date': row['date'],
+                'name': row['name'],
+                'present': row['present'],
+                'absent': row['absent'],
+                'late': row['late'],
+                'rate': row['rate']
+            })
+        
+        # Calculate summary
+        total_present = sum(d['present'] for d in details)
+        total_absent = sum(d['absent'] for d in details)
+        total_late = sum(d['late'] for d in details)
+        total = total_present + total_absent + total_late
+        attendance_rate = round(total_present * 100.0 / total, 1) if total > 0 else 0
+        
+        # Generate trend data
+        trend_labels = []
+        trend_present = []
+        trend_absent = []
+        trend_late = []
+        
+        for d in details[:10]:  # Last 10 entries for trend
+            trend_labels.insert(0, d['date'])
+            trend_present.insert(0, d['present'])
+            trend_absent.insert(0, d['absent'])
+            trend_late.insert(0, d['late'])
+        
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'summary': {
+                'total_present': total_present,
+                'total_absent': total_absent,
+                'total_late': total_late,
+                'attendance_rate': attendance_rate
+            },
+            'trend': {
+                'labels': trend_labels,
+                'present': trend_present,
+                'absent': trend_absent,
+                'late': trend_late
+            },
+            'details': details
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/admin/reports/export/<fmt>')
-def admin_reports_export(fmt):
-    if 'user_id' not in session or session['role'] != 'admin':
-        return jsonify({'error': 'Unauthorized'}), 401
+def export_reports(fmt):
+    """Export reports in various formats"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    report_type = request.args.get('type', 'class')
+    
     try:
-        start = request.args.get('start')
-        end = request.args.get('end')
-        if not start or not end:
-            today = datetime.now().strftime('%Y-%m-%d')
-            start = today
-            end = today
         conn = get_db_connection()
-        class_rows = conn.execute('''
-            SELECT c.class_name, c.edpcode,
-                   COUNT(a.attendance_id) AS present_count,
-                   COUNT(DISTINCT sc.student_id) AS unique_students
-            FROM class c
-            JOIN student_class sc ON sc.class_id = c.class_id
-            LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
-                AND DATE(a.attendance_date) BETWEEN ? AND ?
-            GROUP BY c.class_id
-            ORDER BY c.class_name
-        ''', (start, end)).fetchall()
-        event_rows = conn.execute('''
-            SELECT e.event_name, e.event_date,
-                   COUNT(ea.event_attend_id) AS present_count,
-                   COUNT(DISTINCT ea.user_id) AS unique_attendees
-            FROM event e
-            LEFT JOIN event_attendance ea ON ea.event_id = e.event_id
-                AND DATE(ea.attendance_time) BETWEEN ? AND ?
-            GROUP BY e.event_id
-            ORDER BY e.event_date DESC
-        ''', (start, end)).fetchall()
+        
+        # Get data based on report type (reuse logic from api_admin_reports)
+        if report_type == 'class':
+            data = conn.execute('''
+                SELECT 
+                    DATE(a.attendance_date) as date,
+                    c.class_name as name,
+                    COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) as present,
+                    COUNT(CASE WHEN a.attendance_status = 'absent' THEN 1 END) as absent,
+                    COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late
+                FROM attendance a
+                JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+                JOIN class c ON sc.class_id = c.class_id
+                WHERE DATE(a.attendance_date) BETWEEN ? AND ?
+                GROUP BY DATE(a.attendance_date), c.class_id
+                ORDER BY date DESC
+            ''', (date_from, date_to)).fetchall()
+        else:
+            # Simple default for other types
+            data = []
+        
         conn.close()
-
+        
         if fmt == 'csv':
-            from io import StringIO
+            import io
             import csv
-            out = StringIO(); w = csv.writer(out)
-            w.writerow([f"Admin Reports ({start} to {end})"]) ; w.writerow([])
-            w.writerow(['Class Attendance Summaries'])
-            w.writerow(['Class Name','EDP Code','Present Count','Unique Students'])
-            for r in class_rows:
-                w.writerow([r['class_name'] or '', r['edpcode'] or '', r['present_count'] or 0, r['unique_students'] or 0])
-            w.writerow([])
-            w.writerow(['Event Attendance Summaries'])
-            w.writerow(['Event Name','Event Date','Present Count','Unique Attendees'])
-            for r in event_rows:
-                w.writerow([r['event_name'] or '', r['event_date'] or '', r['present_count'] or 0, r['unique_attendees'] or 0])
-            data = out.getvalue(); out.close()
-            return app.response_class(data, mimetype='text/csv', headers={'Content-Disposition': 'attachment; filename=admin_reports.csv'})
-        elif fmt == 'xlsx':
-            from io import BytesIO
-            from openpyxl import Workbook
-            wb = Workbook(); wb.remove(wb.active)
-            ws1 = wb.create_sheet('Class Summaries')
-            ws1.append(['Class Name','EDP Code','Present Count','Unique Students'])
-            for r in class_rows:
-                ws1.append([r['class_name'] or '', r['edpcode'] or '', r['present_count'] or 0, r['unique_students'] or 0])
-            ws2 = wb.create_sheet('Event Summaries')
-            ws2.append(['Event Name','Event Date','Present Count','Unique Attendees'])
-            for r in event_rows:
-                ws2.append([r['event_name'] or '', r['event_date'] or '', r['present_count'] or 0, r['unique_attendees'] or 0])
-            bio = BytesIO(); wb.save(bio); bio.seek(0)
-            return app.response_class(bio.read(), mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', headers={'Content-Disposition': 'attachment; filename=admin_reports.xlsx'})
-        elif fmt == 'pdf':
-            from io import BytesIO
-            from reportlab.lib.pagesizes import letter
-            from reportlab.pdfgen import canvas
-            buffer = BytesIO(); c = canvas.Canvas(buffer, pagesize=letter)
-            width, height = letter; y = height - 40
-            c.setFont('Helvetica-Bold', 14); c.drawString(50, y, f'Admin Reports ({start} to {end})'); y -= 20
-            c.setFont('Helvetica-Bold', 12); c.drawString(50, y, 'Class Attendance Summaries'); y -= 16
-            c.setFont('Helvetica', 10)
-            for r in class_rows:
-                line = f"{r['class_name']} | {r['edpcode']} | {r['present_count']} | {r['unique_students']}"
-                c.drawString(50, y, line); y -= 12
-                if y < 50: c.showPage(); y = height - 40
-            y -= 10; c.setFont('Helvetica-Bold', 12); c.drawString(50, y, 'Event Attendance Summaries'); y -= 16
-            c.setFont('Helvetica', 10)
-            for r in event_rows:
-                line = f"{r['event_name']} | {r['event_date']} | {r['present_count']} | {r['unique_attendees']}"
-                c.drawString(50, y, line); y -= 12
-                if y < 50: c.showPage(); y = height - 40
-            c.showPage(); c.save(); pdf = buffer.getvalue(); buffer.close()
-            return app.response_class(pdf, mimetype='application/pdf', headers={'Content-Disposition': 'attachment; filename=admin_reports.pdf'})
+            
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(['Date', 'Class/Event', 'Present', 'Absent', 'Late'])
+            
+            for row in data:
+                writer.writerow([row['date'], row['name'], row['present'], row['absent'], row['late']])
+            
+            response = app.make_response(output.getvalue())
+            response.headers['Content-Type'] = 'text/csv'
+            response.headers['Content-Disposition'] = f'attachment; filename=report_{report_type}_{date_from}_{date_to}.csv'
+            return response
+            
         else:
-            return jsonify({'error': 'Unsupported format'}), 400
+            flash('Export format not yet implemented', 'info')
+            return redirect(url_for('admin_reports'))
+            
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/admin/attendance/update', methods=['POST'])
-def admin_attendance_update():
-    if 'user_id' not in session or session['role'] != 'admin':
-        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
-    try:
-        data = request.get_json()
-        attendance_id = data.get('attendance_id')
-        new_status = data.get('status')
-        new_datetime = data.get('attendance_date')  # optional '%Y-%m-%d %H:%M:%S'
-        if not attendance_id or new_status not in ('present', 'absent', 'late'):
-            return jsonify({'success': False, 'message': 'Invalid input'}), 400
-        conn = get_db_connection()
-        if new_datetime:
-            conn.execute('''UPDATE attendance 
-                            SET attendance_status = ?, attendance_date = ? 
-                            WHERE attendance_id = ?''',
-                         (new_status, new_datetime, attendance_id))
-        else:
-            conn.execute('''UPDATE attendance 
-                            SET attendance_status = ?
-                            WHERE attendance_id = ?''',
-                         (new_status, attendance_id))
-        conn.commit()
-        conn.close()
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-@app.route('/admin/attendance/export/<fmt>')
-def admin_attendance_export(fmt):
-    if 'user_id' not in session or session['role'] != 'admin':
-        return jsonify({'error': 'Unauthorized'}), 401
-    try:
-        # Filters
-        date_from = request.args.get('date_from')
-        date_to = request.args.get('date_to')
-        status = request.args.get('status')
-        class_name = request.args.get('class')
-
-        conn = get_db_connection()
-        base_query = '''
-            SELECT a.attendance_id, a.attendance_date, a.attendance_status,
-                   u.firstname, u.lastname, u.idno,
-                   c.class_name, c.edpcode,
-                   fu.firstname as faculty_firstname, fu.lastname as faculty_lastname
-            FROM attendance a
-            JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
-            JOIN student s ON sc.student_id = s.student_id
-            JOIN user u ON s.user_id = u.user_id
-            JOIN class c ON sc.class_id = c.class_id
-            JOIN faculty f ON c.faculty_id = f.faculty_id
-            JOIN user fu ON f.user_id = fu.user_id
-            WHERE 1=1
-        '''
-        params = []
-        if status in ('present', 'absent', 'late'):
-            base_query += ' AND a.attendance_status = ?'
-            params.append(status)
-        if date_from:
-            base_query += ' AND DATE(a.attendance_date) >= ?'
-            params.append(date_from)
-        if date_to:
-            base_query += ' AND DATE(a.attendance_date) <= ?'
-            params.append(date_to)
-        if class_name:
-            base_query += ' AND c.class_name = ?'
-            params.append(class_name)
-        base_query += ' ORDER BY a.attendance_date DESC'
-
-        rows = conn.execute(base_query, tuple(params)).fetchall()
-        conn.close()
-
-        if fmt == 'csv':
-            from io import StringIO
-            import csv
-            out = StringIO()
-            writer = csv.writer(out)
-            writer.writerow(['Student Name', 'ID', 'Class', 'EDP Code', 'Faculty', 'Date', 'Status'])
-            for r in rows:
-                writer.writerow([
-                    f"{r['firstname']} {r['lastname']}", r['idno'] or '',
-                    r['class_name'] or '', r['edpcode'] or '',
-                    f"{r['faculty_firstname']} {r['faculty_lastname']}",
-                    r['attendance_date'] or '', r['attendance_status'] or ''
-                ])
-            data = out.getvalue()
-            out.close()
-            return app.response_class(
-                data,
-                mimetype='text/csv',
-                headers={'Content-Disposition': 'attachment; filename=attendance_export.csv'}
-            )
-        elif fmt == 'xlsx':
-            from io import BytesIO
-            from openpyxl import Workbook
-            wb = Workbook()
-            ws = wb.active
-            ws.title = 'Attendance'
-            ws.append(['Student Name', 'ID', 'Class', 'EDP Code', 'Faculty', 'Date', 'Status'])
-            for r in rows:
-                ws.append([
-                    f"{r['firstname']} {r['lastname']}", r['idno'] or '',
-                    r['class_name'] or '', r['edpcode'] or '',
-                    f"{r['faculty_firstname']} {r['faculty_lastname']}",
-                    r['attendance_date'] or '', r['attendance_status'] or ''
-                ])
-            bio = BytesIO()
-            wb.save(bio)
-            bio.seek(0)
-            return app.response_class(
-                bio.read(),
-                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                headers={'Content-Disposition': 'attachment; filename=attendance_export.xlsx'}
-            )
-        elif fmt == 'pdf':
-            from io import BytesIO
-            from reportlab.lib.pagesizes import letter
-            from reportlab.pdfgen import canvas
-            buffer = BytesIO()
-            c = canvas.Canvas(buffer, pagesize=letter)
-            width, height = letter
-            y = height - 50
-            c.setFont('Helvetica-Bold', 14)
-            c.drawString(50, y, 'Attendance Export')
-            y -= 20
-            c.setFont('Helvetica', 10)
-            headers = ['Student', 'ID', 'Class', 'EDP', 'Faculty', 'Date', 'Status']
-            c.drawString(50, y, ' | '.join(headers))
-            y -= 15
-            for r in rows:
-                line = ' | '.join([
-                    f"{r['firstname']} {r['lastname']}", r['idno'] or '',
-                    r['class_name'] or '', r['edpcode'] or '',
-                    f"{r['faculty_firstname']} {r['faculty_lastname']}",
-                    str(r['attendance_date'] or ''), r['attendance_status'] or ''
-                ])
-                for segment in [line[i:i+95] for i in range(0, len(line), 95)]:
-                    c.drawString(50, y, segment)
-                    y -= 12
-                    if y < 50:
-                        c.showPage(); y = height - 50
-            c.showPage(); c.save()
-            pdf = buffer.getvalue(); buffer.close()
-            return app.response_class(
-                pdf,
-                mimetype='application/pdf',
-                headers={'Content-Disposition': 'attachment; filename=attendance_export.pdf'}
-            )
-        else:
-            return jsonify({'error': 'Unsupported format'}), 400
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-# Faculty export of today's attendance for a selected class
-@app.route('/api/faculty/attendance/export/<fmt>')
-def faculty_attendance_export(fmt):
-    # Allow both faculty and admin
-    if 'user_id' not in session or session.get('role') not in ['faculty', 'admin']:
-        return jsonify({'error': 'Unauthorized'}), 401
-    try:
-        class_id = request.args.get('class_id')
-        date_str = request.args.get('date')  # YYYY-MM-DD; defaults to today
-        if not class_id:
-            return jsonify({'error': 'Missing class_id'}), 400
-
-        if not date_str:
-            date_str = datetime.now().strftime('%Y-%m-%d')
-
-        conn = get_db_connection()
-
-        # Security: if faculty, ensure the class belongs to them
-        if session.get('role') == 'faculty':
-            owns = conn.execute('''
-                SELECT 1
-                FROM class c
-                JOIN faculty f ON c.faculty_id = f.faculty_id
-                JOIN user u ON f.user_id = u.user_id
-                WHERE c.class_id = ? AND u.user_id = ?
-            ''', (class_id, session['user_id'])).fetchone()
-            if not owns:
-                conn.close()
-                return jsonify({'error': 'Forbidden'}), 403
-
-        rows = conn.execute('''
-            SELECT u.firstname, u.lastname, u.idno,
-                   c.class_name, c.edpcode,
-                   a.attendance_date, a.attendance_status
-            FROM attendance a
-            JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
-            JOIN student s ON sc.student_id = s.student_id
-            JOIN user u ON s.user_id = u.user_id
-            JOIN class c ON sc.class_id = c.class_id
-            WHERE sc.class_id = ? AND DATE(a.attendance_date) = ?
-            ORDER BY a.attendance_date DESC
-        ''', (class_id, date_str)).fetchall()
-        conn.close()
-
-        # Filename base
-        filename_base = f"class_{class_id}_attendance_{date_str}"
-
-        if fmt == 'csv':
-            from io import StringIO
-            import csv
-            out = StringIO(); w = csv.writer(out)
-            w.writerow(['Student Name', 'ID', 'Class', 'EDP Code', 'Date/Time', 'Status'])
-            for r in rows:
-                w.writerow([
-                    f"{r['firstname']} {r['lastname']}", r['idno'] or '',
-                    r['class_name'] or '', r['edpcode'] or '',
-                    r['attendance_date'] or '', r['attendance_status'] or ''
-                ])
-            data = out.getvalue(); out.close()
-            return app.response_class(
-                data,
-                mimetype='text/csv',
-                headers={'Content-Disposition': f'attachment; filename={filename_base}.csv'}
-            )
-        elif fmt == 'xlsx':
-            from io import BytesIO
-            try:
-                from openpyxl import Workbook
-            except Exception:
-                return jsonify({'error': 'XLSX export not available (openpyxl missing)'}), 500
-            wb = Workbook(); ws = wb.active; ws.title = 'Attendance'
-            ws.append(['Student Name', 'ID', 'Class', 'EDP Code', 'Date/Time', 'Status'])
-            for r in rows:
-                ws.append([
-                    f"{r['firstname']} {r['lastname']}", r['idno'] or '',
-                    r['class_name'] or '', r['edpcode'] or '',
-                    str(r['attendance_date'] or ''), r['attendance_status'] or ''
-                ])
-            bio = BytesIO(); wb.save(bio); bio.seek(0)
-            return app.response_class(
-                bio.read(),
-                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                headers={'Content-Disposition': f'attachment; filename={filename_base}.xlsx'}
-            )
-        elif fmt == 'pdf':
-            from io import BytesIO
-            from reportlab.lib.pagesizes import letter
-            from reportlab.pdfgen import canvas
-            buffer = BytesIO(); c = canvas.Canvas(buffer, pagesize=letter)
-            width, height = letter; y = height - 50
-            c.setFont('Helvetica-Bold', 14)
-            c.drawString(50, y, f'Attendance for Class #{class_id} on {date_str}')
-            y -= 20
-            c.setFont('Helvetica', 10)
-            headers = ['Student', 'ID', 'Class', 'EDP', 'Date/Time', 'Status']
-            c.drawString(50, y, ' | '.join(headers)); y -= 15
-            for r in rows:
-                line = ' | '.join([
-                    f"{r['firstname']} {r['lastname']}", r['idno'] or '',
-                    r['class_name'] or '', r['edpcode'] or '',
-                    str(r['attendance_date'] or ''), r['attendance_status'] or ''
-                ])
-                # Wrap long lines
-                for segment in [line[i:i+95] for i in range(0, len(line), 95)]:
-                    c.drawString(50, y, segment); y -= 12
-                    if y < 50:
-                        c.showPage(); y = height - 50; c.setFont('Helvetica', 10)
-            c.showPage(); c.save(); pdf = buffer.getvalue(); buffer.close()
-            return app.response_class(
-                pdf,
-                mimetype='application/pdf',
-                headers={'Content-Disposition': f'attachment; filename={filename_base}.pdf'}
-            )
-        else:
-            return jsonify({'error': 'Unsupported format'}), 400
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        flash(f'Export error: {str(e)}', 'error')
+        return redirect(url_for('admin_reports'))
 
 
 # Faculty Manage Students
@@ -2986,15 +2512,8 @@ def faculty_manage_students():
         ORDER BY e.event_date DESC
     ''', (faculty['faculty_id'],)).fetchall()
     
-    # Get all courses for the course dropdown
-    courses = conn.execute('''
-        SELECT course_id, course_name
-        FROM course
-        ORDER BY course_name
-    ''').fetchall()
-    
     conn.close()
-    return render_template('faculty/faculty_manage_students.html', classes=classes, events=events, courses=courses)
+    return render_template('faculty/faculty_manage_students.html', classes=classes, events=events)
 
 @app.route('/faculty/students/<path:selection>')
 def faculty_get_students(selection):
@@ -3021,7 +2540,7 @@ def faculty_get_students(selection):
         # Get students enrolled in this class
         students = conn.execute('''
             SELECT u.user_id, u.idno, u.firstname, u.lastname, u.is_active,
-                   s.year_level, s.course_id, c.course_name
+                   s.year_level, c.course_name
             FROM student_class sc
             JOIN student s ON sc.student_id = s.student_id
             JOIN user u ON s.user_id = u.user_id
@@ -3036,7 +2555,7 @@ def faculty_get_students(selection):
         # Get students who have attended this event
         students = conn.execute('''
             SELECT DISTINCT u.user_id, u.idno, u.firstname, u.lastname, u.is_active,
-                   s.year_level, s.course_id, c.course_name
+                   s.year_level, c.course_name
             FROM event_attendance ea
             JOIN user u ON ea.user_id = u.user_id
             JOIN student s ON u.user_id = s.user_id
@@ -3060,7 +2579,6 @@ def faculty_edit_student():
         firstname = data.get('firstname')
         lastname = data.get('lastname')
         year_level = data.get('year_level')
-        course_id = data.get('course_id')
         is_active = data.get('is_active')
         
         if not all([user_id, firstname, lastname]):
@@ -3101,24 +2619,12 @@ def faculty_edit_student():
             WHERE user_id = ?
         ''', (firstname, lastname, is_active, user_id))
         
-        # Update student information if year_level or course_id is provided
-        if year_level or course_id:
-            updates = []
-            params = []
-            
-            if year_level:
-                updates.append('year_level = ?')
-                params.append(year_level)
-            
-            if course_id:
-                updates.append('course_id = ?')
-                params.append(course_id)
-            
-            params.append(user_id)
-            conn.execute(f'''
-                UPDATE student SET {', '.join(updates)}
+        # Update student information if year_level is provided
+        if year_level:
+            conn.execute('''
+                UPDATE student SET year_level = ?
                 WHERE user_id = ?
-            ''', tuple(params))
+            ''', (year_level, user_id))
         
         conn.commit()
         conn.close()
@@ -3331,44 +2837,56 @@ def faculty_class_details(type, id):
     conn.close()
     return jsonify({'error': 'Invalid type'}), 400
 
+# Faculty Attendance
+@app.route('/attendance')
+def attendance():
+    """Faculty attendance page - Take attendance using face recognition"""
+    if 'user_id' not in session:
+        flash('Please login to access attendance', 'error')
+        return redirect(url_for('login'))
+    
+    # Allow both faculty and admin
+    if session.get('role') not in ['faculty', 'admin']:
+        flash('Only faculty and admin can access this page', 'error')
+        return redirect(url_for('login'))
+    
+    # Get classes for faculty
+    conn = get_db_connection()
+    classes = []
+    
+    if session.get('role') == 'faculty':
+        # Get faculty's classes
+        faculty = conn.execute('''
+            SELECT f.faculty_id FROM faculty f 
+            JOIN user u ON f.user_id = u.user_id 
+            WHERE u.user_id = ?
+        ''', (session['user_id'],)).fetchone()
+        
+        if faculty:
+            classes = conn.execute('''
+                SELECT c.class_id, c.class_name, c.edpcode
+                FROM class c
+                WHERE c.faculty_id = ?
+                ORDER BY c.class_name
+            ''', (faculty['faculty_id'],)).fetchall()
+    elif session.get('role') == 'admin':
+        # Admin can see all classes
+        classes = conn.execute('''
+            SELECT c.class_id, c.class_name, c.edpcode
+            FROM class c
+            ORDER BY c.class_name
+        ''').fetchall()
+    
+    conn.close()
+    
+    return render_template('faculty_attendance.html', classes=classes)
+
 # Faculty Reports & Analytics
 @app.route('/attendance_reports')
 def faculty_reports():
     if 'user_id' not in session or session['role'] != 'faculty':
         return redirect(url_for('login'))
-    
-    conn = get_db_connection()
-    
-    # Get faculty info
-    faculty = conn.execute('''
-        SELECT f.faculty_id FROM faculty f 
-        JOIN user u ON f.user_id = u.user_id 
-        WHERE u.user_id = ?
-    ''', (session['user_id'],)).fetchone()
-    
-    if not faculty:
-        conn.close()
-        flash('Faculty record not found', 'error')
-        return redirect(url_for('faculty_dashboard'))
-    
-    # Get classes assigned to this faculty
-    classes = conn.execute('''
-        SELECT c.class_id, c.class_name, c.edpcode
-        FROM class c
-        WHERE c.faculty_id = ?
-        ORDER BY c.class_name
-    ''', (faculty['faculty_id'],)).fetchall()
-    
-    # Get events assigned to this faculty
-    events = conn.execute('''
-        SELECT e.event_id, e.event_name, e.event_date
-        FROM event e
-        WHERE e.faculty_id = ?
-        ORDER BY e.event_date DESC
-    ''', (faculty['faculty_id'],)).fetchall()
-    
-    conn.close()
-    return render_template('faculty/faculty_reports.html', classes=classes, events=events)
+    return render_template('faculty/faculty_reports.html')
 
 @app.route('/api/faculty/reports/summary')
 def api_faculty_reports_summary():
@@ -3376,7 +2894,6 @@ def api_faculty_reports_summary():
         return jsonify([]), 401
     start = request.args.get('start')
     end = request.args.get('end')
-    filter_param = request.args.get('filter', '')
     if not start or not end:
         today = datetime.now().strftime('%Y-%m-%d')
         start = today
@@ -3389,49 +2906,18 @@ def api_faculty_reports_summary():
     if not faculty:
         conn.close()
         return jsonify([])
-    
-    # Build query based on filter
-    if filter_param.startswith('class_'):
-        class_id = filter_param.replace('class_', '')
-        rows = conn.execute('''
-            SELECT c.class_name, c.edpcode,
-                   COUNT(a.attendance_id) AS present_count,
-                   COUNT(DISTINCT sc.student_id) AS unique_students
-            FROM class c
-            JOIN student_class sc ON sc.class_id = c.class_id
-            LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
-                AND DATE(a.attendance_date) BETWEEN ? AND ?
-            WHERE c.faculty_id = ? AND c.class_id = ?
-            GROUP BY c.class_id
-            ORDER BY c.class_name
-        ''', (start, end, faculty['faculty_id'], class_id)).fetchall()
-    elif filter_param.startswith('event_'):
-        event_id = filter_param.replace('event_', '')
-        rows = conn.execute('''
-            SELECT e.event_name AS class_name, '' AS edpcode,
-                   COUNT(DISTINCT ea.user_id) AS present_count,
-                   COUNT(DISTINCT ea.user_id) AS unique_students
-            FROM event e
-            LEFT JOIN event_attendance ea ON ea.event_id = e.event_id
-                AND DATE(ea.attendance_date) BETWEEN ? AND ?
-            WHERE e.faculty_id = ? AND e.event_id = ?
-            GROUP BY e.event_id
-            ORDER BY e.event_name
-        ''', (start, end, faculty['faculty_id'], event_id)).fetchall()
-    else:
-        rows = conn.execute('''
-            SELECT c.class_name, c.edpcode,
-                   COUNT(a.attendance_id) AS present_count,
-                   COUNT(DISTINCT sc.student_id) AS unique_students
-            FROM class c
-            JOIN student_class sc ON sc.class_id = c.class_id
-            LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
-                AND DATE(a.attendance_date) BETWEEN ? AND ?
-            WHERE c.faculty_id = ?
-            GROUP BY c.class_id
-            ORDER BY c.class_name
-        ''', (start, end, faculty['faculty_id'])).fetchall()
-    
+    rows = conn.execute('''
+        SELECT c.class_name, c.edpcode,
+               COUNT(a.attendance_id) AS present_count,
+               COUNT(DISTINCT sc.student_id) AS unique_students
+        FROM class c
+        JOIN student_class sc ON sc.class_id = c.class_id
+        LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
+            AND DATE(a.attendance_date) BETWEEN ? AND ?
+        WHERE c.faculty_id = ?
+        GROUP BY c.class_id
+        ORDER BY c.class_name
+    ''', (start, end, faculty['faculty_id'])).fetchall()
     conn.close()
     return jsonify([{
         'class_name': r['class_name'],
@@ -3446,7 +2932,6 @@ def api_faculty_reports_absence_patterns():
         return jsonify([]), 401
     start = request.args.get('start')
     end = request.args.get('end')
-    filter_param = request.args.get('filter', '')
     if not start or not end:
         today = datetime.now().strftime('%Y-%m-%d')
         start = today
@@ -3459,60 +2944,22 @@ def api_faculty_reports_absence_patterns():
     if not faculty:
         conn.close()
         return jsonify([])
-    
-    # Build query based on filter
-    if filter_param.startswith('class_'):
-        class_id = filter_param.replace('class_', '')
-        rows = conn.execute('''
-            SELECT (u.firstname || ' ' || u.lastname) AS student_name,
-                   c.class_name,
-                   COUNT(a.attendance_id) AS present_count
-            FROM class c
-            JOIN student_class sc ON sc.class_id = c.class_id
-            JOIN student s ON sc.student_id = s.student_id
-            JOIN user u ON s.user_id = u.user_id
-            LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
-                AND DATE(a.attendance_date) BETWEEN ? AND ?
-            WHERE c.faculty_id = ? AND c.class_id = ?
-            GROUP BY sc.student_id, c.class_id
-            HAVING present_count >= 0
-            ORDER BY present_count ASC, student_name
-            LIMIT 200
-        ''', (start, end, faculty['faculty_id'], class_id)).fetchall()
-    elif filter_param.startswith('event_'):
-        event_id = filter_param.replace('event_', '')
-        rows = conn.execute('''
-            SELECT (u.firstname || ' ' || u.lastname) AS student_name,
-                   e.event_name AS class_name,
-                   COUNT(DISTINCT ea.attendance_id) AS present_count
-            FROM event e
-            JOIN event_attendance ea ON ea.event_id = e.event_id
-            JOIN user u ON ea.user_id = u.user_id
-            WHERE e.faculty_id = ? AND e.event_id = ?
-                AND DATE(ea.attendance_date) BETWEEN ? AND ?
-            GROUP BY ea.user_id, e.event_id
-            HAVING present_count >= 0
-            ORDER BY present_count ASC, student_name
-            LIMIT 200
-        ''', (faculty['faculty_id'], event_id, start, end)).fetchall()
-    else:
-        rows = conn.execute('''
-            SELECT (u.firstname || ' ' || u.lastname) AS student_name,
-                   c.class_name,
-                   COUNT(a.attendance_id) AS present_count
-            FROM class c
-            JOIN student_class sc ON sc.class_id = c.class_id
-            JOIN student s ON sc.student_id = s.student_id
-            JOIN user u ON s.user_id = u.user_id
-            LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
-                AND DATE(a.attendance_date) BETWEEN ? AND ?
-            WHERE c.faculty_id = ?
-            GROUP BY sc.student_id, c.class_id
-            HAVING present_count >= 0
-            ORDER BY present_count ASC, student_name
-            LIMIT 200
-        ''', (start, end, faculty['faculty_id'])).fetchall()
-    
+    rows = conn.execute('''
+        SELECT (u.firstname || ' ' || u.lastname) AS student_name,
+               c.class_name,
+               COUNT(a.attendance_id) AS present_count
+        FROM class c
+        JOIN student_class sc ON sc.class_id = c.class_id
+        JOIN student s ON sc.student_id = s.student_id
+        JOIN user u ON s.user_id = u.user_id
+        LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
+            AND DATE(a.attendance_date) BETWEEN ? AND ?
+        WHERE c.faculty_id = ?
+        GROUP BY sc.student_id, c.class_id
+        HAVING present_count >= 0
+        ORDER BY present_count ASC, student_name
+        LIMIT 200
+    ''', (start, end, faculty['faculty_id'])).fetchall()
     conn.close()
     return jsonify([{
         'student_name': r['student_name'],
@@ -3525,7 +2972,6 @@ def api_faculty_reports_monthly():
     if 'user_id' not in session or session['role'] != 'faculty':
         return jsonify([]), 401
     year = request.args.get('year', datetime.now().strftime('%Y'))
-    filter_param = request.args.get('filter', '')
     conn = get_db_connection()
     faculty = conn.execute('''
         SELECT f.faculty_id FROM faculty f JOIN user u ON f.user_id = u.user_id
@@ -3536,40 +2982,15 @@ def api_faculty_reports_monthly():
         return jsonify([])
     # Initialize months 1..12 to 0
     month_counts = {str(m).zfill(2): 0 for m in range(1, 13)}
-    
-    # Build query based on filter
-    if filter_param.startswith('class_'):
-        class_id = filter_param.replace('class_', '')
-        rows = conn.execute('''
-            SELECT strftime('%m', a.attendance_date) AS month,
-                   COUNT(a.attendance_id) AS present_count
-            FROM attendance a
-            JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
-            JOIN class c ON sc.class_id = c.class_id
-            WHERE c.faculty_id = ? AND c.class_id = ? AND strftime('%Y', a.attendance_date) = ?
-            GROUP BY strftime('%m', a.attendance_date)
-        ''', (faculty['faculty_id'], class_id, str(year))).fetchall()
-    elif filter_param.startswith('event_'):
-        event_id = filter_param.replace('event_', '')
-        rows = conn.execute('''
-            SELECT strftime('%m', ea.attendance_date) AS month,
-                   COUNT(DISTINCT ea.user_id) AS present_count
-            FROM event_attendance ea
-            JOIN event e ON ea.event_id = e.event_id
-            WHERE e.faculty_id = ? AND e.event_id = ? AND strftime('%Y', ea.attendance_date) = ?
-            GROUP BY strftime('%m', ea.attendance_date)
-        ''', (faculty['faculty_id'], event_id, str(year))).fetchall()
-    else:
-        rows = conn.execute('''
-            SELECT strftime('%m', a.attendance_date) AS month,
-                   COUNT(a.attendance_id) AS present_count
-            FROM attendance a
-            JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
-            JOIN class c ON sc.class_id = c.class_id
-            WHERE c.faculty_id = ? AND strftime('%Y', a.attendance_date) = ?
-            GROUP BY strftime('%m', a.attendance_date)
-        ''', (faculty['faculty_id'], str(year))).fetchall()
-    
+    rows = conn.execute('''
+        SELECT strftime('%m', a.attendance_date) AS month,
+               COUNT(a.attendance_id) AS present_count
+        FROM attendance a
+        JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+        JOIN class c ON sc.class_id = c.class_id
+        WHERE c.faculty_id = ? AND strftime('%Y', a.attendance_date) = ?
+        GROUP BY strftime('%m', a.attendance_date)
+    ''', (faculty['faculty_id'], str(year))).fetchall()
     conn.close()
     for r in rows:
         month_counts[r['month']] = r['present_count'] or 0
@@ -3588,7 +3009,6 @@ def faculty_reports_export(fmt):
     try:
         start = request.args.get('start')
         end = request.args.get('end')
-        filter_param = request.args.get('filter', '')
         if not start or not end:
             today = datetime.now().strftime('%Y-%m-%d')
             start = today
@@ -3605,113 +3025,48 @@ def faculty_reports_export(fmt):
             conn.close()
             return jsonify({'error': 'No faculty record found'}), 404
         
-        # Get class attendance summaries with filter support
-        if filter_param.startswith('class_'):
-            class_id = filter_param.replace('class_', '')
-            summary = conn.execute('''
-                SELECT c.class_name, c.edpcode,
-                       COUNT(a.attendance_id) AS present_count,
-                       COUNT(DISTINCT sc.student_id) AS unique_students
-                FROM class c
-                JOIN student_class sc ON sc.class_id = c.class_id
-                LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
-                    AND DATE(a.attendance_date) BETWEEN ? AND ?
-                WHERE c.faculty_id = ? AND c.class_id = ?
-                GROUP BY c.class_id
-                ORDER BY c.class_name
-            ''', (start, end, faculty['faculty_id'], class_id)).fetchall()
-        elif filter_param.startswith('event_'):
-            event_id = filter_param.replace('event_', '')
-            summary = conn.execute('''
-                SELECT e.event_name AS class_name, '' AS edpcode,
-                       COUNT(DISTINCT ea.user_id) AS present_count,
-                       COUNT(DISTINCT ea.user_id) AS unique_students
-                FROM event e
-                LEFT JOIN event_attendance ea ON ea.event_id = e.event_id
-                    AND DATE(ea.attendance_date) BETWEEN ? AND ?
-                WHERE e.faculty_id = ? AND e.event_id = ?
-                GROUP BY e.event_id
-                ORDER BY e.event_name
-            ''', (start, end, faculty['faculty_id'], event_id)).fetchall()
-        else:
-            summary = conn.execute('''
-                SELECT c.class_name, c.edpcode,
-                       COUNT(a.attendance_id) AS present_count,
-                       COUNT(DISTINCT sc.student_id) AS unique_students
-                FROM class c
-                JOIN student_class sc ON sc.class_id = c.class_id
-                LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
-                    AND DATE(a.attendance_date) BETWEEN ? AND ?
-                WHERE c.faculty_id = ?
-                GROUP BY c.class_id
-                ORDER BY c.class_name
-            ''', (start, end, faculty['faculty_id'])).fetchall()
+        # Get class attendance summaries
+        summary = conn.execute('''
+            SELECT c.class_name, c.edpcode,
+                   COUNT(a.attendance_id) AS present_count,
+                   COUNT(DISTINCT sc.student_id) AS unique_students
+            FROM class c
+            JOIN student_class sc ON sc.class_id = c.class_id
+            LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
+                AND DATE(a.attendance_date) BETWEEN ? AND ?
+            WHERE c.faculty_id = ?
+            GROUP BY c.class_id
+            ORDER BY c.class_name
+        ''', (start, end, faculty['faculty_id'])).fetchall()
         
-        # Get absence patterns with filter support
-        if filter_param.startswith('class_'):
-            class_id = filter_param.replace('class_', '')
-            absence = conn.execute('''
-                SELECT (u.firstname || ' ' || u.lastname) AS student_name,
-                       c.class_name,
-                       COUNT(a.attendance_id) AS present_count
-                FROM class c
-                JOIN student_class sc ON sc.class_id = c.class_id
-                JOIN student s ON sc.student_id = s.student_id
-                JOIN user u ON s.user_id = u.user_id
-                LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
-                    AND DATE(a.attendance_date) BETWEEN ? AND ?
-                WHERE c.faculty_id = ? AND c.class_id = ?
-                GROUP BY sc.student_id, c.class_id
-                ORDER BY present_count ASC, student_name
-            ''', (start, end, faculty['faculty_id'], class_id)).fetchall()
-        elif filter_param.startswith('event_'):
-            # Events don't have absence patterns in the same way
-            absence = []
-        else:
-            absence = conn.execute('''
-                SELECT (u.firstname || ' ' || u.lastname) AS student_name,
-                       c.class_name,
-                       COUNT(a.attendance_id) AS present_count
-                FROM class c
-                JOIN student_class sc ON sc.class_id = c.class_id
-                JOIN student s ON sc.student_id = s.student_id
-                JOIN user u ON s.user_id = u.user_id
-                LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
-                    AND DATE(a.attendance_date) BETWEEN ? AND ?
-                WHERE c.faculty_id = ?
-                GROUP BY sc.student_id, c.class_id
-                ORDER BY present_count ASC, student_name
-            ''', (start, end, faculty['faculty_id'])).fetchall()
+        # Get absence patterns
+        absence = conn.execute('''
+            SELECT (u.firstname || ' ' || u.lastname) AS student_name,
+                   c.class_name,
+                   COUNT(a.attendance_id) AS present_count
+            FROM class c
+            JOIN student_class sc ON sc.class_id = c.class_id
+            JOIN student s ON sc.student_id = s.student_id
+            JOIN user u ON s.user_id = u.user_id
+            LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
+                AND DATE(a.attendance_date) BETWEEN ? AND ?
+            WHERE c.faculty_id = ?
+            GROUP BY sc.student_id, c.class_id
+            ORDER BY present_count ASC, student_name
+        ''', (start, end, faculty['faculty_id'])).fetchall()
         
-        # Get monthly attendance data with filter support
-        if filter_param.startswith('class_'):
-            class_id = filter_param.replace('class_', '')
-            monthly = conn.execute('''
-                SELECT strftime('%Y', a.attendance_date) AS year,
-                       strftime('%m', a.attendance_date) AS month,
-                       COUNT(a.attendance_id) AS present_count
-                FROM attendance a
-                JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
-                JOIN class c ON sc.class_id = c.class_id
-                WHERE c.faculty_id = ? AND c.class_id = ?
-                GROUP BY strftime('%Y', a.attendance_date), strftime('%m', a.attendance_date)
-                ORDER BY year, month
-            ''', (faculty['faculty_id'], class_id)).fetchall()
-        elif filter_param.startswith('event_'):
-            # Events don't have monthly attendance in the same way
-            monthly = []
-        else:
-            monthly = conn.execute('''
-                SELECT strftime('%Y', a.attendance_date) AS year,
-                       strftime('%m', a.attendance_date) AS month,
-                       COUNT(a.attendance_id) AS present_count
-                FROM attendance a
-                JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
-                JOIN class c ON sc.class_id = c.class_id
-                WHERE c.faculty_id = ?
-                GROUP BY strftime('%Y', a.attendance_date), strftime('%m', a.attendance_date)
-                ORDER BY year, month
-            ''', (faculty['faculty_id'],)).fetchall()
+        # Get monthly attendance data
+        monthly = conn.execute('''
+            SELECT strftime('%Y', a.attendance_date) AS year,
+                   strftime('%m', a.attendance_date) AS month,
+                   COUNT(a.attendance_id) AS present_count
+            FROM attendance a
+            JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+            JOIN class c ON sc.class_id = c.class_id
+            WHERE c.faculty_id = ?
+            GROUP BY strftime('%Y', a.attendance_date), strftime('%m', a.attendance_date)
+            ORDER BY year, month
+        ''', (faculty['faculty_id'],)).fetchall()
         
         conn.close()
 
@@ -3764,232 +3119,235 @@ def faculty_reports_export(fmt):
             csv_data = output.getvalue()
             output.close()
             
-            from urllib.parse import quote
-            filename = f'faculty_reports_{start}_to_{end}.csv'
             return app.response_class(
                 csv_data,
                 mimetype='text/csv',
                 headers={
-                    'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{quote(filename)}',
+                    'Content-Disposition': f'attachment; filename=faculty_reports_{start}_to_{end}.csv',
                     'Content-Type': 'text/csv; charset=utf-8'
                 }
             )
             
         elif fmt == 'xlsx':
-            # Generate HTML that Excel can open
-            html_content = f'''<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Faculty Reports & Analytics</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 20px; }}
-        h1 {{ color: #333; border-bottom: 2px solid #4CAF50; padding-bottom: 10px; }}
-        h2 {{ color: #555; margin-top: 30px; }}
-        .meta {{ color: #666; font-size: 12px; margin-bottom: 20px; }}
-        table {{ border-collapse: collapse; width: 100%; margin-bottom: 30px; }}
-        th {{ background-color: #4CAF50; color: white; padding: 12px; text-align: left; font-weight: bold; }}
-        td {{ border: 1px solid #ddd; padding: 10px; }}
-        tr:nth-child(even) {{ background-color: #f2f2f2; }}
-        tr:hover {{ background-color: #ddd; }}
-        .section {{ page-break-after: always; }}
-        @media print {{ .section {{ page-break-after: always; }} }}
-    </style>
-</head>
-<body>
-    <h1>Faculty Reports & Analytics</h1>
-    <div class="meta">Period: {start} to {end}<br>Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
-    
-    <div class="section">
-        <h2>Class Attendance Summaries</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Class Name</th>
-                    <th>EDP Code</th>
-                    <th>Present Count</th>
-                    <th>Unique Students</th>
-                </tr>
-            </thead>
-            <tbody>
-'''
-            for r in summary:
-                html_content += f'''                <tr>
-                    <td>{r['class_name'] or ''}</td>
-                    <td>{r['edpcode'] or ''}</td>
-                    <td>{r['present_count'] or 0}</td>
-                    <td>{r['unique_students'] or 0}</td>
-                </tr>
-'''
-            html_content += '''            </tbody>
-        </table>
-    </div>
-    
-    <div class="section">
-        <h2>Absence Patterns (by low presence)</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Student Name</th>
-                    <th>Class Name</th>
-                    <th>Present Count</th>
-                </tr>
-            </thead>
-            <tbody>
-'''
-            for r in absence:
-                html_content += f'''                <tr>
-                    <td>{r['student_name'] or ''}</td>
-                    <td>{r['class_name'] or ''}</td>
-                    <td>{r['present_count'] or 0}</td>
-                </tr>
-'''
-            html_content += '''            </tbody>
-        </table>
-    </div>
-    
-    <div class="section">
-        <h2>Monthly Attendance</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Year</th>
-                    <th>Month</th>
-                    <th>Present Count</th>
-                </tr>
-            </thead>
-            <tbody>
-'''
-            for r in monthly:
-                html_content += f'''                <tr>
-                    <td>{r['year'] or ''}</td>
-                    <td>{r['month'] or ''}</td>
-                    <td>{r['present_count'] or 0}</td>
-                </tr>
-'''
-            html_content += '''            </tbody>
-        </table>
-    </div>
-</body>
-</html>'''
-            
-            from urllib.parse import quote
-            filename = f'faculty_reports_{start}_to_{end}.xlsx'
-            return app.response_class(
-                html_content,
-                mimetype='application/vnd.ms-excel',
-                headers={'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{quote(filename)}'}
-            )
+            try:
+                from io import BytesIO
+                from openpyxl import Workbook
+                from openpyxl.styles import Font, PatternFill, Alignment
+                
+                wb = Workbook()
+                
+                # Remove default sheet and create new ones
+                wb.remove(wb.active)
+                
+                # Summary sheet
+                ws1 = wb.create_sheet('Class Summaries')
+                ws1.append([f'Faculty Reports & Analytics ({start} to {end})'])
+                ws1.append([f'Generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'])
+                ws1.append([])
+                ws1.append(['Class Name', 'EDP Code', 'Present Count', 'Unique Students'])
+                
+                # Style header row
+                header_font = Font(bold=True)
+                header_fill = PatternFill(start_color='CCCCCC', end_color='CCCCCC', fill_type='solid')
+                for cell in ws1[4]:
+                    cell.font = header_font
+                    cell.fill = header_fill
+                
+                for r in summary:
+                    ws1.append([
+                        r['class_name'] or '', 
+                        r['edpcode'] or '', 
+                        r['present_count'] or 0, 
+                        r['unique_students'] or 0
+                    ])
+                
+                # Absence patterns sheet
+                ws2 = wb.create_sheet('Absence Patterns')
+                ws2.append([f'Faculty Reports & Analytics ({start} to {end})'])
+                ws2.append([f'Generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'])
+                ws2.append([])
+                ws2.append(['Student Name', 'Class Name', 'Present Count'])
+                
+                # Style header row
+                for cell in ws2[4]:
+                    cell.font = header_font
+                    cell.fill = header_fill
+                
+                for r in absence:
+                    ws2.append([
+                        r['student_name'] or '', 
+                        r['class_name'] or '', 
+                        r['present_count'] or 0
+                    ])
+                
+                # Monthly attendance sheet
+                ws3 = wb.create_sheet('Monthly Attendance')
+                ws3.append([f'Faculty Reports & Analytics ({start} to {end})'])
+                ws3.append([f'Generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'])
+                ws3.append([])
+                ws3.append(['Year', 'Month', 'Present Count'])
+                
+                # Style header row
+                for cell in ws3[4]:
+                    cell.font = header_font
+                    cell.fill = header_fill
+                
+                for r in monthly:
+                    ws3.append([
+                        r['year'] or '', 
+                        r['month'] or '', 
+                        r['present_count'] or 0
+                    ])
+                
+                # Auto-adjust column widths
+                for ws in [ws1, ws2, ws3]:
+                    for column in ws.columns:
+                        max_length = 0
+                        column_letter = column[0].column_letter
+                        for cell in column:
+                            try:
+                                if len(str(cell.value)) > max_length:
+                                    max_length = len(str(cell.value))
+                            except:
+                                pass
+                        adjusted_width = min(max_length + 2, 50)
+                        ws.column_dimensions[column_letter].width = adjusted_width
+                
+                stream = BytesIO()
+                wb.save(stream)
+                stream.seek(0)
+                
+                return app.response_class(
+                    stream.read(),
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={'Content-Disposition': f'attachment; filename=faculty_reports_{start}_to_{end}.xlsx'}
+                )
+                
+            except ImportError as e:
+                return jsonify({'error': f'Excel export requires openpyxl. Error: {str(e)}'}), 500
+            except Exception as e:
+                return jsonify({'error': f'Excel export failed: {str(e)}'}), 500
                 
         elif fmt == 'pdf':
-            # Generate HTML that can be printed to PDF
-            html_content = f'''<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Faculty Reports & Analytics</title>
-    <style>
-        @page {{ margin: 2cm; }}
-        body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; }}
-        h1 {{ color: #333; border-bottom: 2px solid #4CAF50; padding-bottom: 10px; page-break-after: avoid; }}
-        h2 {{ color: #555; margin-top: 30px; page-break-after: avoid; }}
-        .meta {{ color: #666; font-size: 12px; margin-bottom: 20px; }}
-        table {{ border-collapse: collapse; width: 100%; margin-bottom: 30px; page-break-inside: avoid; }}
-        th {{ background-color: #4CAF50; color: white; padding: 12px; text-align: left; font-weight: bold; }}
-        td {{ border: 1px solid #ddd; padding: 10px; }}
-        tr:nth-child(even) {{ background-color: #f2f2f2; }}
-        .section {{ page-break-after: always; }}
-        @media print {{ 
-            body {{ margin: 0; }}
-            .section {{ page-break-after: always; }}
-            table {{ page-break-inside: avoid; }}
-        }}
-    </style>
-</head>
-<body>
-    <h1>Faculty Reports & Analytics</h1>
-    <div class="meta">Period: {start} to {end}<br>Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
-    
-    <div class="section">
-        <h2>Class Attendance Summaries</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Class Name</th>
-                    <th>EDP Code</th>
-                    <th>Present Count</th>
-                    <th>Unique Students</th>
-                </tr>
-            </thead>
-            <tbody>s
-'''
-            for r in summary:
-                html_content += f'''                <tr>
-                    <td>{r['class_name'] or ''}</td>
-                    <td>{r['edpcode'] or ''}</td>
-                    <td>{r['present_count'] or 0}</td>
-                    <td>{r['unique_students'] or 0}</td>
-                </tr>
-'''
-            html_content += '''            </tbody>
-        </table>
-    </div>
-    
-    <div class="section">
-        <h2>Absence Patterns (by low presence)</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Student Name</th>
-                    <th>Class Name</th>
-                    <th>Present Count</th>
-                </tr>
-            </thead>
-            <tbody>
-'''
-            for r in absence:
-                html_content += f'''                <tr>
-                    <td>{r['student_name'] or ''}</td>
-                    <td>{r['class_name'] or ''}</td>
-                    <td>{r['present_count'] or 0}</td>
-                </tr>
-'''
-            html_content += '''            </tbody>
-        </table>
-    </div>
-    
-    <div class="section">
-        <h2>Monthly Attendance</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Year</th>
-                    <th>Month</th>
-                    <th>Present Count</th>
-                </tr>
-            </thead>
-            <tbody>
-'''
-            for r in monthly:
-                html_content += f'''                <tr>
-                    <td>{r['year'] or ''}</td>
-                    <td>{r['month'] or ''}</td>
-                    <td>{r['present_count'] or 0}</td>
-                </tr>
-'''
-            html_content += '''            </tbody>
-        </table>
-    </div>
-</body>
-</html>'''
-            
-            from urllib.parse import quote
-            filename = f'faculty_reports_{start}_to_{end}.pdf'
-            return app.response_class(
-                html_content,
-                mimetype='text/html',
-                headers={'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{quote(filename)}'}
-            )
+            try:
+                from io import BytesIO
+                from reportlab.lib.pagesizes import letter
+                from reportlab.pdfgen import canvas
+                from reportlab.lib.units import inch
+                from reportlab.lib import colors
+                from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+                from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+                from reportlab.lib.enums import TA_CENTER, TA_LEFT
+                
+                buffer = BytesIO()
+                doc = SimpleDocTemplate(buffer, pagesize=letter)
+                styles = getSampleStyleSheet()
+                story = []
+                
+                # Title
+                title_style = ParagraphStyle(
+                    'CustomTitle',
+                    parent=styles['Heading1'],
+                    fontSize=16,
+                    spaceAfter=30,
+                    alignment=TA_CENTER
+                )
+                story.append(Paragraph(f"Faculty Reports & Analytics ({start} to {end})", title_style))
+                story.append(Paragraph(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+                story.append(Spacer(1, 20))
+                
+                # Class Attendance Summaries
+                story.append(Paragraph("Class Attendance Summaries", styles['Heading2']))
+                story.append(Spacer(1, 12))
+                
+                summary_data = [['Class Name', 'EDP Code', 'Present Count', 'Unique Students']]
+                for r in summary:
+                    summary_data.append([
+                        r['class_name'] or '', 
+                        r['edpcode'] or '', 
+                        str(r['present_count'] or 0), 
+                        str(r['unique_students'] or 0)
+                    ])
+                
+                summary_table = Table(summary_data)
+                summary_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 12),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                ]))
+                story.append(summary_table)
+                story.append(Spacer(1, 20))
+                
+                # Absence Patterns
+                story.append(Paragraph("Absence Patterns (by low presence)", styles['Heading2']))
+                story.append(Spacer(1, 12))
+                
+                absence_data = [['Student Name', 'Class Name', 'Present Count']]
+                for r in absence:
+                    absence_data.append([
+                        r['student_name'] or '', 
+                        r['class_name'] or '', 
+                        str(r['present_count'] or 0)
+                    ])
+                
+                absence_table = Table(absence_data)
+                absence_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 12),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                ]))
+                story.append(absence_table)
+                story.append(Spacer(1, 20))
+                
+                # Monthly Attendance
+                story.append(Paragraph("Monthly Attendance", styles['Heading2']))
+                story.append(Spacer(1, 12))
+                
+                monthly_data = [['Year', 'Month', 'Present Count']]
+                for r in monthly:
+                    monthly_data.append([
+                        r['year'] or '', 
+                        r['month'] or '', 
+                        str(r['present_count'] or 0)
+                    ])
+                
+                monthly_table = Table(monthly_data)
+                monthly_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 12),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                ]))
+                story.append(monthly_table)
+                
+                doc.build(story)
+                pdf = buffer.getvalue()
+                buffer.close()
+                
+                return app.response_class(
+                    pdf,
+                    mimetype='application/pdf',
+                    headers={'Content-Disposition': f'attachment; filename=faculty_reports_{start}_to_{end}.pdf'}
+                )
+                
+            except ImportError as e:
+                return jsonify({'error': f'PDF export requires reportlab. Error: {str(e)}'}), 500
+            except Exception as e:
+                return jsonify({'error': f'PDF export failed: {str(e)}'}), 500
         else:
             return jsonify({'error': 'Unsupported format. Supported formats: csv, xlsx, pdf'}), 400
             
@@ -4092,6 +3450,217 @@ def api_anti_spoofing_reset():
             return jsonify({'success': False, 'message': 'Anti-spoofing not available'})
     except Exception as e:
         return jsonify({'success': False, 'message': f'Reset error: {str(e)}'}), 500
+
+# ==================== SYSTEM CONFIGURATION MODULE ====================
+
+@app.route('/settings')
+def admin_settings():
+    """Render admin settings page"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    
+    return render_template('admin_settings.html')
+
+@app.route('/api/settings/all', methods=['GET'])
+def api_get_all_settings():
+    """Get all system settings"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    try:
+        conn = get_db_connection()
+        settings = conn.execute('SELECT setting_key, setting_value FROM system_settings').fetchall()
+        conn.close()
+        
+        settings_dict = {row['setting_key']: row['setting_value'] for row in settings}
+        
+        return jsonify({'success': True, 'settings': settings_dict})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/settings/save', methods=['POST'])
+def api_save_settings():
+    """Save system settings"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    try:
+        settings = request.get_json()
+        conn = get_db_connection()
+        
+        for key, value in settings.items():
+            conn.execute('''
+                UPDATE system_settings 
+                SET setting_value = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?
+                WHERE setting_key = ?
+            ''', (str(value), session['user_id'], key))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'success': True, 'message': 'Settings saved successfully'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/settings/test-email', methods=['POST'])
+def api_test_email():
+    """Test email configuration"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    try:
+        # Get email settings from database
+        conn = get_db_connection()
+        settings = conn.execute('''
+            SELECT setting_key, setting_value 
+            FROM system_settings 
+            WHERE setting_type = 'email'
+        ''').fetchall()
+        conn.close()
+        
+        email_settings = {row['setting_key']: row['setting_value'] for row in settings}
+        
+        # Check if email is enabled
+        if email_settings.get('email_enabled') != 'true':
+            return jsonify({'success': False, 'error': 'Email notifications are disabled'})
+        
+        # Validate required fields
+        required_fields = ['smtp_server', 'smtp_port', 'smtp_username', 'smtp_password', 'email_from']
+        missing_fields = [f for f in required_fields if not email_settings.get(f)]
+        
+        if missing_fields:
+            return jsonify({'success': False, 'error': f'Missing required fields: {", ".join(missing_fields)}'})
+        
+        # Import email libraries
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        
+        # Create test email
+        msg = MIMEMultipart()
+        msg['From'] = email_settings['email_from']
+        msg['To'] = email_settings['email_from']  # Send to self for testing
+        msg['Subject'] = 'FaceCheck - Test Email'
+        
+        body = '''
+        <html>
+        <body>
+            <h2>Test Email Successful!</h2>
+            <p>This is a test email from your FaceCheck system.</p>
+            <p>Your email configuration is working correctly.</p>
+            <p><strong>System:</strong> FaceCheck Attendance System</p>
+            <p><strong>Time:</strong> {}</p>
+        </body>
+        </html>
+        '''.format(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        
+        msg.attach(MIMEText(body, 'html'))
+        
+        # Send email
+        server = smtplib.SMTP(email_settings['smtp_server'], int(email_settings['smtp_port']))
+        server.starttls()
+        server.login(email_settings['smtp_username'], email_settings['smtp_password'])
+        server.send_message(msg)
+        server.quit()
+        
+        return jsonify({'success': True, 'message': 'Test email sent successfully'})
+        
+    except smtplib.SMTPAuthenticationError:
+        return jsonify({'success': False, 'error': 'SMTP authentication failed. Check username and password.'})
+    except smtplib.SMTPException as e:
+        return jsonify({'success': False, 'error': f'SMTP error: {str(e)}'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/settings/backup-now', methods=['POST'])
+def api_backup_now():
+    """Create database backup"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    try:
+        import shutil
+        from datetime import datetime
+        
+        # Create backups directory if not exists
+        backup_dir = 'backups'
+        if not os.path.exists(backup_dir):
+            os.makedirs(backup_dir)
+        
+        # Generate backup filename with timestamp
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_filename = f'facecheck_backup_{timestamp}.db'
+        backup_path = os.path.join(backup_dir, backup_filename)
+        
+        # Copy database file
+        shutil.copy2('facecheck.db', backup_path)
+        
+        # Log the backup
+        conn = get_db_connection()
+        conn.execute('''
+            INSERT INTO system_settings (setting_key, setting_value, setting_type, description)
+            VALUES (?, ?, 'backup', ?)
+        ''', (f'backup_{timestamp}', backup_filename, f'Database backup created at {datetime.now()}'))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True, 
+            'message': 'Backup created successfully',
+            'filename': backup_filename
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/settings/optimize-db', methods=['POST'])
+def api_optimize_db():
+    """Optimize database"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    try:
+        conn = get_db_connection()
+        
+        # Run VACUUM to optimize database
+        conn.execute('VACUUM')
+        
+        # Analyze tables for query optimization
+        conn.execute('ANALYZE')
+        
+        conn.close()
+        
+        return jsonify({'success': True, 'message': 'Database optimized successfully'})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/admin/logs')
+def admin_logs():
+    """View activity logs (placeholder for future implementation)"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    
+    # This is a placeholder - you can implement full logging later
+    flash('Activity logs feature coming soon!', 'info')
+    return redirect(url_for('admin_settings'))
+
+# Session check endpoint
+@app.route('/api/check-session')
+def check_session():
+    """Check if user session is valid"""
+    if 'user_id' in session:
+        return jsonify({
+            'valid': True,
+            'user_id': session['user_id'],
+            'role': session.get('role'),
+            'name': f"{session.get('firstname', '')} {session.get('lastname', '')}".strip()
+        })
+    else:
+        return jsonify({
+            'valid': False,
+            'message': 'No active session'
+        }), 401
 
 # Error handlers
 @app.errorhandler(404)
