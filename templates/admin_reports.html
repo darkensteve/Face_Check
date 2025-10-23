@@ -3,13 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reports & Analytics - FaceCheck</title>
+    <title>FaceCheck - Reports & Analytics</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="bg-gray-100">
     <div class="flex h-screen">
+        <!-- Sidebar -->
         <div class="w-64 bg-gray-800 text-white">
+            <!-- Logo -->
             <div class="p-6 border-b border-gray-700">
                 <div class="flex items-center">
                     <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center mr-3">
@@ -18,32 +21,49 @@
                     <h1 class="text-xl font-bold">FaceCheck</h1>
                 </div>
             </div>
+            
+            <!-- Navigation -->
             <nav class="mt-6">
                 <div class="px-3">
                     <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Main Menu</div>
                 </div>
+                
                 <a href="{{ url_for('dashboard') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
-                    <i class="fas fa-tachometer-alt mr-3"></i>Dashboard
+                    <i class="fas fa-tachometer-alt mr-3"></i>
+                    Dashboard
                 </a>
+                
                 <a href="{{ url_for('admin_users') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
-                    <i class="fas fa-users mr-3"></i>User Management
+                    <i class="fas fa-users mr-3"></i>
+                    User Management
                 </a>
+                
                 <a href="{{ url_for('admin_classes') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
-                    <i class="fas fa-chalkboard-teacher mr-3"></i>Class Management
+                    <i class="fas fa-chalkboard-teacher mr-3"></i>
+                    Class Management
                 </a>
+                
                 <a href="{{ url_for('admin_events') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
-                    <i class="fas fa-calendar-alt mr-3"></i>Event Management
+                    <i class="fas fa-calendar-alt mr-3"></i>
+                    Event Management
                 </a>
+                
                 <a href="{{ url_for('admin_attendance') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
-                    <i class="fas fa-clipboard-check mr-3"></i>View Attendance Record
+                    <i class="fas fa-clipboard-check mr-3"></i>
+                    View Attendance Record
                 </a>
-                <a href="{{ url_for('admin_reports') }}" class="flex items-center px-6 py-3 bg-gray-700 text-white">
-                    <i class="fas fa-chart-line mr-3"></i>Reports & Analytics
+                
+                <a href="/reports" class="flex items-center px-6 py-3 bg-gray-700 text-white">
+                    <i class="fas fa-chart-bar mr-3"></i>
+                    Reports
                 </a>
+                
                 <a href="/settings" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
-                    <i class="fas fa-cog mr-3"></i>Settings
+                    <i class="fas fa-cog mr-3"></i>
+                    Settings
                 </a>
             </nav>
+            
             <!-- User Info -->
             <div class="absolute bottom-0 w-64 p-6 border-t border-gray-700">
                 <div class="flex items-center">
@@ -61,211 +81,332 @@
                 </a>
             </div>
         </div>
+        
+        <!-- Main Content -->
         <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Top Header -->
             <header class="bg-white shadow-sm border-b border-gray-200">
-                <div class="px-6 py-4 flex items-center justify-between">
-                    <div>
-                        <h2 class="text-2xl font-bold text-gray-800">Reports & Analytics</h2>
-                        <p class="text-gray-600">Class and Event summaries, absence patterns, and monthly graphs</p>
-                    </div>
-                    <div class="inline-flex rounded-md shadow-sm" role="group">
-                        <button onclick="exportReports('csv')" class="bg-green-600 text-white px-4 py-2 rounded-l-lg hover:bg-green-700 transition duration-200"><i class="fas fa-file-csv mr-2"></i>CSV</button>
-                        <button onclick="exportReports('xlsx')" class="bg-green-600 text-white px-4 py-2 hover:bg-green-700 transition duration-200"><i class="fas fa-file-excel mr-2"></i>Excel</button>
-                        <button onclick="exportReports('pdf')" class="bg-green-600 text-white px-4 py-2 rounded-r-lg hover:bg-green-700 transition duration-200"><i class="fas fa-file-pdf mr-2"></i>PDF</button>
+                <div class="px-6 py-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-2xl font-bold text-gray-800">Reports & Analytics</h2>
+                            <p class="text-gray-600">View comprehensive attendance reports and analytics</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="exportReport('csv')" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
+                                <i class="fas fa-file-csv mr-2"></i>Export CSV
+                            </button>
+                            <button onclick="exportReport('excel')" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                                <i class="fas fa-file-excel mr-2"></i>Export Excel
+                            </button>
+                            <button onclick="exportReport('pdf')" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition">
+                                <i class="fas fa-file-pdf mr-2"></i>Export PDF
+                            </button>
+                        </div>
                     </div>
                 </div>
             </header>
+            
+            <!-- Main Content Area -->
             <main class="flex-1 overflow-y-auto p-6">
-                <!-- Filters -->
-                <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
-                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Filters</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <!-- Filters Section -->
+                <div class="bg-white rounded-xl shadow-lg mb-6 p-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">
+                        <i class="fas fa-filter mr-2"></i>Filters
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">Date From</label>
-                            <input type="date" id="dateFrom" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <input type="date" id="dateFrom" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">Date To</label>
-                            <input type="date" id="dateTo" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <input type="date" id="dateTo" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Report Type</label>
+                            <select id="reportType" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                <option value="class">Class Attendance</option>
+                                <option value="event">Event Attendance</option>
+                                <option value="absence">Absence Patterns</option>
+                                <option value="monthly">Monthly Summary</option>
+                            </select>
                         </div>
                         <div class="flex items-end">
-                            <button onclick="refreshAll()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition duration-200"><i class="fas fa-sync-alt mr-2"></i>Apply</button>
+                            <button onclick="applyFilters()" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                                <i class="fas fa-search mr-2"></i>Apply Filters
+                            </button>
                         </div>
                     </div>
                 </div>
 
-                <!-- Class Attendance Summaries -->
-                <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-lg font-semibold text-gray-900">Class Attendance Summaries</h3>
+                <!-- Summary Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+                    <div class="bg-white rounded-xl shadow-lg p-6">
+                        <div class="flex items-center">
+                            <div class="p-3 bg-green-100 rounded-lg">
+                                <i class="fas fa-check-circle text-green-600 text-xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-gray-600">Total Present</p>
+                                <p class="text-2xl font-bold text-gray-900" id="totalPresent">0</p>
+                            </div>
+                        </div>
                     </div>
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">EDP Code</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Present</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unique Students</th>
-                                </tr>
-                            </thead>
-                            <tbody id="classSummaryBody" class="bg-white divide-y divide-gray-200"></tbody>
-                        </table>
+
+                    <div class="bg-white rounded-xl shadow-lg p-6">
+                        <div class="flex items-center">
+                            <div class="p-3 bg-red-100 rounded-lg">
+                                <i class="fas fa-times-circle text-red-600 text-xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-gray-600">Total Absent</p>
+                                <p class="text-2xl font-bold text-gray-900" id="totalAbsent">0</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow-lg p-6">
+                        <div class="flex items-center">
+                            <div class="p-3 bg-yellow-100 rounded-lg">
+                                <i class="fas fa-clock text-yellow-600 text-xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-gray-600">Total Late</p>
+                                <p class="text-2xl font-bold text-gray-900" id="totalLate">0</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl shadow-lg p-6">
+                        <div class="flex items-center">
+                            <div class="p-3 bg-blue-100 rounded-lg">
+                                <i class="fas fa-percentage text-blue-600 text-xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-gray-600">Attendance Rate</p>
+                                <p class="text-2xl font-bold text-gray-900" id="attendanceRate">0%</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Event Attendance Summaries -->
-                <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-lg font-semibold text-gray-900">Event Attendance Summaries</h3>
+                <!-- Charts Section -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div class="bg-white rounded-xl shadow-lg p-6">
+                        <h3 class="text-lg font-semibold text-gray-900 mb-4">Attendance Trends</h3>
+                        <canvas id="attendanceTrendChart"></canvas>
                     </div>
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Event</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Present</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unique Attendees</th>
-                                </tr>
-                            </thead>
-                            <tbody id="eventSummaryBody" class="bg-white divide-y divide-gray-200"></tbody>
-                        </table>
+
+                    <div class="bg-white rounded-xl shadow-lg p-6">
+                        <h3 class="text-lg font-semibold text-gray-900 mb-4">Status Distribution</h3>
+                        <canvas id="statusDistributionChart"></canvas>
                     </div>
                 </div>
 
-                <!-- Absence Patterns -->
-                <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-lg font-semibold text-gray-900">Absence Patterns</h3>
+                <!-- Detailed Reports Table -->
+                <div class="bg-white rounded-xl shadow-lg">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h3 class="text-xl font-semibold text-gray-900">Detailed Report</h3>
                     </div>
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Present Count</th>
-                                </tr>
-                            </thead>
-                            <tbody id="absenceBody" class="bg-white divide-y divide-gray-200"></tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- Monthly Graphs -->
-                <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-lg font-semibold text-gray-900">Monthly Attendance</h3>
-                    </div>
-                    <div class="w-full">
-                        <canvas id="monthlyChart" height="120"></canvas>
+                    <div class="p-6">
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class/Event</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Present</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Absent</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Late</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rate</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200" id="reportTableBody">
+                                    <tr>
+                                        <td colspan="6" class="px-6 py-4 text-center text-gray-500">
+                                            <i class="fas fa-info-circle mr-2"></i>Apply filters to view reports
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </main>
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script>
-        function getDates() {
-            const start = document.getElementById('dateFrom').value;
-            const end = document.getElementById('dateTo').value;
-            return { start, end };
-        }
+        let trendChart = null;
+        let distributionChart = null;
 
-        async function loadClassSummary() {
-            const { start, end } = getDates();
-            const params = new URLSearchParams();
-            if (start) params.append('start', start); if (end) params.append('end', end);
-            const resp = await fetch('/api/admin/reports/class-summary?' + params.toString());
-            const data = await resp.json();
-            const tbody = document.getElementById('classSummaryBody');
-            tbody.innerHTML = '';
-            data.forEach(r => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td class="px-6 py-3 whitespace-nowrap">${r.class_name || ''}</td>
-                    <td class="px-6 py-3 whitespace-nowrap">${r.edpcode || ''}</td>
-                    <td class="px-6 py-3 whitespace-nowrap">${r.present_count}</td>
-                    <td class="px-6 py-3 whitespace-nowrap">${r.unique_students}</td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-
-        async function loadEventSummary() {
-            const { start, end } = getDates();
-            const params = new URLSearchParams();
-            if (start) params.append('start', start); if (end) params.append('end', end);
-            const resp = await fetch('/api/admin/reports/event-summary?' + params.toString());
-            const data = await resp.json();
-            const tbody = document.getElementById('eventSummaryBody');
-            tbody.innerHTML = '';
-            data.forEach(r => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td class="px-6 py-3 whitespace-nowrap">${r.event_name || ''}</td>
-                    <td class="px-6 py-3 whitespace-nowrap">${r.event_date || ''}</td>
-                    <td class="px-6 py-3 whitespace-nowrap">${r.present_count}</td>
-                    <td class="px-6 py-3 whitespace-nowrap">${r.unique_attendees}</td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-
-        async function loadAbsence() {
-            const { start, end } = getDates();
-            const params = new URLSearchParams();
-            if (start) params.append('start', start); if (end) params.append('end', end);
-            const resp = await fetch('/api/admin/reports/absence-patterns?' + params.toString());
-            const data = await resp.json();
-            const tbody = document.getElementById('absenceBody');
-            tbody.innerHTML = '';
-            data.forEach(r => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td class="px-6 py-3 whitespace-nowrap">${r.student_name || ''}</td>
-                    <td class="px-6 py-3 whitespace-nowrap">${r.class_name || ''}</td>
-                    <td class="px-6 py-3 whitespace-nowrap">${r.present_count}</td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-
-        let monthlyChart;
-        async function loadMonthly() {
-            const year = new Date().getFullYear();
-            const resp = await fetch('/api/admin/reports/monthly?year=' + year);
-            const data = await resp.json();
-            const labels = data.map(d => d.month);
-            const values = data.map(d => d.present_count);
-            const ctx = document.getElementById('monthlyChart').getContext('2d');
-            if (monthlyChart) monthlyChart.destroy();
-            monthlyChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels,
-                    datasets: [{ label: 'Present Count', data: values, backgroundColor: '#3b82f6' }]
-                },
-                options: { responsive: true, maintainAspectRatio: false }
-            });
-        }
-
-        function refreshAll() { loadClassSummary(); loadEventSummary(); loadAbsence(); loadMonthly(); }
-
-        function exportReports(fmt) {
-            const { start, end } = getDates();
-            const params = new URLSearchParams();
-            if (start) params.append('start', start); if (end) params.append('end', end);
-            window.location.href = '/admin/reports/export/' + fmt + '?' + params.toString();
-        }
-
+        // Initialize charts
         document.addEventListener('DOMContentLoaded', function() {
-            refreshAll();
+            initializeCharts();
+            loadDefaultData();
         });
+
+        function initializeCharts() {
+            // Attendance Trend Chart
+            const trendCtx = document.getElementById('attendanceTrendChart').getContext('2d');
+            trendChart = new Chart(trendCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Present',
+                        data: [],
+                        borderColor: 'rgb(34, 197, 94)',
+                        backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                        tension: 0.4
+                    }, {
+                        label: 'Absent',
+                        data: [],
+                        borderColor: 'rgb(239, 68, 68)',
+                        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                        tension: 0.4
+                    }, {
+                        label: 'Late',
+                        data: [],
+                        borderColor: 'rgb(234, 179, 8)',
+                        backgroundColor: 'rgba(234, 179, 8, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+
+            // Status Distribution Chart
+            const distCtx = document.getElementById('statusDistributionChart').getContext('2d');
+            distributionChart = new Chart(distCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Present', 'Absent', 'Late'],
+                    datasets: [{
+                        data: [0, 0, 0],
+                        backgroundColor: [
+                            'rgb(34, 197, 94)',
+                            'rgb(239, 68, 68)',
+                            'rgb(234, 179, 8)'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        async function loadDefaultData() {
+            // Load last 30 days of data by default
+            const dateTo = new Date();
+            const dateFrom = new Date();
+            dateFrom.setDate(dateFrom.getDate() - 30);
+
+            document.getElementById('dateFrom').value = dateFrom.toISOString().split('T')[0];
+            document.getElementById('dateTo').value = dateTo.toISOString().split('T')[0];
+
+            await applyFilters();
+        }
+
+        async function applyFilters() {
+            const dateFrom = document.getElementById('dateFrom').value;
+            const dateTo = document.getElementById('dateTo').value;
+            const reportType = document.getElementById('reportType').value;
+
+            try {
+                const response = await fetch(`/api/admin/reports/${reportType}?date_from=${dateFrom}&date_to=${dateTo}`);
+                const data = await response.json();
+
+                if (data.success) {
+                    updateSummaryCards(data);
+                    updateCharts(data);
+                    updateTable(data);
+                }
+            } catch (error) {
+                console.error('Error loading report data:', error);
+            }
+        }
+
+        function updateSummaryCards(data) {
+            document.getElementById('totalPresent').textContent = data.summary?.total_present || 0;
+            document.getElementById('totalAbsent').textContent = data.summary?.total_absent || 0;
+            document.getElementById('totalLate').textContent = data.summary?.total_late || 0;
+            document.getElementById('attendanceRate').textContent = (data.summary?.attendance_rate || 0) + '%';
+        }
+
+        function updateCharts(data) {
+            // Update trend chart
+            if (data.trend && trendChart) {
+                trendChart.data.labels = data.trend.labels || [];
+                trendChart.data.datasets[0].data = data.trend.present || [];
+                trendChart.data.datasets[1].data = data.trend.absent || [];
+                trendChart.data.datasets[2].data = data.trend.late || [];
+                trendChart.update();
+            }
+
+            // Update distribution chart
+            if (data.summary && distributionChart) {
+                distributionChart.data.datasets[0].data = [
+                    data.summary.total_present || 0,
+                    data.summary.total_absent || 0,
+                    data.summary.total_late || 0
+                ];
+                distributionChart.update();
+            }
+        }
+
+        function updateTable(data) {
+            const tbody = document.getElementById('reportTableBody');
+            tbody.innerHTML = '';
+
+            if (!data.details || data.details.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6" class="px-6 py-4 text-center text-gray-500">
+                            <i class="fas fa-inbox mr-2"></i>No data available for selected filters
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            data.details.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.date}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.name}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-semibold">${row.present}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-semibold">${row.absent}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-yellow-600 font-semibold">${row.late}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.rate}%</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function exportReport(format) {
+            const dateFrom = document.getElementById('dateFrom').value;
+            const dateTo = document.getElementById('dateTo').value;
+            const reportType = document.getElementById('reportType').value;
+
+            window.location.href = `/admin/reports/export/${format}?date_from=${dateFrom}&date_to=${dateTo}&type=${reportType}`;
+        }
     </script>
 </body>
 </html>
-
-
