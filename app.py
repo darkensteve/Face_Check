@@ -2888,6 +2888,124 @@ def faculty_reports():
         return redirect(url_for('login'))
     return render_template('faculty/faculty_reports.html')
 
+# Faculty export of today's attendance for a selected class
+@app.route('/api/faculty/attendance/export/<fmt>')
+def faculty_attendance_export(fmt):
+    # Allow both faculty and admin
+    if 'user_id' not in session or session.get('role') not in ['faculty', 'admin']:
+        return jsonify({'error': 'Unauthorized'}), 401
+    try:
+        class_id = request.args.get('class_id')
+        date_str = request.args.get('date')  # YYYY-MM-DD; defaults to today
+        if not class_id:
+            return jsonify({'error': 'Missing class_id'}), 400
+
+        if not date_str:
+            date_str = datetime.now().strftime('%Y-%m-%d')
+
+        conn = get_db_connection()
+
+        # Security: if faculty, ensure the class belongs to them
+        if session.get('role') == 'faculty':
+            owns = conn.execute('''
+                SELECT 1
+                FROM class c
+                JOIN faculty f ON c.faculty_id = f.faculty_id
+                JOIN user u ON f.user_id = u.user_id
+                WHERE c.class_id = ? AND u.user_id = ?
+            ''', (class_id, session['user_id'])).fetchone()
+            if not owns:
+                conn.close()
+                return jsonify({'error': 'Forbidden'}), 403
+
+        rows = conn.execute('''
+            SELECT u.firstname, u.lastname, u.idno,
+                   c.class_name, c.edpcode,
+                   a.attendance_date, a.attendance_status
+            FROM attendance a
+            JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+            JOIN student s ON sc.student_id = s.student_id
+            JOIN user u ON s.user_id = u.user_id
+            JOIN class c ON sc.class_id = c.class_id
+            WHERE sc.class_id = ? AND DATE(a.attendance_date) = ?
+            ORDER BY a.attendance_date DESC
+        ''', (class_id, date_str)).fetchall()
+        conn.close()
+
+        # Filename base
+        filename_base = f"class_{class_id}_attendance_{date_str}"
+
+        if fmt == 'csv':
+            from io import StringIO
+            import csv
+            out = StringIO(); w = csv.writer(out)
+            w.writerow(['Student Name', 'ID', 'Class', 'EDP Code', 'Date/Time', 'Status'])
+            for r in rows:
+                w.writerow([
+                    f"{r['firstname']} {r['lastname']}", r['idno'] or '',
+                    r['class_name'] or '', r['edpcode'] or '',
+                    r['attendance_date'] or '', r['attendance_status'] or ''
+                ])
+            data = out.getvalue(); out.close()
+            return app.response_class(
+                data,
+                mimetype='text/csv',
+                headers={'Content-Disposition': f'attachment; filename={filename_base}.csv'}
+            )
+        elif fmt == 'xlsx':
+            from io import BytesIO
+            try:
+                from openpyxl import Workbook
+            except Exception:
+                return jsonify({'error': 'XLSX export not available (openpyxl missing)'}), 500
+            wb = Workbook(); ws = wb.active; ws.title = 'Attendance'
+            ws.append(['Student Name', 'ID', 'Class', 'EDP Code', 'Date/Time', 'Status'])
+            for r in rows:
+                ws.append([
+                    f"{r['firstname']} {r['lastname']}", r['idno'] or '',
+                    r['class_name'] or '', r['edpcode'] or '',
+                    str(r['attendance_date'] or ''), r['attendance_status'] or ''
+                ])
+            bio = BytesIO(); wb.save(bio); bio.seek(0)
+            return app.response_class(
+                bio.read(),
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                headers={'Content-Disposition': f'attachment; filename={filename_base}.xlsx'}
+            )
+        elif fmt == 'pdf':
+            from io import BytesIO
+            from reportlab.lib.pagesizes import letter
+            from reportlab.pdfgen import canvas
+            buffer = BytesIO(); c = canvas.Canvas(buffer, pagesize=letter)
+            width, height = letter; y = height - 50
+            c.setFont('Helvetica-Bold', 14)
+            c.drawString(50, y, f'Attendance for Class #{class_id} on {date_str}')
+            y -= 20
+            c.setFont('Helvetica', 10)
+            headers = ['Student', 'ID', 'Class', 'EDP', 'Date/Time', 'Status']
+            c.drawString(50, y, ' | '.join(headers)); y -= 15
+            for r in rows:
+                line = ' | '.join([
+                    f"{r['firstname']} {r['lastname']}", r['idno'] or '',
+                    r['class_name'] or '', r['edpcode'] or '',
+                    str(r['attendance_date'] or ''), r['attendance_status'] or ''
+                ])
+                # Wrap long lines
+                for segment in [line[i:i+95] for i in range(0, len(line), 95)]:
+                    c.drawString(50, y, segment); y -= 12
+                    if y < 50:
+                        c.showPage(); y = height - 50; c.setFont('Helvetica', 10)
+            c.showPage(); c.save(); pdf = buffer.getvalue(); buffer.close()
+            return app.response_class(
+                pdf,
+                mimetype='application/pdf',
+                headers={'Content-Disposition': f'attachment; filename={filename_base}.pdf'}
+            )
+        else:
+            return jsonify({'error': 'Unsupported format'}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+        
 @app.route('/api/faculty/reports/summary')
 def api_faculty_reports_summary():
     if 'user_id' not in session or session['role'] != 'faculty':

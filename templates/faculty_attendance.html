@@ -56,7 +56,7 @@
                     <i class="fas fa-chart-line mr-3"></i>
                     Reports and Analytics
                 </a>
-                
+
                 <a href="/faculty/register_face" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-user-plus mr-3"></i>
                     Register Face
@@ -89,7 +89,7 @@
                     <div class="flex items-center justify-between">
                         <div>
                             <h2 class="text-2xl font-bold text-gray-800">Take Attendance</h2>
-                            <p class="text-gray-600">Use face recognition to mark student attendance</p>
+                            <p class="text-gray-600">Use face recognition to mark attendance for classes or events</p>
                         </div>
                         <div class="flex items-center space-x-4">
                             <div class="text-sm text-gray-500">
@@ -121,6 +121,18 @@
             
             <!-- Main Content Area -->
             <main class="flex-1 overflow-y-auto p-6">
+                <!-- Mode Tabs -->
+                <div class="bg-white rounded-xl shadow-lg p-4 mb-4">
+                    <div class="inline-flex rounded-md shadow-sm" role="group">
+                        <button id="tabClasses" type="button" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-l-lg border border-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500">
+                            <i class="fas fa-chalkboard mr-2"></i>Classes
+                        </button>
+                        <button id="tabEvents" type="button" class="px-4 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-200 rounded-r-lg hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-2 focus:ring-blue-500">
+                            <i class="fas fa-calendar-check mr-2"></i>Events
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Class Selection Section -->
                 <div id="classSelectionSection" class="bg-white rounded-xl shadow-lg p-6 mb-6">
                     <h3 class="text-lg font-semibold text-gray-900 mb-4">Select Class for Attendance</h3>
@@ -136,6 +148,21 @@
                         <p class="text-sm">Contact your administrator to get assigned to classes.</p>
                     </div>
                 </div>
+
+                <!-- Event Selection Section -->
+                <div id="eventSelectionSection" class="bg-white rounded-xl shadow-lg p-6 mb-6" style="display: none;">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Select Event for Attendance</h3>
+                    <p class="text-gray-600 mb-4">Choose the event you want to take attendance for:</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="eventsList">
+                        <!-- Events will be loaded here -->
+                    </div>
+
+                    <div id="noEventsMessage" class="text-center py-8 text-gray-500" style="display: none;">
+                        <i class="fas fa-calendar-times text-gray-400 text-4xl mb-4"></i>
+                        <p>No events assigned to you yet.</p>
+                    </div>
+                </div>
                 
                 <!-- Camera Section (hidden initially) -->
                 <div id="cameraSection" class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full" style="display: none;">
@@ -144,24 +171,20 @@
                         <div class="mb-4">
                             <div class="flex items-center justify-between mb-2">
                                 <h3 class="text-lg font-semibold text-gray-900">Camera Feed</h3>
-                                <button id="backToClasses" class="text-blue-600 hover:text-blue-800 text-sm">
-                                    <i class="fas fa-arrow-left mr-1"></i>Change Class
+                                <button id="backToSelection" class="text-blue-600 hover:text-blue-800 text-sm">
+                                    <i class="fas fa-arrow-left mr-1"></i>Change Selection
                                 </button>
                             </div>
                             <p class="text-sm text-gray-600">Position students in front of the camera for face recognition</p>
                         </div>
                         
-                        <!-- Selected Class Info -->
-                        <div id="selectedClassInfo" class="mb-4 p-3 bg-blue-50 rounded-lg">
-                            <!-- Selected class info will be shown here -->
-                        </div>
+                        <!-- Selected Target Info -->
+                        <div id="selectedTargetInfo" class="mb-4 p-3 bg-blue-50 rounded-lg"></div>
                         
                         <!-- Camera Container -->
                         <div class="relative bg-gray-900 rounded-lg overflow-hidden" style="height: 400px;">
                             <video id="video" autoplay muted class="w-full h-full object-cover"></video>
                             <canvas id="canvas" class="hidden"></canvas>
-                            <!-- Overlay canvas for face detection box -->
-                            <canvas id="overlayCanvas" class="absolute top-0 left-0 w-full h-full pointer-events-none"></canvas>
                             
                             <!-- Camera Controls -->
                             <div class="absolute bottom-4 left-4 right-4">
@@ -206,15 +229,30 @@
                     <!-- Attendance Table Section -->
                     <div class="bg-white rounded-xl shadow-lg p-6">
                         <div class="mb-4">
-                            <h3 class="text-lg font-semibold text-gray-900 mb-2">Today's Attendance</h3>
-                            <p class="text-sm text-gray-600">Real-time attendance tracking</p>
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h3 class="text-lg font-semibold text-gray-900 mb-2">Today's Attendance</h3>
+                                    <p class="text-sm text-gray-600">Real-time attendance tracking</p>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <button id="exportCsv" class="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm rounded-md border" title="Export CSV">
+                                        <i class="fas fa-file-csv mr-1"></i>CSV
+                                    </button>
+                                    <button id="exportXlsx" class="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm rounded-md border" title="Export Excel">
+                                        <i class="fas fa-file-excel mr-1"></i>Excel
+                                    </button>
+                                    <button id="exportPdf" class="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm rounded-md border" title="Export PDF">
+                                        <i class="fas fa-file-pdf mr-1"></i>PDF
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                         
                         <!-- Attendance Stats -->
                         <div class="grid grid-cols-3 gap-4 mb-6">
                             <div class="text-center p-3 bg-blue-50 rounded-lg">
                                 <div class="text-2xl font-bold text-blue-600" id="totalStudents">0</div>
-                                <div class="text-xs text-blue-600">Total Students</div>
+                                <div class="text-xs text-blue-600">Total</div>
                             </div>
                             <div class="text-center p-3 bg-green-50 rounded-lg">
                                 <div class="text-2xl font-bold text-green-600" id="presentCount">0</div>
@@ -231,7 +269,7 @@
                             <table class="min-w-full divide-y divide-gray-200">
                                 <thead class="bg-gray-50">
                                     <tr>
-                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Participant</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                                     </tr>
@@ -255,7 +293,7 @@
     </div>
     
     <script>
-        let video, canvas, ctx, overlayCanvas, overlayCtx;
+        let video, canvas, ctx;
         let stream = null;
         let isRecognizing = false;
         let isDetecting = false;
@@ -269,9 +307,6 @@
         let detectionInterval = null;
         let recognitionInterval = null;
         let livenessTimeout = null;
-        let currentFaceBox = null; // Store current face detection box
-        let targetFaceBox = null; // Target box position
-        let animationFrameId = null; // For smooth 60fps animation
         
         // Face recognition parameters (from face_recog_test.py)
         const MATCH_TOLERANCE = 0.62;
@@ -281,7 +316,9 @@
         const EAR_CONSEC_FRAMES = 2;
         const MOTION_MIN_NOSE_PIX = 1.0; // Minimum nose motion threshold for liveness
         let selectedClass = null;
+        let selectedEvent = null;
         let facultyClasses = [];
+        let facultyEvents = [];
         
         // Anti-spoofing manager
         let antiSpoofingManager = null; // will be initialized in initializeAntiSpoofing()
@@ -296,8 +333,6 @@
             video = document.getElementById('video');
             canvas = document.getElementById('canvas');
             ctx = canvas.getContext('2d');
-            overlayCanvas = document.getElementById('overlayCanvas');
-            overlayCtx = overlayCanvas.getContext('2d');
             
             // Initialize anti-spoofing manager
             initializeAntiSpoofing();
@@ -305,157 +340,25 @@
             // Set up event listeners
             document.getElementById('startCamera').addEventListener('click', startCamera);
             document.getElementById('stopCamera').addEventListener('click', stopCamera);
-            document.getElementById('backToClasses').addEventListener('click', backToClassSelection);
+            document.getElementById('backToSelection').addEventListener('click', backToSelection);
+            document.getElementById('tabClasses').addEventListener('click', () => switchMode('class'));
+            document.getElementById('tabEvents').addEventListener('click', () => switchMode('event'));
             
             // Update time and date
             updateDateTime();
             setInterval(updateDateTime, 1000);
             
-            // Load faculty classes
-            await loadFacultyClasses();
+            // Load faculty classes and events
+            await Promise.all([loadFacultyClasses(), loadFacultyEvents()]);
+
+            // Export buttons
+            const exportCsvBtn = document.getElementById('exportCsv');
+            const exportXlsxBtn = document.getElementById('exportXlsx');
+            const exportPdfBtn = document.getElementById('exportPdf');
+            if (exportCsvBtn) exportCsvBtn.addEventListener('click', () => exportAttendance('csv'));
+            if (exportXlsxBtn) exportXlsxBtn.addEventListener('click', () => exportAttendance('xlsx'));
+            if (exportPdfBtn) exportPdfBtn.addEventListener('click', () => exportAttendance('pdf'));
         });
-        
-        // Smooth interpolation function
-        function lerp(start, end, factor) {
-            return start + (end - start) * factor;
-        }
-        
-        // Function to draw face box - INSTANT positioning (no delay!)
-        function drawFaceBox(studentName, confidence, x, y, width, height) {
-            // Set both target and current to exact same position - INSTANT!
-            targetFaceBox = { studentName, confidence, x, y, width, height };
-            currentFaceBox = { studentName, confidence, x, y, width, height };
-            
-            // Draw immediately at detected position - NO WAITING!
-            drawFaceBoxDirect(studentName, confidence, x, y, width, height);
-        }
-        
-        // Function to draw face detection box directly (professional style)
-        function drawFaceBoxDirect(studentName, confidence, x, y, width, height) {
-            // Clear previous drawings
-            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-            
-            // Calculate position relative to video dimensions
-            const videoRect = video.getBoundingClientRect();
-            overlayCanvas.width = videoRect.width;
-            overlayCanvas.height = videoRect.height;
-            
-            // Scale coordinates
-            const scaleX = overlayCanvas.width / video.videoWidth;
-            const scaleY = overlayCanvas.height / video.videoHeight;
-            
-            const boxX = x * scaleX;
-            const boxY = y * scaleY;
-            const boxWidth = width * scaleX;
-            const boxHeight = height * scaleY;
-            
-            // Determine color based on confidence
-            const color = confidence >= 70 ? '#00ff00' : confidence >= 50 ? '#ffff00' : '#ff6600';
-            
-            // Draw main bounding box with corner accents (modern style)
-            overlayCtx.strokeStyle = color;
-            overlayCtx.lineWidth = 3;
-            overlayCtx.lineCap = 'round';
-            overlayCtx.lineJoin = 'round';
-            
-            // Full rectangle
-            overlayCtx.strokeRect(boxX, boxY, boxWidth, boxHeight);
-            
-            // Add corner accents for professional look
-            const cornerLength = Math.min(boxWidth, boxHeight) * 0.15;
-            overlayCtx.lineWidth = 4;
-            overlayCtx.strokeStyle = color;
-            
-            // Top-left corner
-            overlayCtx.beginPath();
-            overlayCtx.moveTo(boxX, boxY + cornerLength);
-            overlayCtx.lineTo(boxX, boxY);
-            overlayCtx.lineTo(boxX + cornerLength, boxY);
-            overlayCtx.stroke();
-            
-            // Top-right corner
-            overlayCtx.beginPath();
-            overlayCtx.moveTo(boxX + boxWidth - cornerLength, boxY);
-            overlayCtx.lineTo(boxX + boxWidth, boxY);
-            overlayCtx.lineTo(boxX + boxWidth, boxY + cornerLength);
-            overlayCtx.stroke();
-            
-            // Bottom-left corner
-            overlayCtx.beginPath();
-            overlayCtx.moveTo(boxX, boxY + boxHeight - cornerLength);
-            overlayCtx.lineTo(boxX, boxY + boxHeight);
-            overlayCtx.lineTo(boxX + cornerLength, boxY + boxHeight);
-            overlayCtx.stroke();
-            
-            // Bottom-right corner
-            overlayCtx.beginPath();
-            overlayCtx.moveTo(boxX + boxWidth - cornerLength, boxY + boxHeight);
-            overlayCtx.lineTo(boxX + boxWidth, boxY + boxHeight);
-            overlayCtx.lineTo(boxX + boxWidth, boxY + boxHeight - cornerLength);
-            overlayCtx.stroke();
-            
-            // Draw label with improved styling
-            const label = `${studentName} (${confidence}%)`;
-            overlayCtx.font = 'bold 16px "Segoe UI", Arial, sans-serif';
-            const textWidth = overlayCtx.measureText(label).width;
-            const padding = 10;
-            const labelHeight = 32;
-            
-            // Semi-transparent background with gradient
-            const gradient = overlayCtx.createLinearGradient(boxX, boxY - labelHeight - 5, boxX, boxY - 5);
-            gradient.addColorStop(0, color + 'E6'); // 90% opacity
-            gradient.addColorStop(1, color + 'CC'); // 80% opacity
-            overlayCtx.fillStyle = gradient;
-            
-            // Rounded rectangle for label background
-            const radius = 6;
-            overlayCtx.beginPath();
-            overlayCtx.moveTo(boxX + radius, boxY - labelHeight - 5);
-            overlayCtx.lineTo(boxX + textWidth + padding * 2 - radius, boxY - labelHeight - 5);
-            overlayCtx.quadraticCurveTo(boxX + textWidth + padding * 2, boxY - labelHeight - 5, 
-                                       boxX + textWidth + padding * 2, boxY - labelHeight - 5 + radius);
-            overlayCtx.lineTo(boxX + textWidth + padding * 2, boxY - 5 - radius);
-            overlayCtx.quadraticCurveTo(boxX + textWidth + padding * 2, boxY - 5, 
-                                       boxX + textWidth + padding * 2 - radius, boxY - 5);
-            overlayCtx.lineTo(boxX + radius, boxY - 5);
-            overlayCtx.quadraticCurveTo(boxX, boxY - 5, boxX, boxY - 5 - radius);
-            overlayCtx.lineTo(boxX, boxY - labelHeight - 5 + radius);
-            overlayCtx.quadraticCurveTo(boxX, boxY - labelHeight - 5, boxX + radius, boxY - labelHeight - 5);
-            overlayCtx.fill();
-            
-            // Draw text with shadow for better readability
-            overlayCtx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-            overlayCtx.shadowBlur = 3;
-            overlayCtx.shadowOffsetX = 1;
-            overlayCtx.shadowOffsetY = 1;
-            overlayCtx.fillStyle = '#000000';
-            overlayCtx.fillText(label, boxX + padding, boxY - 13);
-            
-            // Reset shadow
-            overlayCtx.shadowColor = 'transparent';
-            overlayCtx.shadowBlur = 0;
-            overlayCtx.shadowOffsetX = 0;
-            overlayCtx.shadowOffsetY = 0;
-        }
-        
-        // Function to clear face detection box
-        function clearFaceBox() {
-            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-            currentFaceBox = null;
-            targetFaceBox = null;
-        }
-        
-        // Update overlay canvas size when video resizes
-        function updateOverlaySize() {
-            if (video && overlayCanvas) {
-                const videoRect = video.getBoundingClientRect();
-                overlayCanvas.width = videoRect.width;
-                overlayCanvas.height = videoRect.height;
-                
-                // The animation loop will automatically redraw the box
-                // No need to manually redraw here
-            }
-        }
         
         // Initialize anti-spoofing manager
         function initializeAntiSpoofing() {
@@ -482,10 +385,24 @@
                     </div>
                 `;
             }
-            
-            // Add resize listener for overlay
-            window.addEventListener('resize', updateOverlaySize);
-            video.addEventListener('loadedmetadata', updateOverlaySize);
+        }
+
+        // Export today's attendance for selected class
+        function exportAttendance(fmt) {
+            if (!selectedClass) {
+                showNotification('Please select a class first.', 'error');
+                return;
+            }
+            const date = new Date().toISOString().slice(0,10); // YYYY-MM-DD
+            const url = `/api/faculty/attendance/export/${encodeURIComponent(fmt)}?class_id=${encodeURIComponent(selectedClass.class_id)}&date=${encodeURIComponent(date)}`;
+
+            // Trigger download in a safe way
+            const a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
         }
         
         // Start camera
@@ -531,9 +448,6 @@
             
             video.srcObject = null;
             
-            // Clear face detection box
-            clearFaceBox();
-            
             // Stop anti-spoofing analysis
             if (antiSpoofingManager) {
                 antiSpoofingManager.stopRealTimeAnalysis();
@@ -556,7 +470,6 @@
             blinkFrames = 0;
             nosePrev = null;
             noseMaxDisp = 0.0;
-            targetFaceBox = null;
             
             // Update UI
             document.getElementById('startCamera').disabled = false;
@@ -571,28 +484,21 @@
             if (detectionInterval) return;
             
             let frameCount = 0;
-            let isProcessing = false;
-            
             detectionInterval = setInterval(async () => {
-                if (!stream || isProcessing) return;
+                if (!stream) return;
                 
                 frameCount++;
-                // Process EVERY frame for MAXIMUM speed (50ms updates = 20 times per second!)
-                // INSTANT response - no waiting!
-                
-                isProcessing = true;
+                // Only process every 30th frame (every 3 seconds at 10fps)
+                if (frameCount % 30 !== 0) return;
                 
                 try {
-                    // Capture frame at SMALLER size for FASTER processing
-                    const targetWidth = 640;  // Smaller = faster backend processing
-                    const targetHeight = 480;
+                    // Capture frame
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    ctx.drawImage(video, 0, 0);
                     
-                    canvas.width = targetWidth;
-                    canvas.height = targetHeight;
-                    ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
-                    
-                    // Convert to blob with faster compression
-                    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.7));
+                    // Convert to blob for processing
+                    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.8));
                     
                     // Send to server for face recognition
                     const formData = new FormData();
@@ -600,11 +506,13 @@
                     
                     console.log('Sending frame for detection...');
                     
-                    const response = await fetch('/api/attendance/detect', {
+                    const endpoint = selectedEvent ? '/api/event/detect' : '/api/attendance/detect';
+                    const response = await fetch(endpoint, {
                         method: 'POST',
-                        body: formData,
-                        credentials: 'same-origin'  // Ensure cookies are sent
+                        body: formData
                     });
+                    
+                    console.log('Response status:', response.status);
                     
                     if (response.ok) {
                         const result = await response.json();
@@ -614,25 +522,33 @@
                         const errorText = await response.text();
                         console.error('API Error:', response.status, errorText);
                         document.getElementById('recognitionStatus').textContent = `API Error: ${response.status}`;
-                        // Clear box if error occurs
-                        clearFaceBox();
                     }
                     
                 } catch (error) {
                     console.error('Detection error:', error);
                     document.getElementById('recognitionStatus').textContent = `Error: ${error.message}`;
-                    // Clear box if error occurs
-                    clearFaceBox();
-                } finally {
-                    isProcessing = false;
+                    console.log('Full error object:', error);
                 }
-            }, 50); // Check every 50ms = 20 detections per second = SUPER FAST!
+            }, 100); // Check every 100ms, but only process every 3 seconds
         }
         
         // Handle recognition result
         function handleRecognitionResult(result) {
-            console.log('Handling recognition result:', result);
-            
+            // Event mode (faculty participants)
+            if (selectedEvent) {
+                if (result.success && result.user_id && result.user_id !== 'Unknown') {
+                    const participant = { user_id: result.user_id, name: result.name };
+                    // Directly mark attendance for events (no liveness loop for simplicity)
+                    markEventAttendance(selectedEvent.event_id, participant.user_id, participant.name);
+                    document.getElementById('recognitionStatus').textContent = `Recognized: ${participant.name}`;
+                    document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-green-400 rounded-full';
+                } else {
+                    document.getElementById('recognitionStatus').textContent = 'No faculty detected';
+                    document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-gray-400 rounded-full';
+                }
+                return;
+            }
+
             // Check for spoofing detection first
             if (result.student_id === 'SPOOFING_DETECTED') {
                 document.getElementById('recognitionStatus').textContent = '⚠️ Spoofing attempt detected!';
@@ -646,7 +562,7 @@
             // Check anti-spoofing results if available
             if (result.anti_spoofing) {
                 const antiSpoofing = result.anti_spoofing;
-                if (!antiSpoofing.is_live || antiSpoofing.confidence < 0.5) {
+                if (!antiSpoofing.is_live || antiSpoofing.confidence < 0.7) {
                     document.getElementById('recognitionStatus').textContent = 
                         `⚠️ Anti-spoofing failed (${Math.round(antiSpoofing.confidence * 100)}%)`;
                     document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-red-500 rounded-full';
@@ -657,21 +573,6 @@
             }
             
             if (result.success && result.student_id && result.student_id !== 'Unknown') {
-                console.log('Student recognized successfully:', result.student_name);
-                
-                // Draw face detection box
-                if (result.face_box) {
-                    const confidence = result.confidence || Math.round((1 - (result.distance || 0)) * 100);
-                    drawFaceBox(
-                        result.student_name,
-                        confidence,
-                        result.face_box.x,
-                        result.face_box.y,
-                        result.face_box.width,
-                        result.face_box.height
-                    );
-                }
-                
                 // Student recognized and passed anti-spoofing
                 if (currentStudent && currentStudent.student_id === result.student_id) {
                     // Same student, continue liveness detection
@@ -710,29 +611,11 @@
                     }
                 }
             } else {
-                // No student recognized but maybe face detected
-                if (result.face_box) {
-                    // Draw box for unknown face (with low confidence indicator)
-                    drawFaceBox(
-                        'Unknown Person',
-                        0,
-                        result.face_box.x,
-                        result.face_box.y,
-                        result.face_box.width,
-                        result.face_box.height
-                    );
-                    document.getElementById('recognitionStatus').textContent = 'Face detected - Not registered';
-                    document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-yellow-400 rounded-full';
-                } else {
-                    // No face at all - clear the box
-                    clearFaceBox();
-                    document.getElementById('recognitionStatus').textContent = 'No face detected';
-                    document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-gray-400 rounded-full';
-                }
-                
-                console.log('No student recognized. Result:', result);
+                // No student recognized
                 currentStudent = null;
                 livenessActive = false;
+                document.getElementById('recognitionStatus').textContent = 'No student detected';
+                document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-gray-400 rounded-full';
             }
         }
         
@@ -848,6 +731,31 @@
                 showNotification(`Error marking attendance: ${error.message}`, 'error');
             }
         }
+
+        // Mark event attendance (faculty participant)
+        async function markEventAttendance(eventId, userId, name) {
+            try {
+                const payload = { event_id: eventId, user_id: userId, name: name, status: 'present' };
+                const resp = await fetch('/api/event/attendance/mark', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.success) {
+                        addAttendanceRecord(name, userId, new Date().toLocaleTimeString());
+                        showNotification(`Event attendance marked for ${name}`, 'success');
+                    } else {
+                        showNotification(data.message || 'Failed to mark attendance', 'error');
+                    }
+                } else {
+                    showNotification(`HTTP ${resp.status} while marking event attendance`, 'error');
+                }
+            } catch (e) {
+                showNotification(`Error: ${e.message}`, 'error');
+            }
+        }
         
         // Load today's marked students
         async function loadTodayMarked() {
@@ -948,6 +856,21 @@
                 document.getElementById('noClassesMessage').style.display = 'block';
             }
         }
+
+        // Load faculty events
+        async function loadFacultyEvents() {
+            try {
+                const response = await fetch('/api/faculty/events');
+                if (response.ok) {
+                    facultyEvents = await response.json();
+                    displayEvents();
+                } else {
+                    document.getElementById('noEventsMessage').style.display = 'block';
+                }
+            } catch (error) {
+                document.getElementById('noEventsMessage').style.display = 'block';
+            }
+        }
         
         // Display classes
         function displayClasses() {
@@ -978,17 +901,47 @@
                 classesList.appendChild(classCard);
             });
         }
+
+        // Display events
+        function displayEvents() {
+            const eventsList = document.getElementById('eventsList');
+            const noEventsMessage = document.getElementById('noEventsMessage');
+
+            if (!facultyEvents || facultyEvents.length === 0) {
+                noEventsMessage.style.display = 'block';
+                return;
+            }
+
+            eventsList.innerHTML = '';
+            facultyEvents.forEach(evt => {
+                const card = document.createElement('div');
+                card.className = 'bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition duration-200 cursor-pointer';
+                card.onclick = () => selectEvent(evt);
+                const when = `${evt.event_date || ''} ${evt.start_time || ''}`.trim();
+                card.innerHTML = `
+                    <div class="flex items-center mb-2">
+                        <i class="fas fa-calendar-check text-blue-600 mr-2"></i>
+                        <h4 class="font-semibold text-gray-900">${evt.event_name}</h4>
+                    </div>
+                    <p class="text-sm text-gray-600 mb-2">${when || 'Schedule TBA'}</p>
+                    <p class="text-xs text-gray-500">Room: ${evt.room || 'TBA'}</p>
+                `;
+                eventsList.appendChild(card);
+            });
+        }
         
         // Select class
         function selectClass(classInfo) {
             selectedClass = classInfo;
+            selectedEvent = null;
             
             // Hide class selection, show camera section
             document.getElementById('classSelectionSection').style.display = 'none';
+            document.getElementById('eventSelectionSection').style.display = 'none';
             document.getElementById('cameraSection').style.display = 'grid';
             
             // Update selected class info
-            document.getElementById('selectedClassInfo').innerHTML = `
+            document.getElementById('selectedTargetInfo').innerHTML = `
                 <div class="flex items-center">
                     <i class="fas fa-chalkboard-teacher text-blue-600 mr-2"></i>
                     <div>
@@ -1003,8 +956,28 @@
             loadTodayMarked();
         }
         
-        // Back to class selection
-        function backToClassSelection() {
+        // Select event
+        function selectEvent(evt) {
+            selectedEvent = evt;
+            selectedClass = null;
+
+            document.getElementById('classSelectionSection').style.display = 'none';
+            document.getElementById('eventSelectionSection').style.display = 'none';
+            document.getElementById('cameraSection').style.display = 'grid';
+
+            document.getElementById('selectedTargetInfo').innerHTML = `
+                <div class="flex items-center">
+                    <i class="fas fa-calendar-check text-blue-600 mr-2"></i>
+                    <div>
+                        <h4 class="font-semibold text-gray-900">${evt.event_name}</h4>
+                        <p class="text-sm text-gray-600">${(evt.event_date || '')} ${(evt.start_time || '')}</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Back to selection
+        function backToSelection() {
             // Stop camera if running
             if (stream) {
                 stopCamera();
@@ -1012,10 +985,35 @@
             
             // Hide camera section, show class selection
             document.getElementById('cameraSection').style.display = 'none';
-            document.getElementById('classSelectionSection').style.display = 'block';
+            if (currentMode === 'event') {
+                document.getElementById('eventSelectionSection').style.display = 'block';
+            } else {
+                document.getElementById('classSelectionSection').style.display = 'block';
+            }
             
             // Reset selected class
             selectedClass = null;
+            selectedEvent = null;
+        }
+
+        // Switch mode between class and event
+        let currentMode = 'class';
+        function switchMode(mode) {
+            currentMode = mode;
+            // Tabs styling
+            const tabClasses = document.getElementById('tabClasses');
+            const tabEvents = document.getElementById('tabEvents');
+            if (mode === 'class') {
+                tabClasses.className = 'px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-l-lg border border-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500';
+                tabEvents.className = 'px-4 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-200 rounded-r-lg hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-2 focus:ring-blue-500';
+                document.getElementById('classSelectionSection').style.display = 'block';
+                document.getElementById('eventSelectionSection').style.display = 'none';
+            } else {
+                tabEvents.className = 'px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-r-lg border border-blue-600 focus:z-10 focus:ring-2 focus:ring-blue-500';
+                tabClasses.className = 'px-4 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-200 rounded-l-lg hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-2 focus:ring-blue-500';
+                document.getElementById('classSelectionSection').style.display = 'none';
+                document.getElementById('eventSelectionSection').style.display = 'block';
+            }
         }
         
         // Show notification

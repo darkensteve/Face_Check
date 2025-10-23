@@ -53,9 +53,9 @@
                     View Attendance Record
                 </a>
                 
-                <a href="/reports" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
-                    <i class="fas fa-chart-bar mr-3"></i>
-                    Reports
+                <a href="{{ url_for('admin_reports') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-chart-line mr-3"></i>
+                    Reports & Analytics
                 </a>
                 
                 <a href="/settings" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
@@ -93,10 +93,17 @@
                             <p class="text-gray-600">View and manage all attendance records</p>
                         </div>
                         <div class="flex space-x-4">
-                            <button onclick="exportAttendance()" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-200 flex items-center">
-                                <i class="fas fa-download mr-2"></i>
-                                Export CSV
-                            </button>
+                            <div class="inline-flex rounded-md shadow-sm" role="group">
+                                <button onclick="exportAttendance('csv')" class="bg-green-600 text-white px-4 py-2 rounded-l-lg hover:bg-green-700 transition duration-200 flex items-center">
+                                    <i class="fas fa-file-csv mr-2"></i> CSV
+                                </button>
+                                <button onclick="exportAttendance('xlsx')" class="bg-green-600 text-white px-4 py-2 hover:bg-green-700 transition duration-200">
+                                    <i class="fas fa-file-excel mr-2"></i> Excel
+                                </button>
+                                <button onclick="exportAttendance('pdf')" class="bg-green-600 text-white px-4 py-2 rounded-r-lg hover:bg-green-700 transition duration-200">
+                                    <i class="fas fa-file-pdf mr-2"></i> PDF
+                                </button>
+                            </div>
                             <button onclick="refreshData()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition duration-200 flex items-center">
                                 <i class="fas fa-sync-alt mr-2"></i>
                                 Refresh
@@ -191,7 +198,7 @@
                         <button onclick="applyFilters()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition duration-200">
                             <i class="fas fa-filter mr-2"></i>Apply Filters
                         </button>
-                        <button onclick="clearFilters()" class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition duration-200">
+                        <button id="clearFiltersBtn" onclick="clearFilters()" class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition duration-200" style="display:none;">
                             <i class="fas fa-times mr-2"></i>Clear Filters
                         </button>
                     </div>
@@ -213,6 +220,7 @@
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Faculty</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                                 </tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
@@ -242,10 +250,16 @@
                                         {{ record.attendance_date }}
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
-                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full
-                                            {% if record.attendance_status == 'present' %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}">
-                                            {{ record.attendance_status.title() }}
-                                        </span>
+                                        <select class="px-2 py-1 text-sm border border-gray-300 rounded status-select" data-id="{{ record.attendance_id }}">
+                                            <option value="present" {% if record.attendance_status=='present' %}selected{% endif %}>present</option>
+                                            <option value="absent" {% if record.attendance_status=='absent' %}selected{% endif %}>absent</option>
+                                            <option value="late" {% if record.attendance_status=='late' %}selected{% endif %}>late</option>
+                                        </select>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <button class="text-blue-600 hover:text-blue-800 text-sm edit-btn" data-id="{{ record.attendance_id }}" data-date="{{ record.attendance_date }}">
+                                            <i class="fas fa-edit mr-1"></i>Edit
+                                        </button>
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -263,6 +277,7 @@
             const dateTo = document.getElementById('dateTo').value;
             const status = document.getElementById('statusFilter').value;
             const classFilter = document.getElementById('classFilter').value;
+            updateClearButtonVisibility();
             
             const rows = document.querySelectorAll('#attendanceTable tbody tr');
             
@@ -299,39 +314,81 @@
             document.getElementById('dateTo').value = '';
             document.getElementById('statusFilter').value = '';
             document.getElementById('classFilter').value = '';
+            updateClearButtonVisibility();
             
             const rows = document.querySelectorAll('#attendanceTable tbody tr');
             rows.forEach(row => {
                 row.style.display = '';
             });
         }
+
+        function updateClearButtonVisibility() {
+            const df = document.getElementById('dateFrom').value;
+            const dt = document.getElementById('dateTo').value;
+            const st = document.getElementById('statusFilter').value;
+            const cl = document.getElementById('classFilter').value;
+            const btn = document.getElementById('clearFiltersBtn');
+            const any = !!(df || dt || st || cl);
+            btn.style.display = any ? '' : 'none';
+        }
         
-        function exportAttendance() {
-            // Simple CSV export
-            const table = document.getElementById('attendanceTable');
-            const rows = Array.from(table.querySelectorAll('tr:not([style*="display: none"])'));
-            
-            let csv = 'Student Name,Student ID,Class,Faculty,Date,Status\n';
-            
-            rows.slice(1).forEach(row => { // Skip header
-                const cells = Array.from(row.cells);
-                const studentName = cells[0].querySelector('.text-sm.font-medium').textContent;
-                const studentId = cells[0].querySelector('.text-sm.text-gray-500').textContent;
-                const className = cells[1].querySelector('.text-sm.font-medium').textContent;
-                const faculty = cells[2].textContent.trim();
-                const date = cells[3].textContent.trim();
-                const status = cells[4].textContent.trim();
-                
-                csv += `"${studentName}","${studentId}","${className}","${faculty}","${date}","${status}"\n`;
+        function exportAttendance(fmt) {
+            const params = new URLSearchParams();
+            const df = document.getElementById('dateFrom').value;
+            const dt = document.getElementById('dateTo').value;
+            const st = document.getElementById('statusFilter').value;
+            const cl = document.getElementById('classFilter').value;
+            if (df) params.append('date_from', df);
+            if (dt) params.append('date_to', dt);
+            if (st) params.append('status', st);
+            if (cl) params.append('class', cl);
+            const url = `/admin/attendance/export/${fmt}?` + params.toString();
+            window.location.href = url;
+        }
+        // Inline editing handlers
+        async function updateStatus(attendanceId, status) {
+            try {
+                const resp = await fetch('/admin/attendance/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ attendance_id: attendanceId, status })
+                });
+                if (!resp.ok) {
+                    alert('Failed to update status');
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        function attachInlineEditors() {
+            document.querySelectorAll('.status-select').forEach(sel => {
+                sel.addEventListener('change', () => {
+                    updateStatus(sel.dataset.id, sel.value);
+                });
             });
-            
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `attendance_records_${new Date().toISOString().split('T')[0]}.csv`;
-            a.click();
-            window.URL.revokeObjectURL(url);
+            document.querySelectorAll('.edit-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const currentDate = btn.dataset.date;
+                    const newDate = prompt('Enter new date/time (YYYY-MM-DD HH:MM:SS):', currentDate);
+                    if (newDate && newDate !== currentDate) {
+                        try {
+                            const resp = await fetch('/admin/attendance/update', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ attendance_id: btn.dataset.id, status: document.querySelector(`.status-select[data-id="${btn.dataset.id}"]`).value, attendance_date: newDate })
+                            });
+                            if (!resp.ok) {
+                                alert('Failed to update date');
+                            } else {
+                                btn.dataset.date = newDate;
+                                // Update table cell visual
+                                btn.closest('tr').cells[3].textContent = newDate;
+                            }
+                        } catch (e) { alert('Error: ' + e.message); }
+                    }
+                });
+            });
         }
         
         function refreshData() {
@@ -360,6 +417,13 @@
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
             populateClassFilter();
+            attachInlineEditors();
+            updateClearButtonVisibility();
+            ['dateFrom','dateTo','statusFilter','classFilter'].forEach(id => {
+                const el = document.getElementById(id);
+                el.addEventListener('change', updateClearButtonVisibility);
+                el.addEventListener('input', updateClearButtonVisibility);
+            });
         });
     </script>
 </body>

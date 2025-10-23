@@ -28,7 +28,7 @@
                     <i class="fas fa-tachometer-alt mr-3"></i>
                     Dashboard
                 </a>
-                
+
                 <a href="/manage_students" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-users mr-3"></i>
                     Manage Students
@@ -74,18 +74,37 @@
         <!-- Main Content -->
         <div class="flex-1 flex flex-col overflow-hidden">
             <header class="bg-white shadow-sm border-b border-gray-200">
-                <div class="px-6 py-4 flex items-center justify-between">
-                    <div>
+                <div class="px-6 py-4">
+                    <div class="mb-4">
                         <h2 class="text-2xl font-bold text-gray-800">Reports & Analytics</h2>
                         <p class="text-gray-600">Generate class attendance summaries and insights</p>
                     </div>
-                    <div class="flex items-center space-x-3">
-                        <input id="startDate" type="date" class="border rounded-lg px-3 py-2 text-sm" />
-                        <span class="text-gray-500">to</span>
-                        <input id="endDate" type="date" class="border rounded-lg px-3 py-2 text-sm" />
-                        <button id="applyFilters" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm">
-                            <i class="fas fa-filter mr-2"></i>Apply
-                        </button>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Class/Event</label>
+                            <select id="classEventFilter" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                <option value="">All Classes/Events</option>
+                                {% for class_info in classes %}
+                                <option value="class_{{ class_info.class_id }}">{{ class_info.class_name }} ({{ class_info.edpcode }})</option>
+                                {% endfor %}
+                                {% for event_info in events %}
+                                <option value="event_{{ event_info.event_id }}">{{ event_info.event_name }} - {{ event_info.event_date }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                            <input id="startDate" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                            <input id="endDate" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                        </div>
+                        <div class="flex items-end">
+                            <button id="applyFilters" class="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm">
+                                <i class="fas fa-filter mr-2"></i>Apply Filters
+                            </button>
+                        </div>
                     </div>
                 </div>
             </header>
@@ -171,10 +190,25 @@
         async function loadSummaries() {
             const start = document.getElementById('startDate').value;
             const end = document.getElementById('endDate').value;
-            const res = await fetch(`/api/faculty/reports/summary?start=${start}&end=${end}`);
+            const classEventFilter = document.getElementById('classEventFilter').value;
+            let url = `/api/faculty/reports/summary?start=${start}&end=${end}`;
+            if (classEventFilter) {
+                url += `&filter=${classEventFilter}`;
+            }
+            const res = await fetch(url);
             const data = await res.json();
             const tbody = document.getElementById('summaryBody');
             tbody.innerHTML = '';
+            if (data.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="4" class="px-6 py-4 text-center text-gray-500">
+                            No data available for the selected filters
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
             data.forEach(row => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
@@ -190,10 +224,25 @@
         async function loadAbsencePatterns() {
             const start = document.getElementById('startDate').value;
             const end = document.getElementById('endDate').value;
-            const res = await fetch(`/api/faculty/reports/absence-patterns?start=${start}&end=${end}`);
+            const classEventFilter = document.getElementById('classEventFilter').value;
+            let url = `/api/faculty/reports/absence-patterns?start=${start}&end=${end}`;
+            if (classEventFilter) {
+                url += `&filter=${classEventFilter}`;
+            }
+            const res = await fetch(url);
             const data = await res.json();
             const tbody = document.getElementById('absenceBody');
             tbody.innerHTML = '';
+            if (data.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="3" class="px-6 py-4 text-center text-gray-500">
+                            No data available for the selected filters
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
             data.forEach(row => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
@@ -207,7 +256,12 @@
 
         let monthlyChart;
         async function loadMonthly(year) {
-            const res = await fetch(`/api/faculty/reports/monthly?year=${year}`);
+            const classEventFilter = document.getElementById('classEventFilter').value;
+            let url = `/api/faculty/reports/monthly?year=${year}`;
+            if (classEventFilter) {
+                url += `&filter=${classEventFilter}`;
+            }
+            const res = await fetch(url);
             const data = await res.json();
             const ctx = document.getElementById('monthlyChart');
             const labels = data.map(d => d.month);
@@ -248,6 +302,7 @@
         async function exportReports(fmt) {
             const start = document.getElementById('startDate').value;
             const end = document.getElementById('endDate').value;
+            const classEventFilter = document.getElementById('classEventFilter').value;
             
             if (!start || !end) {
                 showNotification('Please select both start and end dates', 'error');
@@ -255,18 +310,37 @@
             }
             
             try {
-                const url = `/attendance_reports/export/${fmt}?start=${start}&end=${end}`;
+                let url = `/attendance_reports/export/${fmt}?start=${start}&end=${end}`;
+                if (classEventFilter) {
+                    url += `&filter=${encodeURIComponent(classEventFilter)}`;
+                }
                 
                 // Show loading notification
                 showNotification(`Generating ${fmt.toUpperCase()} report...`, 'info');
                 
+                // Fetch the file to check for errors
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ error: 'Unknown error occurred' }));
+                    showNotification(`Error: ${errorData.error || 'Failed to generate report'}`, 'error');
+                    return;
+                }
+                
+                // Get the blob data
+                const blob = await response.blob();
+                
                 // Create a temporary link to trigger download
                 const link = document.createElement('a');
-                link.href = url;
+                const blobUrl = window.URL.createObjectURL(blob);
+                link.href = blobUrl;
                 link.download = `faculty_reports_${start}_to_${end}.${fmt}`;
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
+                
+                // Clean up the blob URL
+                window.URL.revokeObjectURL(blobUrl);
                 
                 // Show success notification after a short delay
                 setTimeout(() => {
@@ -275,13 +349,14 @@
                 
             } catch (error) {
                 console.error('Export error:', error);
-                showNotification(`Error generating ${fmt.toUpperCase()} report`, 'error');
+                showNotification(`Error generating ${fmt.toUpperCase()} report: ${error.message}`, 'error');
             }
         }
 
         document.getElementById('applyFilters').addEventListener('click', async () => {
             await loadSummaries();
             await loadAbsencePatterns();
+            await loadMonthly(document.getElementById('yearSelect').value);
         });
 
         // Show notification

@@ -204,6 +204,16 @@
                     </div>
                     
                     <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Course</label>
+                        <select id="editCourse" name="course_id" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="">Select a course...</option>
+                            {% for course in courses %}
+                            <option value="{{ course.course_id }}">{{ course.course_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="mb-4">
                         <label class="block text-sm font-medium text-gray-700 mb-2">Year Level</label>
                         <select id="editYearLevel" name="year_level" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                             <option value="1">1st Year</option>
@@ -282,6 +292,47 @@
             document.getElementById('resetPasswordForm').addEventListener('submit', resetPassword);
             document.getElementById('cancelEdit').addEventListener('click', closeEditModal);
             document.getElementById('cancelReset').addEventListener('click', closeResetModal);
+            
+            // Close modals when clicking outside
+            document.getElementById('editStudentModal').addEventListener('click', function(e) {
+                if (e.target === this) {
+                    closeEditModal();
+                }
+            });
+            
+            document.getElementById('resetPasswordModal').addEventListener('click', function(e) {
+                if (e.target === this) {
+                    closeResetModal();
+                }
+            });
+            
+            // Event delegation for edit and reset password buttons
+            document.getElementById('studentsTableBody').addEventListener('click', function(e) {
+                // Handle edit button clicks
+                if (e.target.closest('.edit-student-btn')) {
+                    const row = e.target.closest('tr');
+                    const userId = row.getAttribute('data-user-id');
+                    const idno = row.getAttribute('data-idno');
+                    const firstname = row.getAttribute('data-firstname');
+                    const lastname = row.getAttribute('data-lastname');
+                    const courseId = row.getAttribute('data-course-id');
+                    const yearLevel = row.getAttribute('data-year-level');
+                    const isActive = row.getAttribute('data-is-active');
+                    
+                    openEditModal(userId, idno, firstname, lastname, courseId, yearLevel, isActive);
+                }
+                
+                // Handle reset password button clicks
+                if (e.target.closest('.reset-password-btn')) {
+                    const row = e.target.closest('tr');
+                    const userId = row.getAttribute('data-user-id');
+                    const firstname = row.getAttribute('data-firstname');
+                    const lastname = row.getAttribute('data-lastname');
+                    const studentName = `${firstname} ${lastname}`;
+                    
+                    openResetModal(userId, studentName);
+                }
+            });
         });
 
         // Update date and time
@@ -346,21 +397,45 @@
             students.forEach(student => {
                 const row = document.createElement('tr');
                 row.className = 'hover:bg-gray-50';
+                
+                // Store student data as data attributes
+                row.setAttribute('data-user-id', student.user_id);
+                row.setAttribute('data-idno', student.idno || '');
+                row.setAttribute('data-firstname', student.firstname || '');
+                row.setAttribute('data-lastname', student.lastname || '');
+                row.setAttribute('data-course-id', student.course_id || '');
+                row.setAttribute('data-year-level', student.year_level || 1);
+                row.setAttribute('data-is-active', student.is_active ? 1 : 0);
+                
+                const idno = student.idno || '';
+                const firstname = student.firstname || '';
+                const lastname = student.lastname || '';
+                const courseName = student.course_name || 'N/A';
+                
+                // Format year level with ordinal suffix
+                const yearLevel = student.year_level || 'N/A';
+                let yearLevelDisplay = 'N/A';
+                if (yearLevel !== 'N/A') {
+                    const year = parseInt(yearLevel);
+                    const suffix = ['', 'st', 'nd', 'rd'][year] || 'th';
+                    yearLevelDisplay = `${year}${suffix} Year`;
+                }
+                
                 row.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${student.idno}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${student.firstname} ${student.lastname}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${student.course_name || 'N/A'}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${student.year_level || 'N/A'}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${idno}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${firstname} ${lastname}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${courseName}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${yearLevelDisplay}</td>
                     <td class="px-6 py-4 whitespace-nowrap">
                         <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ${student.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
                             ${student.is_active ? 'Active' : 'Inactive'}
                         </span>
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <button onclick="openEditModal(${student.user_id}, '${student.idno}', '${student.firstname}', '${student.lastname}', ${student.year_level || 1}, ${student.is_active})" class="text-blue-600 hover:text-blue-900 mr-3">
+                        <button class="edit-student-btn text-blue-600 hover:text-blue-900 mr-3 cursor-pointer">
                             <i class="fas fa-edit"></i> Edit
                         </button>
-                        <button onclick="openResetModal(${student.user_id}, '${student.firstname} ${student.lastname}')" class="text-red-600 hover:text-red-900">
+                        <button class="reset-password-btn text-red-600 hover:text-red-900 cursor-pointer">
                             <i class="fas fa-key"></i> Reset Password
                         </button>
                     </td>
@@ -370,15 +445,20 @@
         }
 
         // Open edit modal
-        function openEditModal(userId, idno, firstname, lastname, yearLevel, isActive) {
+        function openEditModal(userId, idno, firstname, lastname, courseId, yearLevel, isActive) {
+            console.log('Opening edit modal for student:', { userId, idno, firstname, lastname, courseId, yearLevel, isActive });
+            
             document.getElementById('editUserId').value = userId;
             document.getElementById('editStudentIdno').value = idno;
             document.getElementById('editFirstName').value = firstname;
             document.getElementById('editLastName').value = lastname;
+            document.getElementById('editCourse').value = courseId || '';
             document.getElementById('editYearLevel').value = yearLevel || 1;
             document.getElementById('editStatus').value = isActive;
             
-            document.getElementById('editStudentModal').classList.remove('hidden');
+            const modal = document.getElementById('editStudentModal');
+            modal.classList.remove('hidden');
+            console.log('Modal opened, classes:', modal.className);
         }
 
         // Close edit modal
@@ -422,11 +502,15 @@
 
         // Open reset password modal
         function openResetModal(userId, studentName) {
+            console.log('Opening reset password modal for student:', { userId, studentName });
+            
             document.getElementById('resetUserId').value = userId;
             document.getElementById('resetStudentName').value = studentName;
             document.getElementById('newPassword').value = '';
             
-            document.getElementById('resetPasswordModal').classList.remove('hidden');
+            const modal = document.getElementById('resetPasswordModal');
+            modal.classList.remove('hidden');
+            console.log('Reset modal opened, classes:', modal.className);
         }
 
         // Close reset password modal
