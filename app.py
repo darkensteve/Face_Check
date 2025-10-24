@@ -1613,8 +1613,13 @@ def calculate_ear(eye_landmarks):
     ear = (A + B) / (2.0 * C)
     return ear
 
-def process_face_recognition(image_path):
-    """Process face recognition using the same logic as face_recog_test.py"""
+def process_face_recognition(image_path, include_faculty=False):
+    """Process face recognition using the same logic as face_recog_test.py
+    
+    Args:
+        image_path: Path to the image to recognize
+        include_faculty: If True, also search for faculty members (for events)
+    """
     try:
         # Check if face recognition is available
         if not FACE_RECOGNITION_AVAILABLE:
@@ -1631,23 +1636,41 @@ def process_face_recognition(image_path):
                 }
         
         print(f"Processing image: {image_path}")
+        print(f"Include faculty: {include_faculty}")
         
         # Load known faces from database
         conn = get_db_connection()
+        
+        # Query for students (always include students)
         students = conn.execute('''
-            SELECT s.student_id, u.firstname, u.lastname, s.attendance_image
+            SELECT s.student_id as id, 'student' as role, u.user_id, u.firstname, u.lastname, s.attendance_image
             FROM student s
             JOIN user u ON s.user_id = u.user_id
-            WHERE s.attendance_image IS NOT NULL
+            WHERE s.attendance_image IS NOT NULL AND u.is_active = 1
         ''').fetchall()
+        
+        # If include_faculty, also query for faculty members
+        known_users = list(students)
+        if include_faculty:
+            faculty = conn.execute('''
+                SELECT f.faculty_id as id, 'faculty' as role, u.user_id, u.firstname, u.lastname, s.attendance_image
+                FROM faculty f
+                JOIN user u ON f.user_id = u.user_id
+                LEFT JOIN student s ON s.user_id = u.user_id
+                WHERE s.attendance_image IS NOT NULL AND u.is_active = 1
+            ''').fetchall()
+            known_users.extend(faculty)
+            print(f"Found {len(faculty)} registered faculty")
+        
         conn.close()
         
         print(f"Found {len(students)} registered students")
+        print(f"Total known users: {len(known_users)}")
         
-        if not students:
+        if not known_users:
             return {
                 'success': False,
-                'message': 'No registered students found',
+                'message': 'No registered users found',
                 'student_id': 'Unknown',
                 'student_name': 'Unknown'
             }
@@ -1748,16 +1771,17 @@ def process_face_recognition(image_path):
         best_match = None
         best_distance = float('inf')
         
-        for student in students:
-            print(f"Checking student: {student['firstname']} {student['lastname']}")
-            if not student['attendance_image'] or not os.path.exists(student['attendance_image']):
-                print(f"  No valid image: {student['attendance_image']}")
+        for user in known_users:
+            role_label = user['role']
+            print(f"Checking {role_label}: {user['firstname']} {user['lastname']}")
+            if not user['attendance_image'] or not os.path.exists(user['attendance_image']):
+                print(f"  No valid image: {user['attendance_image']}")
                 continue
                 
             # Load known face
-            known_image = cv2.imread(student['attendance_image'])
+            known_image = cv2.imread(user['attendance_image'])
             if known_image is None:
-                print(f"  Could not load image: {student['attendance_image']}")
+                print(f"  Could not load image: {user['attendance_image']}")
                 continue
                 
             known_rgb = cv2.cvtColor(known_image, cv2.COLOR_BGR2RGB)
@@ -1774,7 +1798,7 @@ def process_face_recognition(image_path):
             
             if min_distance < best_distance:
                 best_distance = min_distance
-                best_match = student
+                best_match = user
         
         # Check if match is good enough (tolerance from face_recog_test.py)
         MATCH_TOLERANCE = 0.62
@@ -1839,8 +1863,10 @@ def process_face_recognition(image_path):
             confidence = int((1 - best_distance) * 100)  # Convert distance to confidence percentage
             return {
                 'success': True,
-                'student_id': int(best_match['student_id']),
+                'student_id': int(best_match['id']),  # Can be student_id or faculty_id
                 'student_name': f"{best_match['firstname']} {best_match['lastname']}",
+                'user_id': int(best_match['user_id']),  # Include actual user_id
+                'role': best_match['role'],  # Include role (student/faculty)
                 'distance': float(best_distance),
                 'confidence': confidence,
                 'face_box': face_box,  # Add face location for drawing box
@@ -1945,9 +1971,16 @@ def api_attendance_detect():
                 'student_name': 'Unknown'
             }), 503
         
+        # Check if this is for an event (include faculty) or class (students only)
+        # Get the context from form data
+        event_id = request.form.get('event_id')
+        include_faculty = bool(event_id)  # If event_id is provided, include faculty
+        
+        print(f"Event ID: {event_id}, Include faculty: {include_faculty}")
+        
         # Process the image for face recognition
         print(f"Processing face recognition for image: {filepath}")
-        result = process_face_recognition(filepath)
+        result = process_face_recognition(filepath, include_faculty=include_faculty)
         print(f"Recognition result: {result}")
         
         return jsonify(result)
@@ -1981,12 +2014,16 @@ def api_attendance_mark():
         student_id = data.get('student_id')
         student_name = data.get('student_name')
         class_id = data.get('class_id')
+        event_id = data.get('event_id')
         anti_spoofing_data = data.get('anti_spoofing', {})
         
-        print(f"Student ID: {student_id}, Student Name: {student_name}, Class ID: {class_id}")
+        print(f"Student ID: {student_id}, Student Name: {student_name}, Class ID: {class_id}, Event ID: {event_id}")
         
-        if not student_id or not student_name or not class_id:
-            return jsonify({'success': False, 'message': 'Missing student or class information'}), 400
+        if not student_id or not student_name:
+            return jsonify({'success': False, 'message': 'Missing user information'}), 400
+        
+        if not class_id and not event_id:
+            return jsonify({'success': False, 'message': 'Missing class or event information'}), 400
         
         # Check for spoofing attempts
         if student_id == 'SPOOFING_DETECTED':
@@ -2002,7 +2039,8 @@ def api_attendance_mark():
             is_live = anti_spoofing_data.get('is_live', True)
             confidence = anti_spoofing_data.get('confidence', 1.0)
             
-            if not is_live or confidence < 0.5:
+            # Lowered threshold to 35% to reduce false positives with real students
+            if not is_live or confidence < 0.35:
                 print(f"⚠️ Anti-spoofing failed: live={is_live}, confidence={confidence}")
                 return jsonify({
                     'success': False,
@@ -2011,56 +2049,114 @@ def api_attendance_mark():
                     'anti_spoofing_details': anti_spoofing_data.get('details', 'Low confidence score')
                 }), 403
         
+        # Get additional data for event support
+        user_id = data.get('user_id')  # Actual user_id from recognition
+        user_role = data.get('role', 'student')  # Role from recognition
+        
         # Mark attendance in database
         conn = get_db_connection()
         print("Database connection established")
         
-        # Get the correct studentclass_id for this student and class
-        student_class = conn.execute('''
-            SELECT sc.studentclass_id FROM student_class sc
-            WHERE sc.student_id = ? AND sc.class_id = ?
-        ''', (student_id, class_id)).fetchone()
-        
-        if not student_class:
-            print(f"No student_class found for student_id: {student_id}")
+        # Handle EVENT attendance (for any user - faculty or student)
+        if event_id:
+            print(f"Marking event attendance for event_id: {event_id}")
+            
+            # Use user_id if provided, otherwise look it up from student_id
+            if not user_id:
+                if user_role == 'student':
+                    user_record = conn.execute('SELECT user_id FROM student WHERE student_id = ?', (student_id,)).fetchone()
+                else:
+                    user_record = conn.execute('SELECT user_id FROM faculty WHERE faculty_id = ?', (student_id,)).fetchone()
+                
+                if user_record:
+                    user_id = user_record['user_id']
+                else:
+                    conn.close()
+                    return jsonify({'success': False, 'message': 'User not found'})
+            
+            # Check if already marked for this event
+            existing = conn.execute('''
+                SELECT event_attend_id FROM event_attendance 
+                WHERE event_id = ? AND user_id = ?
+            ''', (event_id, user_id)).fetchone()
+            
+            if existing:
+                print("Already marked for this event")
+                conn.close()
+                return jsonify({'success': False, 'message': 'Already marked for this event'})
+            
+            # Insert event attendance record
+            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            print(f"Inserting event attendance: event_id={event_id}, user_id={user_id}, time={current_time}")
+            conn.execute('''
+                INSERT INTO event_attendance (event_id, user_id, attendance_time, status)
+                VALUES (?, ?, ?, 'present')
+            ''', (event_id, user_id, current_time))
+            
+            conn.commit()
+            print("Event attendance record inserted successfully")
             conn.close()
-            return jsonify({'success': False, 'message': 'Student not enrolled in any class'})
+            
+            return jsonify({
+                'success': True,
+                'message': f'Attendance marked for {student_name}',
+                'student_id': student_id,
+                'student_name': student_name,
+                'user_id': user_id,
+                'role': user_role,
+                'time': datetime.now().strftime('%H:%M:%S')
+            })
         
-        studentclass_id = student_class['studentclass_id']
-        print(f"Found studentclass_id: {studentclass_id} for student_id: {student_id}")
-        
-        # Check if already marked today
-        today = datetime.now().strftime('%Y-%m-%d')
-        print(f"Checking for existing attendance on {today}")
-        existing = conn.execute('''
-            SELECT attendance_id FROM attendance 
-            WHERE studentclass_id = ? AND DATE(attendance_date) = ?
-        ''', (studentclass_id, today)).fetchone()
-        
-        if existing:
-            print("Already marked today")
+        # Handle CLASS attendance (for students only)
+        else:
+            print(f"Marking class attendance for class_id: {class_id}")
+            
+            # Get the correct studentclass_id for this student and class
+            student_class = conn.execute('''
+                SELECT sc.studentclass_id FROM student_class sc
+                WHERE sc.student_id = ? AND sc.class_id = ?
+            ''', (student_id, class_id)).fetchone()
+            
+            if not student_class:
+                print(f"No student_class found for student_id: {student_id}")
+                conn.close()
+                return jsonify({'success': False, 'message': 'Student not enrolled in this class'})
+            
+            studentclass_id = student_class['studentclass_id']
+            print(f"Found studentclass_id: {studentclass_id} for student_id: {student_id}")
+            
+            # Check if already marked today
+            today = datetime.now().strftime('%Y-%m-%d')
+            print(f"Checking for existing attendance on {today}")
+            existing = conn.execute('''
+                SELECT attendance_id FROM attendance 
+                WHERE studentclass_id = ? AND DATE(attendance_date) = ?
+            ''', (studentclass_id, today)).fetchone()
+            
+            if existing:
+                print("Already marked today")
+                conn.close()
+                return jsonify({'success': False, 'message': 'Already marked today'})
+            
+            # Insert attendance record
+            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            print(f"Inserting attendance record: studentclass_id={studentclass_id}, time={current_time}")
+            conn.execute('''
+                INSERT INTO attendance (studentclass_id, attendance_date, attendance_status)
+                VALUES (?, ?, 'present')
+            ''', (studentclass_id, current_time))
+            
+            conn.commit()
+            print("Attendance record inserted successfully")
             conn.close()
-            return jsonify({'success': False, 'message': 'Already marked today'})
-        
-        # Insert attendance record
-        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        print(f"Inserting attendance record: studentclass_id={studentclass_id}, time={current_time}")
-        conn.execute('''
-            INSERT INTO attendance (studentclass_id, attendance_date, attendance_status)
-            VALUES (?, ?, 'present')
-        ''', (studentclass_id, current_time))
-        
-        conn.commit()
-        print("Attendance record inserted successfully")
-        conn.close()
-        
-        return jsonify({
-            'success': True,
-            'message': f'Attendance marked for {student_name}',
-            'student_id': student_id,
-            'student_name': student_name,
-            'time': datetime.now().strftime('%H:%M:%S')
-        })
+            
+            return jsonify({
+                'success': True,
+                'message': f'Attendance marked for {student_name}',
+                'student_id': student_id,
+                'student_name': student_name,
+                'time': datetime.now().strftime('%H:%M:%S')
+            })
         
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -2169,6 +2265,36 @@ def api_faculty_classes():
     
     conn.close()
     return jsonify([dict(record) for record in classes])
+
+@app.route('/api/faculty/events')
+def api_faculty_events():
+    """Get events assigned to the current faculty member"""
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    conn = get_db_connection()
+    
+    # First get the faculty_id for the current user
+    faculty = conn.execute('''
+        SELECT f.faculty_id FROM faculty f
+        WHERE f.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    
+    if not faculty:
+        conn.close()
+        return jsonify([])
+    
+    # Then get events assigned to this faculty
+    events = conn.execute('''
+        SELECT e.event_id, e.event_name, e.description, e.event_date, 
+               e.start_time, e.end_time, e.room, e.faculty_id
+        FROM event e
+        WHERE e.faculty_id = ?
+        ORDER BY e.event_date DESC, e.start_time DESC
+    ''', (faculty['faculty_id'],)).fetchall()
+    
+    conn.close()
+    return jsonify([dict(record) for record in events])
 
 @app.route('/admin/classes/<int:class_id>/delete', methods=['POST'])
 def delete_class(class_id):

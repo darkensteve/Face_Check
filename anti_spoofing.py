@@ -384,7 +384,8 @@ class AntiSpoofingDetector:
                 critical_confidence = critical_passed / critical_total
                 
                 # Only fail if MULTIPLE critical checks fail or confidence is very low
-                if critical_confidence < 0.5:  # Less than 50% of critical checks passed
+                # Lowered threshold to 25% to reduce false positives with real students
+                if critical_confidence < 0.25:  # Less than 25% of critical checks passed
                     results['is_live'] = False
                     results['confidence'] = critical_confidence * 0.6  # Scale down
                     results['details'] = f"⚠️ Anti-Spoofing: Detected patterns consistent with photo/video (confidence: {critical_confidence:.0%})"
@@ -404,9 +405,9 @@ class AntiSpoofingDetector:
             
             # VERY LENIENT threshold - only fail on obvious fakes
             if self.strict_mode:
-                threshold = 0.60  # Strict mode: 60%
+                threshold = 0.40  # Strict mode: 40%
             else:
-                threshold = 0.40  # Normal mode: 40% (very lenient)
+                threshold = 0.25  # Normal mode: 25% (very lenient to reduce false positives)
             
             is_live = confidence >= threshold
             

@@ -185,6 +185,8 @@
                         <div class="relative bg-gray-900 rounded-lg overflow-hidden" style="height: 400px;">
                             <video id="video" autoplay muted class="w-full h-full object-cover"></video>
                             <canvas id="canvas" class="hidden"></canvas>
+                            <!-- Overlay canvas for face box -->
+                            <canvas id="overlayCanvas" class="absolute top-0 left-0 w-full h-full pointer-events-none"></canvas>
                             
                             <!-- Camera Controls -->
                             <div class="absolute bottom-4 left-4 right-4">
@@ -327,12 +329,20 @@
         const LIVENESS_EVERY = 4;
         
         // Global variables
+        let overlayCanvas = null;
+        let overlayCtx = null;
+        let currentFaceBox = null; // Store current face box coordinates
+        let faceBoxAnimationId = null; // Animation frame ID for drawing face box
         
         // Initialize elements
         document.addEventListener('DOMContentLoaded', async function() {
             video = document.getElementById('video');
             canvas = document.getElementById('canvas');
             ctx = canvas.getContext('2d');
+            
+            // Initialize overlay canvas
+            overlayCanvas = document.getElementById('overlayCanvas');
+            overlayCtx = overlayCanvas.getContext('2d');
             
             // Initialize anti-spoofing manager
             initializeAntiSpoofing();
@@ -433,6 +443,11 @@
                 // Start face detection loop
                 startFaceDetection();
                 
+                // Start face box drawing loop
+                if (!faceBoxAnimationId) {
+                    drawFaceBox();
+                }
+                
             } catch (err) {
                 console.error('Error accessing camera:', err);
                 alert('Error accessing camera. Please check permissions.');
@@ -470,6 +485,18 @@
             blinkFrames = 0;
             nosePrev = null;
             noseMaxDisp = 0.0;
+            currentFaceBox = null; // Clear face box
+            
+            // Stop face box drawing
+            if (faceBoxAnimationId) {
+                cancelAnimationFrame(faceBoxAnimationId);
+                faceBoxAnimationId = null;
+            }
+            
+            // Clear overlay canvas
+            if (overlayCtx && overlayCanvas) {
+                overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            }
             
             // Update UI
             document.getElementById('startCamera').disabled = false;
@@ -477,6 +504,73 @@
             document.getElementById('cameraStatus').innerHTML = '<i class="fas fa-circle text-red-500 mr-2"></i>Camera Off';
             document.getElementById('recognitionStatus').textContent = 'Camera stopped';
             document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-gray-400 rounded-full';
+        }
+        
+        // Draw face box on overlay canvas
+        function drawFaceBox() {
+            if (!overlayCanvas || !overlayCtx || !video) return;
+            
+            // Set canvas size to match video display size
+            if (overlayCanvas.width !== video.offsetWidth || overlayCanvas.height !== video.offsetHeight) {
+                overlayCanvas.width = video.offsetWidth;
+                overlayCanvas.height = video.offsetHeight;
+            }
+            
+            // Clear previous frame
+            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            
+            // Draw face box if available
+            if (currentFaceBox) {
+                const { x, y, width, height } = currentFaceBox;
+                
+                // Calculate scale factors (video element size vs actual video size)
+                const scaleX = overlayCanvas.width / canvas.width;
+                const scaleY = overlayCanvas.height / canvas.height;
+                
+                // Scale coordinates
+                const scaledX = x * scaleX;
+                const scaledY = y * scaleY;
+                const scaledWidth = width * scaleX;
+                const scaledHeight = height * scaleY;
+                
+                // Draw box with rounded corners and glow effect
+                overlayCtx.strokeStyle = '#00ff00'; // Green color
+                overlayCtx.lineWidth = 3;
+                overlayCtx.shadowBlur = 10;
+                overlayCtx.shadowColor = '#00ff00';
+                
+                // Draw rounded rectangle
+                overlayCtx.beginPath();
+                const radius = 10;
+                overlayCtx.moveTo(scaledX + radius, scaledY);
+                overlayCtx.lineTo(scaledX + scaledWidth - radius, scaledY);
+                overlayCtx.arcTo(scaledX + scaledWidth, scaledY, scaledX + scaledWidth, scaledY + radius, radius);
+                overlayCtx.lineTo(scaledX + scaledWidth, scaledY + scaledHeight - radius);
+                overlayCtx.arcTo(scaledX + scaledWidth, scaledY + scaledHeight, scaledX + scaledWidth - radius, scaledY + scaledHeight, radius);
+                overlayCtx.lineTo(scaledX + radius, scaledY + scaledHeight);
+                overlayCtx.arcTo(scaledX, scaledY + scaledHeight, scaledX, scaledY + scaledHeight - radius, radius);
+                overlayCtx.lineTo(scaledX, scaledY + radius);
+                overlayCtx.arcTo(scaledX, scaledY, scaledX + radius, scaledY, radius);
+                overlayCtx.closePath();
+                overlayCtx.stroke();
+                
+                // Reset shadow for text
+                overlayCtx.shadowBlur = 0;
+                
+                // Draw name label if student is recognized
+                if (currentStudent && currentStudent.student_name) {
+                    overlayCtx.fillStyle = 'rgba(0, 255, 0, 0.9)';
+                    overlayCtx.fillRect(scaledX, scaledY - 30, scaledWidth, 28);
+                    
+                    overlayCtx.font = 'bold 16px Arial';
+                    overlayCtx.fillStyle = '#000000';
+                    overlayCtx.textAlign = 'center';
+                    overlayCtx.fillText(currentStudent.student_name, scaledX + scaledWidth / 2, scaledY - 8);
+                }
+            }
+            
+            // Continue animation loop
+            faceBoxAnimationId = requestAnimationFrame(drawFaceBox);
         }
         
         // Start face detection loop
@@ -504,10 +598,14 @@
                     const formData = new FormData();
                     formData.append('image', blob, 'frame.jpg');
                     
+                    // Pass event_id if this is for an event
+                    if (selectedEvent) {
+                        formData.append('event_id', selectedEvent.event_id);
+                    }
+                    
                     console.log('Sending frame for detection...');
                     
-                    const endpoint = selectedEvent ? '/api/event/detect' : '/api/attendance/detect';
-                    const response = await fetch(endpoint, {
+                    const response = await fetch('/api/attendance/detect', {
                         method: 'POST',
                         body: formData
                     });
@@ -534,16 +632,29 @@
         
         // Handle recognition result
         function handleRecognitionResult(result) {
-            // Event mode (faculty participants)
+            // Update face box if available
+            if (result.face_box) {
+                currentFaceBox = result.face_box;
+            } else {
+                currentFaceBox = null; // Clear box if no face detected
+            }
+            
+            // Event mode (faculty or student participants)
             if (selectedEvent) {
                 if (result.success && result.user_id && result.user_id !== 'Unknown') {
-                    const participant = { user_id: result.user_id, name: result.name };
-                    // Directly mark attendance for events (no liveness loop for simplicity)
-                    markEventAttendance(selectedEvent.event_id, participant.user_id, participant.name);
-                    document.getElementById('recognitionStatus').textContent = `Recognized: ${participant.name}`;
+                    // Check if already marked
+                    if (alreadyMarked.has(result.user_id)) {
+                        document.getElementById('recognitionStatus').textContent = `${result.student_name} - Already marked for this event`;
+                        document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-yellow-400 rounded-full';
+                        return;
+                    }
+                    
+                    // Directly mark attendance for events
+                    markEventAttendance(selectedEvent.event_id, result.user_id, result.student_name, result);
+                    document.getElementById('recognitionStatus').textContent = `Recognized: ${result.student_name}`;
                     document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-green-400 rounded-full';
                 } else {
-                    document.getElementById('recognitionStatus').textContent = 'No faculty detected';
+                    document.getElementById('recognitionStatus').textContent = 'No user detected';
                     document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-gray-400 rounded-full';
                 }
                 return;
@@ -562,7 +673,8 @@
             // Check anti-spoofing results if available
             if (result.anti_spoofing) {
                 const antiSpoofing = result.anti_spoofing;
-                if (!antiSpoofing.is_live || antiSpoofing.confidence < 0.7) {
+                // Lowered threshold to 35% to reduce false positives with real students
+                if (!antiSpoofing.is_live || antiSpoofing.confidence < 0.35) {
                     document.getElementById('recognitionStatus').textContent = 
                         `⚠️ Anti-spoofing failed (${Math.round(antiSpoofing.confidence * 100)}%)`;
                     document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-red-500 rounded-full';
@@ -581,7 +693,9 @@
                     // New student detected
                     currentStudent = {
                         student_id: result.student_id,
-                        student_name: result.student_name
+                        student_name: result.student_name,
+                        user_id: result.user_id,
+                        role: result.role || 'student'
                     };
                     
                     // Check if already marked today
@@ -672,7 +786,9 @@
                 const attendanceData = {
                     student_id: studentId,
                     student_name: studentName,
-                    class_id: selectedClass?.class_id
+                    class_id: selectedClass?.class_id,
+                    user_id: currentStudent?.user_id,
+                    role: currentStudent?.role || 'student'
                 };
                 
                 // Add anti-spoofing data if available
@@ -733,19 +849,30 @@
         }
 
         // Mark event attendance (faculty participant)
-        async function markEventAttendance(eventId, userId, name) {
+        async function markEventAttendance(eventId, userId, userName, recognitionResult) {
             try {
-                const payload = { event_id: eventId, user_id: userId, name: name, status: 'present' };
-                const resp = await fetch('/api/event/attendance/mark', {
+                const payload = {
+                    event_id: eventId,
+                    user_id: userId,
+                    student_id: recognitionResult.student_id,  // Can be faculty_id or student_id
+                    student_name: userName,
+                    role: recognitionResult.role || 'student',
+                    anti_spoofing: recognitionResult.anti_spoofing || {}
+                };
+                
+                console.log('Marking event attendance with payload:', payload);
+                
+                const resp = await fetch('/api/attendance/mark', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
+                
                 if (resp.ok) {
                     const data = await resp.json();
                     if (data.success) {
-                        addAttendanceRecord(name, userId, new Date().toLocaleTimeString());
-                        showNotification(`Event attendance marked for ${name}`, 'success');
+                        addAttendanceRecord(userName, userId, new Date().toLocaleTimeString());
+                        showNotification(`Event attendance marked for ${userName}`, 'success');
                     } else {
                         showNotification(data.message || 'Failed to mark attendance', 'error');
                     }
@@ -753,6 +880,7 @@
                     showNotification(`HTTP ${resp.status} while marking event attendance`, 'error');
                 }
             } catch (e) {
+                console.error('Error marking event attendance:', e);
                 showNotification(`Error: ${e.message}`, 'error');
             }
         }
