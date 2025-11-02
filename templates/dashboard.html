@@ -6,6 +6,15 @@
     <title>FaceCheck - Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .attendance-row {
+            transition: background-color 0.2s ease;
+        }
+        
+        .attendance-row:hover {
+            background-color: #f9fafb;
+        }
+    </style>
 </head>
 <body class="bg-gray-100">
     <!-- Sidebar -->
@@ -139,32 +148,88 @@
 
 
         <!-- Recent Attendance -->
-        <div class="bg-white rounded-xl shadow-lg">
-            <div class="px-6 py-4 border-b border-gray-200">
-                <h2 class="text-xl font-semibold text-gray-900">Recent Attendance</h2>
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+            <!-- Clean Header -->
+            <div class="px-6 py-5 border-b border-gray-200 bg-gray-50">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-lg font-semibold text-gray-900">Recent Attendance</h2>
+                        <p class="text-gray-600 text-sm mt-1">Latest attendance records</p>
+                    </div>
+                    <div class="text-xs text-gray-500 font-medium">
+                        Last 5 records
+                    </div>
+                </div>
             </div>
-            <div class="p-6">
+            
+            <!-- Table Content -->
+            <div class="overflow-hidden">
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
+                        <thead class="bg-white">
                             <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Date & Time
+                                </th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Student
+                                </th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Status
+                                </th>
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
-                            {% for record in recent_attendance %}
-                            <tr>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ record.date }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ record.name }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-                                        Present
-                                    </span>
-                                </td>
-                            </tr>
-                            {% endfor %}
+                            {% if recent_attendance %}
+                                {% for record in recent_attendance %}
+                                <tr class="attendance-row">
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="flex items-center">
+                                            <div class="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center mr-3">
+                                                <i class="fas fa-clock text-gray-500 text-sm"></i>
+                                            </div>
+                                            <div class="text-sm font-medium text-gray-900">{{ record.date }}</div>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="flex items-center">
+                                            <div class="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center mr-3">
+                                                <span class="text-white font-medium text-sm">{{ record.name[0] }}</span>
+                                            </div>
+                                            <div class="text-sm font-medium text-gray-900">{{ record.name }}</div>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        {% if record.status == 'Present' %}
+                                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-200">
+                                            ● Present
+                                        </span>
+                                        {% elif record.status == 'Absent' %}
+                                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800 border border-red-200">
+                                            ● Absent
+                                        </span>
+                                        {% elif record.status == 'Late' %}
+                                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                                            ● Late
+                                        </span>
+                                        {% else %}
+                                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-300">
+                                            ● {{ record.status|title }}
+                                        </span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="3" class="px-6 py-12 text-center">
+                                        <div class="flex flex-col items-center">
+                                            <i class="fas fa-clipboard-list text-2xl text-gray-400 mb-3"></i>
+                                            <p class="text-sm text-gray-500">No attendance records found</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% endif %}
                         </tbody>
                     </table>
                 </div>

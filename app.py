@@ -229,7 +229,7 @@ def get_dashboard_stats():
     attendance_rate = (today_attendance / total_students * 100) if total_students > 0 else 0
     
     # Get recent attendance
-    recent_attendance = conn.execute('''
+    recent_records = conn.execute('''
         SELECT a.attendance_date, u.firstname, u.lastname, a.attendance_status
         FROM attendance a
         JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
@@ -238,6 +238,19 @@ def get_dashboard_stats():
         ORDER BY a.attendance_date DESC
         LIMIT 5
     ''').fetchall()
+    
+    # Format the attendance data for the template
+    recent_attendance = []
+    for record in recent_records:
+        # Format date from datetime to readable format
+        date_obj = datetime.strptime(record['attendance_date'], '%Y-%m-%d %H:%M:%S')
+        formatted_date = date_obj.strftime('%B %d, %Y %I:%M %p')
+        
+        recent_attendance.append({
+            'date': formatted_date,
+            'name': f"{record['firstname']} {record['lastname']}",
+            'status': record['attendance_status']
+        })
     
     conn.close()
     return {
