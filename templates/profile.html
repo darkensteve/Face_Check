@@ -169,15 +169,28 @@
                                         <div class="flex-1">
                                             <h4 class="font-semibold text-gray-900">{{ class_item.class_name }}</h4>
                                             <p class="text-sm text-gray-600 mt-1">
-                                                <i class="fas fa-code mr-1"></i>{{ class_item.edpcode }}
-                                                {% if class_item.schedule %}
-                                                <span class="ml-3"><i class="fas fa-clock mr-1"></i>{{ class_item.schedule }}</span>
+                                                <i class="fas fa-code mr-1 text-blue-600"></i><span class="font-mono">{{ class_item.edpcode }}</span>
+                                            </p>
+                                            {% if class_item.schedule %}
+                                            <div class="mt-2 space-y-1">
+                                                {% if class_item.days %}
+                                                <p class="text-sm text-gray-700">
+                                                    <i class="fas fa-calendar-day mr-2 text-blue-600"></i><span class="font-medium">Days:</span> {{ class_item.days }}
+                                                </p>
+                                                {% endif %}
+                                                {% if class_item.time %}
+                                                <p class="text-sm text-gray-700">
+                                                    <i class="fas fa-clock mr-2 text-blue-600"></i><span class="font-medium">Time:</span> {{ class_item.time }}
+                                                </p>
                                                 {% endif %}
                                                 {% if class_item.room %}
-                                                <span class="ml-3"><i class="fas fa-door-open mr-1"></i>{{ class_item.room }}</span>
+                                                <p class="text-sm text-gray-700">
+                                                    <i class="fas fa-door-open mr-2 text-blue-600"></i><span class="font-medium">Room:</span> {{ class_item.room }}
+                                                </p>
                                                 {% endif %}
-                                            </p>
-                                            <p class="text-sm text-gray-500 mt-2">
+                                            </div>
+                                            {% endif %}
+                                            <p class="text-sm text-gray-500 mt-3 pt-3 border-t border-gray-100">
                                                 <i class="fas fa-chalkboard-teacher mr-1"></i>Faculty: {{ class_item.faculty_firstname }} {{ class_item.faculty_lastname }}
                                             </p>
                                         </div>

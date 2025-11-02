@@ -228,9 +228,10 @@ def get_dashboard_stats():
     # Get attendance rate
     attendance_rate = (today_attendance / total_students * 100) if total_students > 0 else 0
     
-    # Get recent attendance
+    # Get recent attendance - format datetime at SQL level to remove microseconds
     recent_records = conn.execute('''
-        SELECT a.attendance_date, u.firstname, u.lastname, a.attendance_status
+        SELECT strftime('%Y-%m-%d %H:%M:%S', a.attendance_date) as attendance_date,
+               u.firstname, u.lastname, a.attendance_status
         FROM attendance a
         JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
         JOIN student s ON sc.student_id = s.student_id
@@ -243,16 +244,14 @@ def get_dashboard_stats():
     recent_attendance = []
     for record in recent_records:
         # Format date from datetime to readable format
-        # Handle both with and without microseconds
+        # datetime is already formatted without microseconds from SQL
         date_str = str(record['attendance_date'])
         try:
-            # Try parsing with microseconds first
-            date_obj = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S.%f')
-        except ValueError:
-            # Fall back to format without microseconds
             date_obj = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
-        
-        formatted_date = date_obj.strftime('%B %d, %Y %I:%M %p')
+            formatted_date = date_obj.strftime('%B %d, %Y %I:%M %p')
+        except ValueError:
+            # Fallback if parsing fails
+            formatted_date = date_str
         
         recent_attendance.append({
             'date': formatted_date,
@@ -1215,9 +1214,10 @@ def student_dashboard():
         WHERE sc.student_id = ? AND DATE(a.attendance_date) = ?
     ''', (student['student_id'], today)).fetchall()
     
-    # Get attendance history
+    # Get attendance history - format datetime at SQL level to remove microseconds
     attendance_history = conn.execute('''
-        SELECT a.attendance_date, a.attendance_status, cl.class_name
+        SELECT strftime('%Y-%m-%d %H:%M:%S', a.attendance_date) as attendance_date,
+               a.attendance_status, cl.class_name
         FROM attendance a
         JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
         JOIN class cl ON sc.class_id = cl.class_id
@@ -1305,9 +1305,10 @@ def my_attendance():
         WHERE u.user_id = ?
     ''', (session['user_id'],)).fetchone()
     
-    # Get all attendance records for the student
+    # Get all attendance records for the student - format datetime at SQL level to remove microseconds
     attendance_records = conn.execute('''
-        SELECT a.attendance_date, a.attendance_status, cl.class_name, cl.edpcode,
+        SELECT strftime('%Y-%m-%d %H:%M:%S', a.attendance_date) as attendance_date,
+               a.attendance_status, cl.class_name, cl.edpcode,
                u_f.firstname as faculty_firstname, u_f.lastname as faculty_lastname
         FROM attendance a
         JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
@@ -1328,12 +1329,8 @@ def my_attendance():
         if record['attendance_date']:
             try:
                 date_str_raw = str(record['attendance_date'])
-                # Handle both with and without microseconds
-                try:
-                    date_obj = datetime.strptime(date_str_raw, '%Y-%m-%d %H:%M:%S.%f')
-                except ValueError:
-                    date_obj = datetime.strptime(date_str_raw, '%Y-%m-%d %H:%M:%S')
-                
+                # DateTime is already formatted without microseconds from SQL
+                date_obj = datetime.strptime(date_str_raw, '%Y-%m-%d %H:%M:%S')
                 date_str = date_obj.strftime('%B %d, %Y')
                 time_str = date_obj.strftime('%I:%M %p')
                 formatted_datetime = date_obj.strftime('%B %d, %Y %I:%M %p')
@@ -1385,28 +1382,70 @@ def student_profile():
         WHERE u.user_id = ?
     ''', (session['user_id'],)).fetchone()
     
-    # Get enrolled classes
+    # Get enrolled classes with days
     enrolled_classes_raw = conn.execute('''
-        SELECT cl.class_name, cl.edpcode, cl.start_time, cl.end_time, cl.room,
-               u_f.firstname as faculty_firstname, u_f.lastname as faculty_lastname
+        SELECT cl.class_id, cl.class_name, cl.edpcode, cl.start_time, cl.end_time, cl.room,
+               u_f.firstname as faculty_firstname, u_f.lastname as faculty_lastname,
+               GROUP_CONCAT(DISTINCT d.day_name) as days
         FROM student_class sc
         JOIN class cl ON sc.class_id = cl.class_id
         JOIN faculty f ON cl.faculty_id = f.faculty_id
         JOIN user u_f ON f.user_id = u_f.user_id
+        LEFT JOIN class_days cd ON cl.class_id = cd.class_id
+        LEFT JOIN days d ON cd.day_id = d.day_id
         WHERE sc.student_id = ?
+        GROUP BY cl.class_id, cl.class_name, cl.edpcode, cl.start_time, cl.end_time, cl.room,
+                 u_f.firstname, u_f.lastname
         ORDER BY cl.class_name
     ''', (student['student_id'],)).fetchall()
     
     # Format enrolled classes with schedule
     enrolled_classes = []
     for class_item in enrolled_classes_raw:
-        schedule = ''
+        # Format time (convert from 24-hour to 12-hour if needed)
+        time_str = ''
         if class_item['start_time'] and class_item['end_time']:
-            schedule = f"{class_item['start_time']} - {class_item['end_time']}"
+            try:
+                # Try to parse and format times
+                start_time = class_item['start_time']
+                end_time = class_item['end_time']
+                
+                # If times are in HH:MM format, convert to 12-hour
+                if ':' in str(start_time):
+                    try:
+                        start_dt = datetime.strptime(str(start_time), '%H:%M')
+                        end_dt = datetime.strptime(str(end_time), '%H:%M')
+                        time_str = f"{start_dt.strftime('%I:%M %p')} - {end_dt.strftime('%I:%M %p')}"
+                    except:
+                        time_str = f"{start_time} - {end_time}"
+                else:
+                    time_str = f"{start_time} - {end_time}"
+            except:
+                time_str = f"{class_item['start_time']} - {class_item['end_time']}"
+        
+        # Format days - get them ordered properly
+        days_str = ''
+        if class_item['days']:
+            days_list = [day.strip() for day in class_item['days'].split(',')]
+            # Sort days by day_id order (we'll need to get day order from database)
+            # For now, just format nicely
+            days_str = ', '.join(sorted(days_list))
+        
+        # Build complete schedule string
+        schedule_parts = []
+        if days_str:
+            schedule_parts.append(days_str)
+        if time_str:
+            schedule_parts.append(time_str)
+        
+        schedule = ' • '.join(schedule_parts) if schedule_parts else 'Schedule not set'
+        
         enrolled_classes.append({
             'class_name': class_item['class_name'],
             'edpcode': class_item['edpcode'],
             'schedule': schedule,
+            'days': days_str,
+            'time': time_str,
             'room': class_item['room'],
             'faculty_firstname': class_item['faculty_firstname'],
             'faculty_lastname': class_item['faculty_lastname']
@@ -2271,10 +2310,11 @@ def api_mark_attendance():
     
     if student_class:
         # Insert attendance record
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         conn.execute('''
             INSERT INTO attendance (attendance_date, attendance_status, studentclass_id)
             VALUES (?, ?, ?)
-        ''', (datetime.now(), status, student_class['studentclass_id']))
+        ''', (current_time, status, student_class['studentclass_id']))
         
         conn.commit()
         conn.close()
@@ -2312,7 +2352,11 @@ def api_today_attendance():
             try:
                 if isinstance(record['attendance_date'], str):
                     # Parse the datetime string and format to 12-hour
-                    dt = datetime.strptime(record['attendance_date'], '%Y-%m-%d %H:%M:%S')
+                    # Handle both with and without microseconds
+                    try:
+                        dt = datetime.strptime(record['attendance_date'], '%Y-%m-%d %H:%M:%S.%f')
+                    except ValueError:
+                        dt = datetime.strptime(record['attendance_date'], '%Y-%m-%d %H:%M:%S')
                     time_str = dt.strftime('%I:%M %p')
                 else:
                     time_str = record['attendance_date'].strftime('%I:%M %p')
@@ -2394,15 +2438,16 @@ def api_attendance_override():
                 UPDATE attendance 
                 SET attendance_status = ?, attendance_date = ?
                 WHERE attendance_id = ?
-            ''', (status, datetime.now(), existing_attendance['attendance_id']))
+            ''', (status, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), existing_attendance['attendance_id']))
             action = 'updated'
             print(f"Updated attendance for student {student_id}: {status} (Reason: {override_reason})")
         else:
             # Insert new attendance record
+            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             conn.execute('''
                 INSERT INTO attendance (attendance_date, attendance_status, studentclass_id)
                 VALUES (?, ?, ?)
-            ''', (datetime.now(), status, student_class['studentclass_id']))
+            ''', (current_time, status, student_class['studentclass_id']))
             action = 'created'
             print(f"Created new attendance for student {student_id}: {status} (Reason: {override_reason})")
         
@@ -2545,11 +2590,11 @@ def admin_attendance():
     
     conn = get_db_connection()
     
-    # Get all attendance records with student and class information
+    # Get all attendance records with student and class information - format datetime at SQL level
     attendance_records = conn.execute('''
         SELECT 
             a.attendance_id,
-            a.attendance_date,
+            strftime('%Y-%m-%d %H:%M:%S', a.attendance_date) as attendance_date,
             a.attendance_status,
             u.firstname,
             u.lastname,
