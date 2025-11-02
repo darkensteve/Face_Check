@@ -212,31 +212,67 @@
                         
                         <!-- Attendance Stats -->
                         <div class="grid grid-cols-3 gap-4 mb-6">
-                            <div class="text-center p-3 bg-blue-50 rounded-lg">
-                                <div class="text-2xl font-bold text-blue-600" id="totalStudents">0</div>
-                                <div class="text-xs text-blue-600">Total Students</div>
+                            <div class="text-center p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl border border-blue-200 shadow-sm">
+                                <div class="flex items-center justify-center mb-2">
+                                    <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                                        <i class="fas fa-users text-blue-600"></i>
+                                    </div>
+                                </div>
+                                <div class="text-2xl font-bold text-blue-700" id="totalStudents">0</div>
+                                <div class="text-xs font-semibold text-blue-600">Total Students</div>
                             </div>
-                            <div class="text-center p-3 bg-green-50 rounded-lg">
-                                <div class="text-2xl font-bold text-green-600" id="presentCount">0</div>
-                                <div class="text-xs text-green-600">Present</div>
+                            <div class="text-center p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-xl border border-green-200 shadow-sm">
+                                <div class="flex items-center justify-center mb-2">
+                                    <div class="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                                        <i class="fas fa-check text-green-600"></i>
+                                    </div>
+                                </div>
+                                <div class="text-2xl font-bold text-green-700" id="presentCount">0</div>
+                                <div class="text-xs font-semibold text-green-600">Present</div>
                             </div>
-                            <div class="text-center p-3 bg-red-50 rounded-lg">
-                                <div class="text-2xl font-bold text-red-600" id="absentCount">0</div>
-                                <div class="text-xs text-red-600">Absent</div>
+                            <div class="text-center p-4 bg-gradient-to-br from-red-50 to-red-100 rounded-xl border border-red-200 shadow-sm">
+                                <div class="flex items-center justify-center mb-2">
+                                    <div class="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+                                        <i class="fas fa-times text-red-600"></i>
+                                    </div>
+                                </div>
+                                <div class="text-2xl font-bold text-red-700" id="absentCount">0</div>
+                                <div class="text-xs font-semibold text-red-600">Absent</div>
                             </div>
                         </div>
                         
                         <!-- Attendance Table -->
-                        <div class="overflow-x-auto">
+                        <div class="border border-gray-200 rounded-lg">
                             <table class="min-w-full divide-y divide-gray-200">
-                                <thead class="bg-gray-50">
+                                <thead class="bg-gradient-to-r from-gray-50 to-gray-100">
                                     <tr>
-                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
-                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                        <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                            <div class="flex items-center">
+                                                <i class="fas fa-user-graduate mr-2 text-gray-500"></i>
+                                                Student
+                                            </div>
+                                        </th>
+                                        <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                            <div class="flex items-center">
+                                                <i class="fas fa-clock mr-2 text-gray-500"></i>
+                                                Time
+                                            </div>
+                                        </th>
+                                        <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                            <div class="flex items-center">
+                                                <i class="fas fa-flag mr-2 text-gray-500"></i>
+                                                Status
+                                            </div>
+                                        </th>
+                                        <th class="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                            <div class="flex items-center justify-center">
+                                                <i class="fas fa-tools mr-2 text-gray-500"></i>
+                                                Action
+                                            </div>
+                                        </th>
                                     </tr>
                                 </thead>
-                                <tbody id="attendanceTableBody" class="bg-white divide-y divide-gray-200">
+                                <tbody id="attendanceTableBody" class="bg-white divide-y divide-gray-100">
                                     <!-- Attendance records will be populated here -->
                                 </tbody>
                             </table>
@@ -819,7 +855,7 @@
                         alreadyMarked.add(studentId);
                         
                         // Add to attendance table
-                        addAttendanceRecord(studentName, studentId, new Date().toLocaleTimeString());
+                        addAttendanceRecord(studentName, studentId, new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }), 'present');
                         
                         // Show success notification
                         showNotification(`Attendance marked for ${studentName}`, 'success');
@@ -870,28 +906,26 @@
         }
         
         // Add attendance record to table
-        function addAttendanceRecord(studentName, studentId, time) {
+        function addAttendanceRecord(studentName, studentId, time, status = 'present') {
             const tbody = document.getElementById('attendanceTableBody');
             const noAttendanceMessage = document.getElementById('noAttendanceMessage');
             
             // Hide no attendance message
             noAttendanceMessage.style.display = 'none';
             
+            // Check if row already exists
+            const existingRow = tbody.querySelector(`[data-student-id="${studentId}"]`);
+            if (existingRow) {
+                // Update existing row
+                updateStudentRow(existingRow, studentName, studentId, time, status);
+                return;
+            }
+            
             // Create new row
             const row = document.createElement('tr');
-            row.className = 'hover:bg-gray-50';
-            row.innerHTML = `
-                <td class="px-4 py-3 whitespace-nowrap">
-                    <div class="text-sm font-medium text-gray-900">${studentName}</div>
-                    <div class="text-xs text-gray-500">ID: ${studentId}</div>
-                </td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900">${time}</td>
-                <td class="px-4 py-3 whitespace-nowrap">
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                        <i class="fas fa-check mr-1"></i>Present
-                    </span>
-                </td>
-            `;
+            row.className = 'hover:bg-blue-50 hover:shadow-sm transition-all duration-200';
+            row.setAttribute('data-student-id', studentId);
+            row.innerHTML = createStudentRowHTML(studentName, studentId, time, status);
             
             // Add to top of table
             tbody.insertBefore(row, tbody.firstChild);
@@ -900,36 +934,188 @@
             updateAttendanceStats();
         }
         
+        // Create HTML for student row
+        function createStudentRowHTML(studentName, studentId, time, status) {
+            const statusBadge = getStatusBadge(status);
+            const actionButtons = getActionButtons(studentId, status);
+            
+            return `
+                <td class="px-6 py-4 whitespace-nowrap">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0 h-10 w-10">
+                            <div class="h-10 w-10 rounded-full bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center">
+                                <i class="fas fa-user text-blue-600"></i>
+                            </div>
+                        </div>
+                        <div class="ml-4">
+                            <div class="text-sm font-semibold text-gray-900">${studentName}</div>
+                        </div>
+                    </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                    <div class="text-sm font-medium text-gray-900">
+                        ${time ? `<i class="fas fa-clock mr-1 text-gray-400"></i>${time}` : '<span class="text-gray-400">-</span>'}
+                    </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                    ${statusBadge}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-center">
+                    ${actionButtons}
+                </td>
+            `;
+        }
+        
+        // Get status badge HTML
+        function getStatusBadge(status) {
+            if (status === 'present') {
+                return `<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-gradient-to-r from-green-100 to-green-200 text-green-800 border border-green-300">
+                    <div class="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                    Present
+                </span>`;
+            } else if (status === 'absent') {
+                return `<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-gradient-to-r from-red-100 to-red-200 text-red-800 border border-red-300">
+                    <div class="w-2 h-2 bg-red-500 rounded-full mr-2"></div>
+                    Absent
+                </span>`;
+            } else {
+                return `<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-gradient-to-r from-gray-100 to-gray-200 text-gray-700 border border-gray-300">
+                    <div class="w-2 h-2 bg-gray-400 rounded-full mr-2"></div>
+                    Not Marked
+                </span>`;
+            }
+        }
+        
+        // Get action buttons HTML
+        function getActionButtons(studentId, currentStatus) {
+            const presentDisabled = currentStatus === 'present';
+            const absentDisabled = currentStatus === 'absent';
+            
+            return `
+                <div class="flex space-x-1">
+                    <button onclick="overrideAttendance(${studentId}, 'present')" 
+                            title="Mark Present"
+                            class="inline-flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-200 ${
+                                presentDisabled 
+                                    ? 'bg-green-100 text-green-600 cursor-not-allowed opacity-75' 
+                                    : 'bg-gray-100 text-gray-600 hover:bg-green-100 hover:text-green-600 hover:shadow-sm'
+                            }" 
+                            ${presentDisabled ? 'disabled' : ''}>
+                        <i class="fas fa-check text-sm"></i>
+                    </button>
+                    <button onclick="overrideAttendance(${studentId}, 'absent')" 
+                            title="Mark Absent"
+                            class="inline-flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-200 ${
+                                absentDisabled 
+                                    ? 'bg-red-100 text-red-600 cursor-not-allowed opacity-75' 
+                                    : 'bg-gray-100 text-gray-600 hover:bg-red-100 hover:text-red-600 hover:shadow-sm'
+                            }"
+                            ${absentDisabled ? 'disabled' : ''}>
+                        <i class="fas fa-times text-sm"></i>
+                    </button>
+                </div>
+            `;
+        }
+        
+        // Update existing student row
+        function updateStudentRow(row, studentName, studentId, time, status) {
+            row.innerHTML = createStudentRowHTML(studentName, studentId, time, status);
+            updateAttendanceStats();
+        }
+        
         // Update attendance statistics
         function updateAttendanceStats() {
             const totalRows = document.querySelectorAll('#attendanceTableBody tr').length;
-            const presentRows = document.querySelectorAll('#attendanceTableBody tr').length;
+            const presentRows = document.querySelectorAll('#attendanceTableBody .bg-green-100').length;
+            const absentRows = document.querySelectorAll('#attendanceTableBody .bg-red-100').length;
             
             document.getElementById('totalStudents').textContent = totalRows;
             document.getElementById('presentCount').textContent = presentRows;
-            document.getElementById('absentCount').textContent = Math.max(0, totalRows - presentRows);
+            document.getElementById('absentCount').textContent = absentRows;
         }
         
         // Load attendance data
-        function loadAttendanceData() {
+        async function loadAttendanceData() {
             if (!selectedClass) {
                 console.log('No class selected, cannot load attendance data');
                 return;
             }
             
-            fetch(`/api/attendance/today?class_id=${selectedClass.class_id}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.length > 0) {
-                        document.getElementById('noAttendanceMessage').style.display = 'none';
-                        data.forEach(record => {
-                            addAttendanceRecord(record.student_name, record.student_id, record.time);
+            try {
+                // Load today's attendance records first (this always works)
+                const attendanceResponse = await fetch(`/api/attendance/today?class_id=${selectedClass.class_id}`);
+                const attendanceRecords = await attendanceResponse.json();
+                
+                // Clear existing table
+                const tbody = document.getElementById('attendanceTableBody');
+                tbody.innerHTML = '';
+                
+                console.log('Loaded attendance records:', attendanceRecords);
+                
+                // Try to load all students in the class for complete view
+                let allStudents = [];
+                try {
+                    const studentsResponse = await fetch(`/api/students/by-class/${selectedClass.class_id}`);
+                    if (studentsResponse.ok) {
+                        allStudents = await studentsResponse.json();
+                        console.log('Loaded all students:', allStudents);
+                    }
+                } catch (error) {
+                    console.warn('Could not load all students, showing attendance records only:', error);
+                }
+                
+                // If we have attendance records, always show them first
+                if (attendanceRecords.length > 0) {
+                    document.getElementById('noAttendanceMessage').style.display = 'none';
+                    
+                    // Create a map of attendance records by student_id
+                    const attendanceMap = new Map();
+                    attendanceRecords.forEach(record => {
+                        attendanceMap.set(record.student_id, record);
+                        // Add students with attendance records
+                        addAttendanceRecord(record.student_name, record.student_id, record.time, record.status);
+                    });
+                    
+                    // If we also have all students list, add students without attendance
+                    if (allStudents.length > 0) {
+                        allStudents.forEach(student => {
+                            // Only add if not already in attendance records
+                            if (!attendanceMap.has(student.student_id)) {
+                                addAttendanceRecord(student.student_name, student.student_id, null, null);
+                            }
                         });
                     }
-                })
-                .catch(error => {
-                    console.error('Error loading attendance data:', error);
-                });
+                } else if (allStudents.length > 0) {
+                    // No attendance records but we have student list
+                    document.getElementById('noAttendanceMessage').style.display = 'none';
+                    allStudents.forEach(student => {
+                        addAttendanceRecord(student.student_name, student.student_id, null, null);
+                    });
+                } else {
+                    // No attendance records and no student list
+                    document.getElementById('noAttendanceMessage').style.display = 'block';
+                }
+                
+                updateAttendanceStats();
+                
+            } catch (error) {
+                console.error('Error loading attendance data:', error);
+                // Fallback: try to show just attendance records
+                try {
+                    const attendanceResponse = await fetch(`/api/attendance/today?class_id=${selectedClass.class_id}`);
+                    const attendanceRecords = await attendanceResponse.json();
+                    
+                    if (attendanceRecords.length > 0) {
+                        document.getElementById('noAttendanceMessage').style.display = 'none';
+                        attendanceRecords.forEach(record => {
+                            addAttendanceRecord(record.student_name, record.student_id, record.time, record.status);
+                        });
+                        updateAttendanceStats();
+                    }
+                } catch (fallbackError) {
+                    console.error('Fallback also failed:', fallbackError);
+                }
+            }
         }
         
         // Load faculty classes
@@ -1018,6 +1204,81 @@
             selectedClass = null;
         }
         
+        // Override attendance function
+        async function overrideAttendance(studentId, newStatus) {
+            if (!selectedClass) {
+                showNotification('No class selected', 'error');
+                return;
+            }
+            
+            try {
+                // Find the student row
+                const studentRow = document.querySelector(`[data-student-id="${studentId}"]`);
+                if (!studentRow) {
+                    showNotification('Student row not found', 'error');
+                    return;
+                }
+                
+                // Show loading state
+                const actionCell = studentRow.querySelector('td:last-child');
+                const originalHTML = actionCell.innerHTML;
+                actionCell.innerHTML = `
+                    <div class="flex space-x-1">
+                        <div class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-100">
+                            <i class="fas fa-spinner fa-spin text-blue-600 text-sm"></i>
+                        </div>
+                    </div>
+                `;
+                
+                const response = await fetch('/api/attendance/override', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        student_id: studentId,
+                        class_id: selectedClass.class_id,
+                        status: newStatus,
+                        reason: 'Manual override by faculty'
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Update the row with new status
+                    const studentName = studentRow.querySelector('.text-gray-900').textContent;
+                    updateStudentRow(studentRow, studentName, studentId, result.time, newStatus);
+                    
+                    // Show success notification
+                    showNotification(result.message, 'success');
+                    
+                    // Update already marked set if needed
+                    if (newStatus === 'present') {
+                        alreadyMarked.add(studentId);
+                    } else {
+                        alreadyMarked.delete(studentId);
+                    }
+                    
+                } else {
+                    // Restore original buttons
+                    actionCell.innerHTML = originalHTML;
+                    showNotification(result.message || 'Failed to override attendance', 'error');
+                }
+                
+            } catch (error) {
+                console.error('Error overriding attendance:', error);
+                showNotification('Error overriding attendance', 'error');
+                
+                // Restore original buttons
+                const studentRow = document.querySelector(`[data-student-id="${studentId}"]`);
+                if (studentRow) {
+                    const actionCell = studentRow.querySelector('td:last-child');
+                    actionCell.innerHTML = getActionButtons(studentId, null); // Reset to default
+                }
+            }
+        }
+
         // Show notification
         function showNotification(message, type) {
             const notification = document.createElement('div');
@@ -1041,7 +1302,7 @@
         // Update date and time
         function updateDateTime() {
             const now = new Date();
-            const timeString = now.toLocaleTimeString();
+            const timeString = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
             const dateString = now.toLocaleDateString();
             
             document.getElementById('currentTime').textContent = timeString;

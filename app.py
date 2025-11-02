@@ -2120,14 +2120,16 @@ def api_today_attendance():
     # Format the data for frontend
     formatted_attendance = []
     for record in attendance:
-        # Extract time from datetime string
+        # Extract time from datetime string and format to 12-hour
         time_str = ''
         if record['attendance_date']:
             try:
                 if isinstance(record['attendance_date'], str):
-                    time_str = record['attendance_date'].split(' ')[1] if ' ' in record['attendance_date'] else record['attendance_date']
+                    # Parse the datetime string and format to 12-hour
+                    dt = datetime.strptime(record['attendance_date'], '%Y-%m-%d %H:%M:%S')
+                    time_str = dt.strftime('%I:%M %p')
                 else:
-                    time_str = record['attendance_date'].strftime('%H:%M:%S')
+                    time_str = record['attendance_date'].strftime('%I:%M %p')
             except:
                 time_str = str(record['attendance_date'])
         
@@ -2140,6 +2142,131 @@ def api_today_attendance():
     
     conn.close()
     return jsonify(formatted_attendance)
+
+@app.route('/api/attendance/override', methods=['POST'])
+def api_attendance_override():
+    """Override attendance for a student (faculty only)"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized - Please login'}), 401
+    
+    # Only faculty and admin can override attendance
+    if session.get('role') not in ['faculty', 'admin']:
+        return jsonify({'success': False, 'message': 'Unauthorized - Faculty or Admin access required'}), 401
+    
+    try:
+        data = request.get_json()
+        print(f"Attendance override request data: {data}")
+        
+        student_id = data.get('student_id')
+        class_id = data.get('class_id')
+        status = data.get('status', 'present')  # 'present' or 'absent'
+        override_reason = data.get('reason', 'Manual override by faculty')
+        
+        if not student_id or not class_id:
+            return jsonify({'success': False, 'message': 'Missing student or class information'}), 400
+        
+        if status not in ['present', 'absent']:
+            return jsonify({'success': False, 'message': 'Invalid status. Must be "present" or "absent"'}), 400
+        
+        conn = get_db_connection()
+        
+        # Get student info
+        student = conn.execute('''
+            SELECT s.student_id, s.user_id, u.firstname, u.lastname
+            FROM student s
+            JOIN user u ON s.user_id = u.user_id
+            WHERE s.student_id = ?
+        ''', (student_id,)).fetchone()
+        
+        if not student:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Student not found'}), 404
+        
+        # Get student_class_id
+        student_class = conn.execute('''
+            SELECT sc.studentclass_id 
+            FROM student_class sc
+            WHERE sc.student_id = ? AND sc.class_id = ?
+        ''', (student_id, class_id)).fetchone()
+        
+        if not student_class:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Student not enrolled in this class'}), 404
+        
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        # Check if attendance already exists for today
+        existing_attendance = conn.execute('''
+            SELECT attendance_id, attendance_status 
+            FROM attendance 
+            WHERE studentclass_id = ? AND DATE(attendance_date) = ?
+        ''', (student_class['studentclass_id'], today)).fetchone()
+        
+        if existing_attendance:
+            # Update existing attendance
+            conn.execute('''
+                UPDATE attendance 
+                SET attendance_status = ?, attendance_date = ?
+                WHERE attendance_id = ?
+            ''', (status, datetime.now(), existing_attendance['attendance_id']))
+            action = 'updated'
+            print(f"Updated attendance for student {student_id}: {status} (Reason: {override_reason})")
+        else:
+            # Insert new attendance record
+            conn.execute('''
+                INSERT INTO attendance (attendance_date, attendance_status, studentclass_id)
+                VALUES (?, ?, ?)
+            ''', (datetime.now(), status, student_class['studentclass_id']))
+            action = 'created'
+            print(f"Created new attendance for student {student_id}: {status} (Reason: {override_reason})")
+        
+        conn.commit()
+        conn.close()
+        
+        student_name = f"{student['firstname']} {student['lastname']}"
+        
+        return jsonify({
+            'success': True, 
+            'message': f'Attendance {action} for {student_name}: {status.title()}',
+            'student_id': student_id,
+            'student_name': student_name,
+            'status': status,
+            'time': datetime.now().strftime('%I:%M %p'),
+            'action': action
+        })
+        
+    except Exception as e:
+        print(f"Error in attendance override: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/students/by-class/<int:class_id>')
+def api_students_by_class(class_id):
+    """Get all students enrolled in a specific class"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    # Allow both faculty and admin
+    if session.get('role') not in ['faculty', 'admin']:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    conn = get_db_connection()
+    
+    students = conn.execute('''
+        SELECT s.student_id, u.firstname, u.lastname, u.email
+        FROM student_class sc
+        JOIN student s ON sc.student_id = s.student_id
+        JOIN user u ON s.user_id = u.user_id
+        WHERE sc.class_id = ?
+        ORDER BY u.lastname, u.firstname
+    ''', (class_id,)).fetchall()
+    
+    conn.close()
+    
+    return jsonify([{
+        'student_id': record['student_id'],
+        'student_name': f"{record['firstname']} {record['lastname']}",
+        'email': record['email']
+    } for record in students])
 
 @app.route('/api/faculty/classes')
 def api_faculty_classes():
