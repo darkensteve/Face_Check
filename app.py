@@ -243,7 +243,15 @@ def get_dashboard_stats():
     recent_attendance = []
     for record in recent_records:
         # Format date from datetime to readable format
-        date_obj = datetime.strptime(record['attendance_date'], '%Y-%m-%d %H:%M:%S')
+        # Handle both with and without microseconds
+        date_str = str(record['attendance_date'])
+        try:
+            # Try parsing with microseconds first
+            date_obj = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S.%f')
+        except ValueError:
+            # Fall back to format without microseconds
+            date_obj = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+        
         formatted_date = date_obj.strftime('%B %d, %Y %I:%M %p')
         
         recent_attendance.append({
@@ -1278,6 +1286,171 @@ def student_dashboard():
                          today_attendance=today_status,
                          attendance_history=formatted_history,
                          has_face_registered=has_face_registered)
+
+# My Attendance Route
+@app.route('/my_attendance')
+def my_attendance():
+    if 'user_id' not in session or session['role'] != 'student':
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    
+    # Get student info
+    student = conn.execute('''
+        SELECT u.*, s.student_id, s.year_level, c.course_name, d.dept_name
+        FROM user u
+        JOIN student s ON u.user_id = s.user_id
+        LEFT JOIN course c ON s.course_id = c.course_id
+        LEFT JOIN department d ON u.dept_id = d.dept_id
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    
+    # Get all attendance records for the student
+    attendance_records = conn.execute('''
+        SELECT a.attendance_date, a.attendance_status, cl.class_name, cl.edpcode,
+               u_f.firstname as faculty_firstname, u_f.lastname as faculty_lastname
+        FROM attendance a
+        JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+        JOIN class cl ON sc.class_id = cl.class_id
+        JOIN faculty f ON cl.faculty_id = f.faculty_id
+        JOIN user u_f ON f.user_id = u_f.user_id
+        WHERE sc.student_id = ?
+        ORDER BY a.attendance_date DESC
+    ''', (student['student_id'],)).fetchall()
+    
+    # Format attendance records for template
+    formatted_records = []
+    for record in attendance_records:
+        date_str = ''
+        time_str = ''
+        formatted_datetime = ''
+        
+        if record['attendance_date']:
+            try:
+                date_str_raw = str(record['attendance_date'])
+                # Handle both with and without microseconds
+                try:
+                    date_obj = datetime.strptime(date_str_raw, '%Y-%m-%d %H:%M:%S.%f')
+                except ValueError:
+                    date_obj = datetime.strptime(date_str_raw, '%Y-%m-%d %H:%M:%S')
+                
+                date_str = date_obj.strftime('%B %d, %Y')
+                time_str = date_obj.strftime('%I:%M %p')
+                formatted_datetime = date_obj.strftime('%B %d, %Y %I:%M %p')
+            except:
+                date_str = date_str_raw.split(' ')[0] if ' ' in date_str_raw else date_str_raw
+                time_str = ''
+                formatted_datetime = date_str_raw
+        
+        formatted_records.append({
+            'date': date_str,
+            'time': time_str,
+            'datetime': formatted_datetime,
+            'status': record['attendance_status'],
+            'class_name': record['class_name'],
+            'edpcode': record['edpcode'],
+            'faculty': f"{record['faculty_firstname']} {record['faculty_lastname']}"
+        })
+    
+    # Get statistics
+    total_records = len(formatted_records)
+    present_count = sum(1 for r in formatted_records if r['status'].lower() == 'present')
+    absent_count = sum(1 for r in formatted_records if r['status'].lower() == 'absent')
+    attendance_rate = (present_count / total_records * 100) if total_records > 0 else 0
+    
+    conn.close()
+    return render_template('my_attendance.html',
+                         student_info=student,
+                         attendance_records=formatted_records,
+                         total_records=total_records,
+                         present_count=present_count,
+                         absent_count=absent_count,
+                         attendance_rate=round(attendance_rate, 1))
+
+# Student Profile Route
+@app.route('/profile')
+def student_profile():
+    if 'user_id' not in session or session['role'] != 'student':
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    
+    # Get comprehensive student info
+    student = conn.execute('''
+        SELECT u.*, s.student_id, s.year_level, s.attendance_image, c.course_name, d.dept_name
+        FROM user u
+        JOIN student s ON u.user_id = s.user_id
+        LEFT JOIN course c ON s.course_id = c.course_id
+        LEFT JOIN department d ON u.dept_id = d.dept_id
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    
+    # Get enrolled classes
+    enrolled_classes_raw = conn.execute('''
+        SELECT cl.class_name, cl.edpcode, cl.start_time, cl.end_time, cl.room,
+               u_f.firstname as faculty_firstname, u_f.lastname as faculty_lastname
+        FROM student_class sc
+        JOIN class cl ON sc.class_id = cl.class_id
+        JOIN faculty f ON cl.faculty_id = f.faculty_id
+        JOIN user u_f ON f.user_id = u_f.user_id
+        WHERE sc.student_id = ?
+        ORDER BY cl.class_name
+    ''', (student['student_id'],)).fetchall()
+    
+    # Format enrolled classes with schedule
+    enrolled_classes = []
+    for class_item in enrolled_classes_raw:
+        schedule = ''
+        if class_item['start_time'] and class_item['end_time']:
+            schedule = f"{class_item['start_time']} - {class_item['end_time']}"
+        enrolled_classes.append({
+            'class_name': class_item['class_name'],
+            'edpcode': class_item['edpcode'],
+            'schedule': schedule,
+            'room': class_item['room'],
+            'faculty_firstname': class_item['faculty_firstname'],
+            'faculty_lastname': class_item['faculty_lastname']
+        })
+    
+    # Check face registration status
+    has_face_registered = False
+    if student['attendance_image']:
+        if os.path.exists(student['attendance_image']):
+            has_face_registered = True
+        else:
+            conn.execute('UPDATE student SET attendance_image = NULL WHERE user_id = ?', (session['user_id'],))
+            conn.commit()
+    
+    if not has_face_registered:
+        face_image_path = f"known_faces/{student['idno']}.jpg"
+        if os.path.exists(face_image_path):
+            conn.execute('UPDATE student SET attendance_image = ? WHERE user_id = ?', (face_image_path, session['user_id']))
+            conn.commit()
+            has_face_registered = True
+    
+    # Get attendance statistics
+    attendance_stats = conn.execute('''
+        SELECT 
+            COUNT(*) as total_records,
+            SUM(CASE WHEN a.attendance_status = 'present' THEN 1 ELSE 0 END) as present_count,
+            SUM(CASE WHEN a.attendance_status = 'absent' THEN 1 ELSE 0 END) as absent_count
+        FROM attendance a
+        JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+        WHERE sc.student_id = ?
+    ''', (student['student_id'],)).fetchone()
+    
+    total_records = attendance_stats['total_records'] or 0
+    present_count = attendance_stats['present_count'] or 0
+    attendance_rate = (present_count / total_records * 100) if total_records > 0 else 0
+    
+    conn.close()
+    return render_template('profile.html',
+                         student=student,
+                         enrolled_classes=enrolled_classes,
+                         has_face_registered=has_face_registered,
+                         total_records=total_records,
+                         present_count=present_count,
+                         attendance_rate=round(attendance_rate, 1))
 
 # Faculty Dashboard
 @app.route('/faculty/dashboard')

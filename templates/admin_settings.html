@@ -112,22 +112,14 @@
                     <div class="px-6 py-4 border-b border-gray-200">
                         <h3 class="text-lg font-semibold text-gray-900">Configuration Sections</h3>
                     </div>
-                    <div class="p-6 grid grid-cols-1 md:grid-cols-5 gap-4">
+                    <div class="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
                         <button onclick="showSection('attendance')" class="config-section-btn p-4 border-2 border-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition" data-section="attendance">
                             <i class="fas fa-clipboard-check text-2xl text-blue-600 mb-2"></i>
                             <p class="text-sm font-semibold text-gray-900">Set Attendance Rules</p>
                         </button>
-                        <button onclick="showSection('email')" class="config-section-btn p-4 border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition" data-section="email">
-                            <i class="fas fa-envelope text-2xl text-gray-600 mb-2"></i>
-                            <p class="text-sm font-semibold text-gray-900">Configure Email Notifications</p>
-                        </button>
                         <button onclick="showSection('security')" class="config-section-btn p-4 border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition" data-section="security">
                             <i class="fas fa-shield-alt text-2xl text-gray-600 mb-2"></i>
                             <p class="text-sm font-semibold text-gray-900">Security Management</p>
-                        </button>
-                        <button onclick="showSection('system')" class="config-section-btn p-4 border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition" data-section="system">
-                            <i class="fas fa-cogs text-2xl text-gray-600 mb-2"></i>
-                            <p class="text-sm font-semibold text-gray-900">Change System Settings</p>
                         </button>
                         <button onclick="showSection('database')" class="config-section-btn p-4 border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition" data-section="database">
                             <i class="fas fa-database text-2xl text-gray-600 mb-2"></i>
@@ -173,74 +165,7 @@
                     </div>
                 </div>
 
-                <!-- Section 2: Email Notifications -->
-                <div id="section-email" class="config-section hidden bg-white rounded-xl shadow-lg">
-                    <div class="px-6 py-4 border-b border-gray-200">
-                        <h3 class="text-xl font-semibold text-gray-900">
-                            <i class="fas fa-envelope mr-2 text-blue-600"></i>
-                            Configure Email Notifications
-                        </h3>
-                        <p class="text-sm text-gray-600 mt-1">Setup email server and notification preferences</p>
-                    </div>
-                    <div class="p-6">
-                        <div class="grid grid-cols-1 gap-6">
-                            <div>
-                                <label class="flex items-center cursor-pointer mb-4">
-                                    <input type="checkbox" id="email_enabled" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
-                                    <span class="ml-2 text-sm font-medium text-gray-700">Enable Email Notifications</span>
-                                </label>
-                            </div>
-                            
-                            <div class="border-t pt-4">
-                                <h4 class="font-semibold text-gray-900 mb-4">SMTP Server Configuration</h4>
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">SMTP Server</label>
-                                        <input type="text" id="smtp_server" placeholder="smtp.gmail.com" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">SMTP Port</label>
-                                        <input type="number" id="smtp_port" placeholder="587" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">Username</label>
-                                        <input type="text" id="smtp_username" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
-                                        <input type="password" id="smtp_password" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
-                                    </div>
-                                    <div class="md:col-span-2">
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">From Email Address</label>
-                                        <input type="email" id="email_from" placeholder="noreply@facecheck.com" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="border-t pt-4">
-                                <h4 class="font-semibold text-gray-900 mb-4">Notification Preferences</h4>
-                                <div class="space-y-3">
-                                    <label class="flex items-center cursor-pointer">
-                                        <input type="checkbox" id="notify_absences" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
-                                        <span class="ml-2 text-sm text-gray-700">Send notifications for absences</span>
-                                    </label>
-                                    <label class="flex items-center cursor-pointer">
-                                        <input type="checkbox" id="notify_low_attendance" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
-                                        <span class="ml-2 text-sm text-gray-700">Send notifications for low attendance warnings</span>
-                                    </label>
-                                </div>
-                            </div>
-                            
-                            <div class="border-t pt-4">
-                                <button onclick="testEmail()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
-                                    <i class="fas fa-paper-plane mr-2"></i>Send Test Email
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Section 3: Security Management -->
+                <!-- Section 2: Security Management -->
                 <div id="section-security" class="config-section hidden bg-white rounded-xl shadow-lg">
                     <div class="px-6 py-4 border-b border-gray-200">
                         <h3 class="text-xl font-semibold text-gray-900">
@@ -312,86 +237,7 @@
                     </div>
                 </div>
 
-                <!-- Section 4: System Settings -->
-                <div id="section-system" class="config-section hidden bg-white rounded-xl shadow-lg">
-                    <div class="px-6 py-4 border-b border-gray-200">
-                        <h3 class="text-xl font-semibold text-gray-900">
-                            <i class="fas fa-cogs mr-2 text-blue-600"></i>
-                            Change System Settings
-                        </h3>
-                        <p class="text-sm text-gray-600 mt-1">Configure general system preferences and display settings</p>
-                    </div>
-                    <div class="p-6">
-                        <div class="grid grid-cols-1 gap-6">
-                            <div class="border-b pb-4">
-                                <h4 class="font-semibold text-gray-900 mb-4">System Information</h4>
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">System Name</label>
-                                        <input type="text" id="system_name" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">Institution Name</label>
-                                        <input type="text" id="institution_name" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="border-b pb-4">
-                                <h4 class="font-semibold text-gray-900 mb-4">Localization</h4>
-                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">Timezone</label>
-                                        <select id="timezone" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
-                                            <option value="Asia/Manila">Asia/Manila (GMT+8)</option>
-                                            <option value="America/New_York">America/New York (EST)</option>
-                                            <option value="Europe/London">Europe/London (GMT)</option>
-                                            <option value="Asia/Tokyo">Asia/Tokyo (JST)</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">Date Format</label>
-                                        <select id="date_format" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
-                                            <option value="YYYY-MM-DD">YYYY-MM-DD</option>
-                                            <option value="MM/DD/YYYY">MM/DD/YYYY</option>
-                                            <option value="DD/MM/YYYY">DD/MM/YYYY</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">Time Format</label>
-                                        <select id="time_format" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
-                                            <option value="24h">24-hour</option>
-                                            <option value="12h">12-hour (AM/PM)</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="border-b pb-4">
-                                <h4 class="font-semibold text-gray-900 mb-4">Language</h4>
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">System Language</label>
-                                    <select id="language" class="w-full md:w-1/2 px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
-                                        <option value="en">English</option>
-                                        <option value="ceb">Cebuano</option>
-                                        <option value="tl">Tagalog</option>
-                                    </select>
-                                </div>
-                            </div>
-                            
-                            <div>
-                                <h4 class="font-semibold text-gray-900 mb-4">Maintenance Mode</h4>
-                                <label class="flex items-center cursor-pointer">
-                                    <input type="checkbox" id="maintenance_mode" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
-                                    <span class="ml-2 text-sm text-gray-700">Enable Maintenance Mode</span>
-                                </label>
-                                <p class="text-xs text-gray-500 mt-1">Temporarily disable system access for maintenance</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Section 5: Database Settings -->
+                <!-- Section 3: Database Settings -->
                 <div id="section-database" class="config-section hidden bg-white rounded-xl shadow-lg">
                     <div class="px-6 py-4 border-b border-gray-200">
                         <h3 class="text-xl font-semibold text-gray-900">

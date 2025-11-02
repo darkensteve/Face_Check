@@ -191,7 +191,7 @@
                         <button onclick="applyFilters()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition duration-200">
                             <i class="fas fa-filter mr-2"></i>Apply Filters
                         </button>
-                        <button onclick="clearFilters()" class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition duration-200">
+                        <button id="clearFiltersBtn" onclick="clearFilters()" class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition duration-200 hidden">
                             <i class="fas fa-times mr-2"></i>Clear Filters
                         </button>
                     </div>
@@ -264,6 +264,15 @@
             const status = document.getElementById('statusFilter').value;
             const classFilter = document.getElementById('classFilter').value;
             
+            // Check if any filter is applied
+            const hasFilters = dateFrom || dateTo || status || classFilter;
+            
+            // Show Clear Filters button if any filter is applied
+            const clearBtn = document.getElementById('clearFiltersBtn');
+            if (hasFilters) {
+                clearBtn.classList.remove('hidden');
+            }
+            
             const rows = document.querySelectorAll('#attendanceTable tbody tr');
             
             rows.forEach(row => {
@@ -299,6 +308,10 @@
             document.getElementById('dateTo').value = '';
             document.getElementById('statusFilter').value = '';
             document.getElementById('classFilter').value = '';
+            
+            // Hide Clear Filters button
+            const clearBtn = document.getElementById('clearFiltersBtn');
+            clearBtn.classList.add('hidden');
             
             const rows = document.querySelectorAll('#attendanceTable tbody tr');
             rows.forEach(row => {

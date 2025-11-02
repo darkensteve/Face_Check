@@ -33,12 +33,7 @@
                     Dashboard
                 </a>
                 
-                <a href="/attendance" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
-                    <i class="fas fa-camera mr-3"></i>
-                    Take Attendance
-                </a>
-                
-                <a href="/my_attendance" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                <a href="{{ url_for('my_attendance') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-calendar-check mr-3"></i>
                     My Attendance
                 </a>
@@ -46,6 +41,11 @@
                 <a href="/register_face" class="flex items-center px-6 py-3 bg-gray-700 text-white">
                     <i class="fas fa-user-plus mr-3"></i>
                     Register Face
+                </a>
+                
+                <a href="/profile" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-user mr-3"></i>
+                    Profile
                 </a>
             </nav>
             
