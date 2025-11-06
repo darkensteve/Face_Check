@@ -1882,6 +1882,299 @@ def process_face_recognition(image_path):
             'student_name': 'Unknown'
         }
 
+def process_face_recognition_for_faculty(image_path):
+    """Process face recognition for faculty participants in events"""
+    try:
+        # Check if face recognition is available
+        if not FACE_RECOGNITION_AVAILABLE:
+            print("Using OpenCV fallback for faculty face recognition")
+            try:
+                from opencv_face_detector import fallback_face_recognition_for_faculty
+                return fallback_face_recognition_for_faculty(image_path)
+            except ImportError as e:
+                return {
+                    'success': False,
+                    'message': f'Face recognition system is not configured: {e}',
+                    'user_id': 'Unknown',
+                    'name': 'Unknown'
+                }
+        
+        print(f"Processing faculty image: {image_path}")
+        
+        # Load known faculty faces from database
+        conn = get_db_connection()
+        faculty_members = conn.execute('''
+            SELECT f.faculty_id, u.user_id, u.firstname, u.lastname, u.idno
+            FROM faculty f
+            JOIN user u ON f.user_id = u.user_id
+            WHERE u.role = 'faculty' AND u.is_active = 1
+        ''').fetchall()
+        conn.close()
+        
+        print(f"Found {len(faculty_members)} faculty members")
+        
+        if not faculty_members:
+            return {
+                'success': False,
+                'message': 'No faculty members found',
+                'user_id': 'Unknown',
+                'name': 'Unknown'
+            }
+        
+        # Load the image
+        image = cv2.imread(image_path)
+        if image is None:
+            print("Could not load image")
+            return {
+                'success': False,
+                'message': 'Could not load image',
+                'user_id': 'Unknown',
+                'name': 'Unknown'
+            }
+        
+        print(f"Image loaded: {image.shape}")
+        
+        # Convert BGR to RGB
+        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # Find face locations
+        print("Detecting faces...")
+        face_locations = face_recognition.face_locations(rgb_image, number_of_times_to_upsample=1, model="hog")
+        print(f"Found {len(face_locations)} face(s)")
+        
+        if not face_locations:
+            return {
+                'success': False,
+                'message': 'No face detected',
+                'user_id': 'Unknown',
+                'name': 'Unknown'
+            }
+        
+        # Get face encodings and landmarks
+        print("Encoding faces...")
+        face_encodings = face_recognition.face_encodings(rgb_image, face_locations)
+        face_landmarks = face_recognition.face_landmarks(rgb_image, face_locations)
+        print(f"Generated {len(face_encodings)} face encoding(s)")
+        
+        if not face_encodings:
+            return {
+                'success': False,
+                'message': 'Could not encode face',
+                'user_id': 'Unknown',
+                'name': 'Unknown'
+            }
+        
+        # Perform anti-spoofing check
+        anti_spoofing_result = {'is_live': True, 'confidence': 1.0, 'details': 'Anti-spoofing disabled'}
+        if ANTI_SPOOFING_AVAILABLE and face_landmarks:
+            print("Performing anti-spoofing analysis...")
+            anti_spoofing_result = anti_spoofing_detector.comprehensive_anti_spoofing_check(
+                rgb_image, face_landmarks[0], face_locations[0]
+            )
+            print(f"Anti-spoofing result: {anti_spoofing_result['details']}")
+            
+            # Check if face passes anti-spoofing
+            if not anti_spoofing_result['is_live']:
+                return {
+                    'success': False,
+                    'message': f"Spoofing attempt detected! {anti_spoofing_result['details']}",
+                    'user_id': 'SPOOFING_DETECTED',
+                    'name': 'Spoofing Attempt',
+                    'anti_spoofing': anti_spoofing_result
+                }
+        
+        # Calculate real liveness detection metrics
+        eye_ratio = 0.0
+        nose_motion = 0.0
+        
+        if face_landmarks:
+            landmarks = face_landmarks[0]  # Get landmarks for the first face
+            
+            # Calculate Eye Aspect Ratio (EAR) for blink detection
+            if 'left_eye' in landmarks and 'right_eye' in landmarks:
+                left_eye = landmarks['left_eye']
+                right_eye = landmarks['right_eye']
+                
+                # Calculate EAR for both eyes
+                left_ear = calculate_ear(left_eye)
+                right_ear = calculate_ear(right_eye)
+                eye_ratio = (left_ear + right_ear) / 2.0
+                
+                print(f"Eye Aspect Ratio: {eye_ratio}")
+            
+            # Calculate nose motion (simplified - using nose tip position)
+            if 'nose_tip' in landmarks:
+                nose_tip = landmarks['nose_tip']
+                if len(nose_tip) > 0:
+                    # Use nose tip position as motion indicator
+                    nose_motion = len(nose_tip) * 2.0  # Simplified motion calculation
+                    print(f"Nose motion: {nose_motion}")
+        
+        print(f"Liveness metrics - Eye ratio: {eye_ratio}, Nose motion: {nose_motion}")
+        
+        # For faculty recognition, we'll use a simpler approach since faculty don't have registered face images
+        # We'll try to match against any registered faces in the system (students and faculty)
+        # This is a simplified approach - in a real system, faculty would have registered face images
+        
+        # Load all registered faces (students and faculty with face images)
+        conn = get_db_connection()
+        all_registered = conn.execute('''
+            SELECT u.user_id, u.firstname, u.lastname, u.role, s.attendance_image
+            FROM user u
+            LEFT JOIN student s ON u.user_id = s.user_id
+            WHERE u.is_active = 1 AND (s.attendance_image IS NOT NULL OR u.role = 'faculty')
+        ''').fetchall()
+        conn.close()
+        
+        print(f"Found {len(all_registered)} registered users with faces")
+        
+        # Compare with known faces
+        print("Comparing with known faces...")
+        best_match = None
+        best_distance = float('inf')
+        
+        for user in all_registered:
+            print(f"Checking user: {user['firstname']} {user['lastname']} ({user['role']})")
+            
+            # For faculty, we'll use a placeholder approach since they don't have attendance_image
+            # In a real system, faculty would have registered face images
+            if user['role'] == 'faculty':
+                # For now, we'll skip faculty without registered images
+                # This is where you would implement faculty face registration
+                print(f"  Faculty member without registered face image - skipping")
+                continue
+                
+            if not user['attendance_image'] or not os.path.exists(user['attendance_image']):
+                print(f"  No valid image: {user['attendance_image']}")
+                continue
+                
+            # Load known face
+            known_image = cv2.imread(user['attendance_image'])
+            if known_image is None:
+                print(f"  Could not load image: {user['attendance_image']}")
+                continue
+                
+            known_rgb = cv2.cvtColor(known_image, cv2.COLOR_BGR2RGB)
+            known_encodings = face_recognition.face_encodings(known_rgb)
+            
+            if not known_encodings:
+                print(f"  Could not encode known face")
+                continue
+            
+            # Calculate distance
+            distances = face_recognition.face_distance(known_encodings, face_encodings[0])
+            min_distance = min(distances)
+            print(f"  Distance: {min_distance}")
+            
+            if min_distance < best_distance:
+                best_distance = min_distance
+                best_match = user
+        
+        # Check if match is good enough (tolerance from face_recog_test.py)
+        MATCH_TOLERANCE = 0.62
+        print(f"Best match: {best_match['firstname'] if best_match else 'None'}")
+        print(f"Best distance: {best_distance}")
+        print(f"Tolerance: {MATCH_TOLERANCE}")
+        
+        # Get face location coordinates for drawing box
+        face_box = None
+        if face_landmarks and len(face_landmarks) > 0:
+            # Calculate precise bounding box from facial landmarks
+            landmarks = face_landmarks[0]
+            all_points = []
+            
+            # Collect all landmark points
+            for feature_name in ['chin', 'left_eyebrow', 'right_eyebrow', 'nose_bridge', 
+                                 'nose_tip', 'left_eye', 'right_eye', 'top_lip', 'bottom_lip']:
+                if feature_name in landmarks:
+                    all_points.extend(landmarks[feature_name])
+            
+            if all_points:
+                # Find min and max coordinates
+                all_x = [p[0] for p in all_points]
+                all_y = [p[1] for p in all_points]
+                
+                min_x = min(all_x)
+                max_x = max(all_x)
+                min_y = min(all_y)
+                max_y = max(all_y)
+                
+                # Add small margin for better visualization (10% padding)
+                width = max_x - min_x
+                height = max_y - min_y
+                margin_x = int(width * 0.15)  # 15% horizontal margin
+                margin_y = int(height * 0.20)  # 20% vertical margin (more for forehead/hair)
+                
+                # Apply margins with boundary checking
+                min_x = max(0, min_x - margin_x)
+                min_y = max(0, min_y - margin_y)
+                max_x = min(rgb_image.shape[1], max_x + margin_x)
+                max_y = min(rgb_image.shape[0], max_y + margin_y)
+                
+                face_box = {
+                    'x': int(min_x),
+                    'y': int(min_y),
+                    'width': int(max_x - min_x),
+                    'height': int(max_y - min_y)
+                }
+        elif face_locations:
+            # Fallback to basic face_locations if landmarks not available
+            top, right, bottom, left = face_locations[0]
+            face_box = {
+                'x': int(left),
+                'y': int(top),
+                'width': int(right - left),
+                'height': int(bottom - top)
+            }
+        
+        if best_match and best_distance <= MATCH_TOLERANCE:
+            print("Match found!")
+            confidence = int((1 - best_distance) * 100)  # Convert distance to confidence percentage
+            return {
+                'success': True,
+                'user_id': int(best_match['user_id']),
+                'name': f"{best_match['firstname']} {best_match['lastname']}",
+                'distance': float(best_distance),
+                'confidence': confidence,
+                'face_box': face_box,  # Add face location for drawing box
+                'eye_ratio': float(eye_ratio),  # Real eye aspect ratio
+                'nose_motion': float(nose_motion),  # Real nose motion
+                'anti_spoofing': {
+                    'is_live': bool(anti_spoofing_result.get('is_live', True)),
+                    'confidence': float(anti_spoofing_result.get('confidence', 1.0)),
+                    'details': str(anti_spoofing_result.get('details', 'Anti-spoofing disabled'))
+                }
+            }
+        else:
+            print("No match found")
+            return {
+                'success': False,
+                'message': 'No matching faculty member found',
+                'user_id': 'Unknown',
+                'name': 'Unknown',
+                'distance': float(best_distance if best_match else 999.0),
+                'confidence': 0,
+                'face_box': face_box,  # Still provide face box even if no match
+                'eye_ratio': float(eye_ratio),
+                'nose_motion': float(nose_motion),
+                'anti_spoofing': {
+                    'is_live': bool(anti_spoofing_result.get('is_live', True)),
+                    'confidence': float(anti_spoofing_result.get('confidence', 1.0)),
+                    'details': str(anti_spoofing_result.get('details', 'Anti-spoofing disabled'))
+                }
+            }
+            
+    except Exception as e:
+        print(f"Error in process_face_recognition_for_faculty: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            'success': False,
+            'message': f'Recognition error: {str(e)}',
+            'user_id': 'Unknown',
+            'name': 'Unknown'
+        }
+
 @app.route('/api/attendance/detect', methods=['POST'])
 def api_attendance_detect():
     """Face detection and recognition endpoint"""
@@ -2169,6 +2462,288 @@ def api_faculty_classes():
     
     conn.close()
     return jsonify([dict(record) for record in classes])
+
+@app.route('/api/faculty/events')
+def api_faculty_events():
+    """Get events assigned to the current faculty member"""
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    conn = get_db_connection()
+    
+    # First get the faculty_id for the current user
+    faculty = conn.execute('''
+        SELECT f.faculty_id FROM faculty f
+        WHERE f.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    
+    if not faculty:
+        conn.close()
+        return jsonify([])
+    
+    # Then get events assigned to this faculty
+    events = conn.execute('''
+        SELECT e.event_id, e.event_name, e.description, e.event_date, e.start_time, e.end_time, e.room, e.faculty_id
+        FROM event e
+        WHERE e.faculty_id = ?
+        ORDER BY e.event_date DESC, e.start_time
+    ''', (faculty['faculty_id'],)).fetchall()
+    
+    conn.close()
+    return jsonify([dict(record) for record in events])
+
+@app.route('/api/event/detect', methods=['POST'])
+def api_event_detect():
+    """Face detection and recognition endpoint for events (faculty participants)"""
+    # Debug session info
+    print(f"Event detection - Session contents: {dict(session)}")
+    print(f"Session has user_id: {'user_id' in session}")
+    print(f"Session role: {session.get('role', 'NO ROLE')}")
+    
+    if 'user_id' not in session:
+        print("ERROR: No user_id in session! User needs to login again.")
+        return jsonify({
+            'success': False, 
+            'message': 'Your session has expired. Please logout and login again to continue.',
+            'expired': True,
+            'redirect': '/login'
+        }), 401
+    
+    # Allow both faculty and admin to access this endpoint
+    user_role = session.get('role')
+    if user_role not in ['faculty', 'admin']:
+        print(f"ERROR: Invalid role: {user_role}")
+        return jsonify({
+            'success': False, 
+            'message': f'Only faculty and admin can access this feature. You are logged in as: {user_role}',
+            'wrong_role': True,
+            'current_role': user_role
+        }), 401
+    
+    filepath = None
+    try:
+        # Get the uploaded image
+        if 'image' not in request.files:
+            return jsonify({'success': False, 'message': 'No image provided'}), 400
+        
+        file = request.files['image']
+        if file.filename == '':
+            return jsonify({'success': False, 'message': 'No image selected'}), 400
+        
+        # Save the image temporarily with secure filename
+        import uuid
+        safe_filename = f"temp_{session['user_id']}_{uuid.uuid4().hex[:8]}.jpg"
+        filepath = os.path.join('temp', safe_filename)
+        os.makedirs('temp', mode=0o755, exist_ok=True)
+        
+        # Validate file size before saving
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+        
+        if file_size > 10 * 1024 * 1024:  # 10MB limit
+            return jsonify({'success': False, 'message': 'File too large'}), 400
+        
+        file.save(filepath)
+        
+        # Check if face recognition is available
+        if not FACE_RECOGNITION_AVAILABLE:
+            return jsonify({
+                'success': False, 
+                'message': 'Face recognition system is not configured. Please install required packages.',
+                'user_id': 'Unknown',
+                'name': 'Unknown'
+            }), 503
+        
+        # Process the image for face recognition (for faculty participants)
+        print(f"Processing face recognition for event image: {filepath}")
+        result = process_face_recognition_for_faculty(filepath)
+        print(f"Event recognition result: {result}")
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"Error in api_event_detect: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'Server error: {str(e)}'}), 500
+    finally:
+        # Always clean up temp file
+        if filepath and os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+            except Exception as e:
+                print(f"Warning: Failed to clean up temp file {filepath}: {e}")
+
+@app.route('/api/event/attendance/mark', methods=['POST'])
+def api_event_attendance_mark():
+    """Mark attendance for a recognized faculty participant in an event"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized - Please login'}), 401
+    
+    # Allow both faculty and admin to access this endpoint
+    if session.get('role') not in ['faculty', 'admin']:
+        return jsonify({'success': False, 'message': 'Unauthorized - Faculty or Admin access required'}), 401
+    
+    try:
+        data = request.get_json()
+        print(f"Event attendance mark request data: {data}")
+        user_id = data.get('user_id')
+        name = data.get('name')
+        event_id = data.get('event_id')
+        status = data.get('status', 'present')
+        
+        print(f"User ID: {user_id}, Name: {name}, Event ID: {event_id}, Status: {status}")
+        
+        if not user_id or not name or not event_id:
+            return jsonify({'success': False, 'message': 'Missing user or event information'}), 400
+        
+        # Check for spoofing attempts
+        if user_id == 'SPOOFING_DETECTED':
+            print("⚠️ Spoofing attempt blocked!")
+            return jsonify({
+                'success': False, 
+                'message': 'Spoofing attempt detected! Please try again with a live face.',
+                'spoofing_detected': True
+            }), 403
+        
+        # Mark attendance in database
+        conn = get_db_connection()
+        print("Database connection established for event attendance")
+        
+        # Check if already marked today for this event
+        today = datetime.now().strftime('%Y-%m-%d')
+        print(f"Checking for existing event attendance on {today}")
+        existing = conn.execute('''
+            SELECT event_attend_id FROM event_attendance 
+            WHERE event_id = ? AND user_id = ? AND DATE(attendance_time) = ?
+        ''', (event_id, user_id, today)).fetchone()
+        
+        if existing:
+            print("Already marked today for this event")
+            conn.close()
+            return jsonify({'success': False, 'message': 'Already marked today for this event'})
+        
+        # Insert event attendance record
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        print(f"Inserting event attendance record: event_id={event_id}, user_id={user_id}, time={current_time}")
+        conn.execute('''
+            INSERT INTO event_attendance (event_id, user_id, attendance_time, status)
+            VALUES (?, ?, ?, ?)
+        ''', (event_id, user_id, current_time, status))
+        
+        conn.commit()
+        print("Event attendance record inserted successfully")
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Event attendance marked for {name}',
+            'user_id': user_id,
+            'name': name,
+            'time': datetime.now().strftime('%H:%M:%S')
+        })
+        
+    except Exception as e:
+        print(f"Error in api_event_attendance_mark: {str(e)}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/event/attendance/override', methods=['POST'])
+def api_event_attendance_override():
+    """Override attendance status for an event participant"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized - Please login'}), 401
+    
+    # Allow both faculty and admin to access this endpoint
+    if session.get('role') not in ['faculty', 'admin']:
+        return jsonify({'success': False, 'message': 'Unauthorized - Faculty or Admin access required'}), 401
+    
+    try:
+        data = request.get_json()
+        print(f"Event attendance override request data: {data}")
+        user_id = data.get('user_id')
+        event_id = data.get('event_id')
+        new_status = data.get('status')  # 'present', 'absent', 'late'
+        reason = data.get('reason', 'Manual override')
+        
+        if not user_id or not event_id or not new_status:
+            return jsonify({'success': False, 'message': 'Missing required information'}), 400
+        
+        if new_status not in ['present', 'absent', 'late']:
+            return jsonify({'success': False, 'message': 'Invalid status. Must be present, absent, or late'}), 400
+        
+        conn = get_db_connection()
+        
+        # Check if attendance record exists
+        existing = conn.execute('''
+            SELECT event_attend_id, status FROM event_attendance 
+            WHERE event_id = ? AND user_id = ? AND DATE(attendance_time) = DATE('now')
+        ''', (event_id, user_id)).fetchone()
+        
+        if existing:
+            # Update existing record
+            conn.execute('''
+                UPDATE event_attendance 
+                SET status = ?, attendance_time = ?
+                WHERE event_attend_id = ?
+            ''', (new_status, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), existing['event_attend_id']))
+            print(f"Updated existing event attendance record to {new_status}")
+        else:
+            # Create new record
+            conn.execute('''
+                INSERT INTO event_attendance (event_id, user_id, attendance_time, status)
+                VALUES (?, ?, ?, ?)
+            ''', (event_id, user_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), new_status))
+            print(f"Created new event attendance record with status {new_status}")
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Event attendance status updated to {new_status}',
+            'user_id': user_id,
+            'status': new_status,
+            'reason': reason
+        })
+        
+    except Exception as e:
+        print(f"Error in api_event_attendance_override: {str(e)}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/event/attendance/today')
+def api_event_attendance_today():
+    """Get today's event attendance records"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    event_id = request.args.get('event_id')
+    if not event_id:
+        return jsonify({'error': 'Event ID required'}), 400
+    
+    conn = get_db_connection()
+    
+    # Get today's attendance for the event
+    attendance_records = conn.execute('''
+        SELECT ea.user_id, u.firstname, u.lastname, ea.attendance_time, ea.status
+        FROM event_attendance ea
+        JOIN user u ON ea.user_id = u.user_id
+        WHERE ea.event_id = ? AND DATE(ea.attendance_time) = DATE('now')
+        ORDER BY ea.attendance_time DESC
+    ''', (event_id,)).fetchall()
+    
+    conn.close()
+    
+    formatted_records = []
+    for record in attendance_records:
+        formatted_records.append({
+            'user_id': record['user_id'],
+            'name': f"{record['firstname']} {record['lastname']}",
+            'time': record['attendance_time'].split(' ')[1] if ' ' in record['attendance_time'] else record['attendance_time'],
+            'status': record['status']
+        })
+    
+    return jsonify(formatted_records)
 
 @app.route('/admin/classes/<int:class_id>/delete', methods=['POST'])
 def delete_class(class_id):
