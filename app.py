@@ -2888,6 +2888,48 @@ def faculty_reports():
         return redirect(url_for('login'))
     return render_template('faculty/faculty_reports.html')
 
+# Faculty events list (for attendance UI)
+@app.route('/api/faculty/events')
+def api_faculty_events():
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    try:
+        conn = get_db_connection()
+        events = []
+        if session.get('role') == 'faculty':
+            faculty = conn.execute('''
+                SELECT f.faculty_id FROM faculty f 
+                JOIN user u ON f.user_id = u.user_id 
+                WHERE u.user_id = ?
+            ''', (session['user_id'],)).fetchone()
+            if not faculty:
+                conn.close()
+                return jsonify([])
+            rows = conn.execute('''
+                SELECT e.event_id, e.event_name, e.event_date, e.start_time, e.end_time, e.room,
+                       COUNT(DISTINCT ea.user_id) AS attendee_count
+                FROM event e
+                LEFT JOIN event_attendance ea ON e.event_id = ea.event_id
+                WHERE e.faculty_id = ?
+                GROUP BY e.event_id
+                ORDER BY e.event_date DESC, e.start_time
+            ''', (faculty['faculty_id'],)).fetchall()
+            events = [dict(r) for r in rows]
+        elif session.get('role') == 'admin':
+            rows = conn.execute('''
+                SELECT e.event_id, e.event_name, e.event_date, e.start_time, e.end_time, e.room,
+                       COUNT(DISTINCT ea.user_id) AS attendee_count
+                FROM event e
+                LEFT JOIN event_attendance ea ON e.event_id = ea.event_id
+                GROUP BY e.event_id
+                ORDER BY e.event_date DESC, e.start_time
+            ''').fetchall()
+            events = [dict(r) for r in rows]
+        conn.close()
+        return jsonify(events)
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 # Faculty export of today's attendance for a selected class
 @app.route('/api/faculty/attendance/export/<fmt>')
 def faculty_attendance_export(fmt):
@@ -3006,6 +3048,82 @@ def faculty_attendance_export(fmt):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
         
+@app.route('/api/event/attendance/mark', methods=['POST'])
+def api_event_attendance_mark():
+    """Mark attendance for an event attendee, with anti-spoofing validation."""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized - Please login'}), 401
+    if session.get('role') not in ['faculty', 'admin']:
+        return jsonify({'success': False, 'message': 'Unauthorized - Faculty or Admin access required'}), 401
+
+    try:
+        data = request.get_json() or {}
+        event_id = data.get('event_id')
+        user_id = data.get('user_id')
+        status = data.get('status', 'present')
+        anti_spoofing_data = data.get('anti_spoofing', {})
+
+        if not event_id or not user_id:
+            return jsonify({'success': False, 'message': 'Missing event_id or user_id'}), 400
+
+        # Spoofing short-circuit from upstream detector
+        if user_id == 'SPOOFING_DETECTED':
+            return jsonify({
+                'success': False,
+                'message': 'Spoofing attempt detected! Please try again with a live face.',
+                'spoofing_detected': True
+            }), 403
+
+        # Validate anti-spoofing if provided
+        if anti_spoofing_data:
+            is_live = anti_spoofing_data.get('is_live', True)
+            confidence = anti_spoofing_data.get('confidence', 1.0)
+            if not is_live or confidence < 0.5:
+                return jsonify({
+                    'success': False,
+                    'message': f'Anti-spoofing check failed. Confidence: {confidence:.1%}',
+                    'spoofing_detected': True,
+                    'anti_spoofing_details': anti_spoofing_data.get('details', 'Low confidence score')
+                }), 403
+
+        conn = get_db_connection()
+
+        # If faculty, ensure the event belongs to them
+        if session.get('role') == 'faculty':
+            owns = conn.execute('''
+                SELECT 1 FROM event e
+                JOIN faculty f ON e.faculty_id = f.faculty_id
+                JOIN user u ON f.user_id = u.user_id
+                WHERE e.event_id = ? AND u.user_id = ?
+            ''', (event_id, session['user_id'])).fetchone()
+            if not owns:
+                conn.close()
+                return jsonify({'success': False, 'message': 'Forbidden'}), 403
+
+        # Prevent duplicate mark on the same day
+        today = datetime.now().strftime('%Y-%m-%d')
+        existing = conn.execute('''
+            SELECT event_attend_id FROM event_attendance
+            WHERE event_id = ? AND user_id = ? AND DATE(attendance_time) = ?
+        ''', (event_id, user_id, today)).fetchone()
+
+        if existing:
+            conn.close()
+            return jsonify({'success': True, 'message': 'Already marked today'})
+
+        # Insert attendance record
+        conn.execute('''
+            INSERT INTO event_attendance (attendance_time, status, event_id, user_id)
+            VALUES (?, ?, ?, ?)
+        ''', (datetime.now(), status, event_id, user_id))
+        conn.commit()
+        conn.close()
+
+        return jsonify({'success': True, 'message': 'Event attendance marked successfully'})
+
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 @app.route('/api/faculty/reports/summary')
 def api_faculty_reports_summary():
     if 'user_id' not in session or session['role'] != 'faculty':

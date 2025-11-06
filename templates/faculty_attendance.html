@@ -736,6 +736,16 @@
         async function markEventAttendance(eventId, userId, name) {
             try {
                 const payload = { event_id: eventId, user_id: userId, name: name, status: 'present' };
+                // Include anti-spoofing data if available
+                if (typeof antiSpoofingManager !== 'undefined' && antiSpoofingManager && antiSpoofingManager.getAnalysisHistory) {
+                    const history = antiSpoofingManager.getAnalysisHistory();
+                    if (history && history.length > 0) {
+                        const latest = history[history.length - 1];
+                        if (latest && latest.result) {
+                            payload.anti_spoofing = latest.result;
+                        }
+                    }
+                }
                 const resp = await fetch('/api/event/attendance/mark', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
