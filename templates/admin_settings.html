@@ -101,9 +101,12 @@
             <!-- Main Content Area -->
             <main class="flex-1 overflow-y-auto p-6">
                 <!-- Alert Messages -->
-                <div id="alertContainer" class="hidden mb-6">
-                    <div class="rounded-lg p-4" id="alertBox">
-                        <p id="alertMessage"></p>
+                <div id="alertContainer" class="hidden mb-6 transition-all duration-300 ease-in-out">
+                    <div class="rounded-lg p-4 shadow-lg" id="alertBox">
+                        <div class="flex items-center">
+                            <i id="alertIcon" class="mr-3 text-xl"></i>
+                            <p id="alertMessage" class="font-medium"></p>
+                        </div>
                     </div>
                 </div>
 
@@ -141,20 +144,15 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Late Threshold (minutes)</label>
-                                <input type="number" id="late_threshold_minutes" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                                <input type="number" id="late_threshold_minutes" min="1" max="60" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
                                 <p class="text-xs text-gray-500 mt-1">Minutes after start time to mark as late</p>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Grace Period (minutes)</label>
-                                <input type="number" id="attendance_grace_period" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
-                                <p class="text-xs text-gray-500 mt-1">Grace period before class starts</p>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Minimum Attendance (%)</label>
                                 <input type="number" id="minimum_attendance_percentage" min="0" max="100" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
                                 <p class="text-xs text-gray-500 mt-1">Required minimum attendance percentage</p>
                             </div>
-                            <div>
+                            <div class="md:col-span-2">
                                 <label class="flex items-center cursor-pointer">
                                     <input type="checkbox" id="absent_auto_mark" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
                                     <span class="ml-2 text-sm font-medium text-gray-700">Auto-mark as Absent</span>
@@ -201,7 +199,7 @@
                                 </div>
                             </div>
                             
-                            <div class="border-b pb-4">
+                            <div>
                                 <h4 class="font-semibold text-gray-900 mb-4">Password Policy</h4>
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
@@ -223,15 +221,6 @@
                                         </label>
                                     </div>
                                 </div>
-                            </div>
-                            
-                            <div>
-                                <h4 class="font-semibold text-gray-900 mb-4">Two-Factor Authentication</h4>
-                                <label class="flex items-center cursor-pointer">
-                                    <input type="checkbox" id="enable_2fa" class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
-                                    <span class="ml-2 text-sm text-gray-700">Enable Two-Factor Authentication (2FA)</span>
-                                </label>
-                                <p class="text-xs text-gray-500 mt-1">Requires users to verify identity with a second device</p>
                             </div>
                         </div>
                     </div>
@@ -371,6 +360,13 @@
         async function saveAllSettings() {
             const settings = {};
             
+            // Get the save button and show loading state
+            const saveBtn = document.querySelector('button[onclick="saveAllSettings()"]');
+            const originalBtnText = saveBtn.innerHTML;
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
+            saveBtn.className = 'px-4 py-2 bg-gray-400 text-white rounded-lg cursor-not-allowed transition';
+            
             // Gather all input values
             const inputs = document.querySelectorAll('input, select');
             inputs.forEach(input => {
@@ -393,13 +389,33 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    showAlert('Settings saved successfully!', 'success');
+                    // Show success state on button
+                    saveBtn.innerHTML = '<i class="fas fa-check mr-2"></i>Saved!';
+                    saveBtn.className = 'px-4 py-2 bg-green-600 text-white rounded-lg transition';
+                    
+                    // Show success alert
+                    showAlert('✓ Settings saved successfully!', 'success');
+                    
+                    // Reset button after 2 seconds
+                    setTimeout(() => {
+                        saveBtn.disabled = false;
+                        saveBtn.innerHTML = originalBtnText;
+                        saveBtn.className = 'px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition';
+                    }, 2000);
                 } else {
+                    // Reset button on error
+                    saveBtn.disabled = false;
+                    saveBtn.innerHTML = originalBtnText;
+                    saveBtn.className = 'px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition';
                     showAlert('Error saving settings: ' + data.error, 'error');
                 }
             } catch (error) {
                 console.error('Error saving settings:', error);
-                showAlert('Error saving settings', 'error');
+                // Reset button on error
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = originalBtnText;
+                saveBtn.className = 'px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition';
+                showAlert('Error saving settings. Please try again.', 'error');
             }
         }
 
@@ -481,25 +497,33 @@
             const alertContainer = document.getElementById('alertContainer');
             const alertBox = document.getElementById('alertBox');
             const alertMessage = document.getElementById('alertMessage');
+            const alertIcon = document.getElementById('alertIcon');
             
+            // Show the alert with fade-in effect
             alertContainer.classList.remove('hidden');
             alertMessage.textContent = message;
             
-            // Set colors based on type
-            alertBox.className = 'rounded-lg p-4 ';
+            // Set colors and icons based on type
+            alertBox.className = 'rounded-lg p-4 shadow-lg ';
             if (type === 'success') {
                 alertBox.className += 'bg-green-100 border-l-4 border-green-500 text-green-700';
+                alertIcon.className = 'fas fa-check-circle mr-3 text-xl text-green-600';
             } else if (type === 'error') {
                 alertBox.className += 'bg-red-100 border-l-4 border-red-500 text-red-700';
+                alertIcon.className = 'fas fa-exclamation-circle mr-3 text-xl text-red-600';
             } else if (type === 'info') {
                 alertBox.className += 'bg-blue-100 border-l-4 border-blue-500 text-blue-700';
+                alertIcon.className = 'fas fa-info-circle mr-3 text-xl text-blue-600';
             }
             
-            // Auto-hide after 3 seconds for success/info
+            // Scroll to top to ensure alert is visible
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            
+            // Auto-hide after 5 seconds for success/info (increased from 3 seconds)
             if (type !== 'error') {
                 setTimeout(() => {
                     alertContainer.classList.add('hidden');
-                }, 3000);
+                }, 5000);
             }
         }
     </script>

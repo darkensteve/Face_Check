@@ -35,25 +35,52 @@ class SecurityConfig:
 
 def validate_password_strength(password):
     """
-    Validate password strength
+    Validate password strength based on admin settings
     Returns: (is_valid, message)
     """
-    if len(password) < 8:
-        return False, "Password must be at least 8 characters long"
+    try:
+        from settings_helper import (
+            get_password_min_length,
+            is_password_uppercase_required,
+            is_password_number_required,
+            is_password_special_required
+        )
+        
+        # Get settings from admin configuration
+        min_length = get_password_min_length()
+        require_uppercase = is_password_uppercase_required()
+        require_number = is_password_number_required()
+        require_special = is_password_special_required()
+        
+    except Exception as e:
+        # Fallback to defaults if settings not available
+        print(f"Warning: Could not load password settings, using defaults: {e}")
+        min_length = 8
+        require_uppercase = True
+        require_number = True
+        require_special = True
     
-    if not any(c.isupper() for c in password):
+    # Check minimum length
+    if len(password) < min_length:
+        return False, f"Password must be at least {min_length} characters long"
+    
+    # Check uppercase requirement
+    if require_uppercase and not any(c.isupper() for c in password):
         return False, "Password must contain at least one uppercase letter"
     
+    # Always require lowercase
     if not any(c.islower() for c in password):
         return False, "Password must contain at least one lowercase letter"
     
-    if not any(c.isdigit() for c in password):
+    # Check number requirement
+    if require_number and not any(c.isdigit() for c in password):
         return False, "Password must contain at least one number"
     
-    # Check for special characters
-    special_chars = "!@#$%^&*()_+-=[]{}|;:,.<>?"
-    if not any(c in special_chars for c in password):
-        return False, "Password must contain at least one special character"
+    # Check special character requirement
+    if require_special:
+        special_chars = "!@#$%^&*()_+-=[]{}|;:,.<>?"
+        if not any(c in special_chars for c in password):
+            return False, "Password must contain at least one special character"
     
     return True, "Password meets requirements"
 

@@ -37,24 +37,50 @@ except ImportError as e:
     print(f"Anti-spoofing not available: {e}")
     ANTI_SPOOFING_AVAILABLE = False
 
+# Import settings manager
+from config_settings import settings_manager
+
 app = Flask(__name__)
 # Generate secure secret key from environment or create new one
 app.secret_key = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
+
+# Get session timeout from settings (with fallback to default)
+try:
+    from settings_helper import get_session_timeout
+    session_timeout_seconds = get_session_timeout()
+except:
+    session_timeout_seconds = 7200  # Fallback to 2 hours
 
 # Session configuration for security
 app.config.update(
     SESSION_COOKIE_SECURE=False,  # Set to True in production with HTTPS
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
-    PERMANENT_SESSION_LIFETIME=7200,  # 2 hours session timeout (increased from 1 hour)
+    PERMANENT_SESSION_LIFETIME=session_timeout_seconds,  # Uses admin setting
     SESSION_REFRESH_EACH_REQUEST=True  # Refresh session on each request
 )
 
 # Rate limiting for login attempts
 login_attempts = {}
 
-def is_rate_limited(ip_address, max_attempts=5, window_minutes=15):
-    """Simple rate limiting for login attempts"""
+def is_rate_limited(ip_address, max_attempts=None, window_minutes=None):
+    """Simple rate limiting for login attempts - uses admin settings"""
+    try:
+        from settings_helper import get_max_login_attempts, get_lockout_duration
+        
+        # Get settings from admin configuration
+        if max_attempts is None:
+            max_attempts = get_max_login_attempts()
+        if window_minutes is None:
+            window_minutes = get_lockout_duration()
+    except Exception as e:
+        # Fallback to defaults if settings not available
+        print(f"Warning: Could not load security settings, using defaults: {e}")
+        if max_attempts is None:
+            max_attempts = 5
+        if window_minutes is None:
+            window_minutes = 15
+    
     current_time = time.time()
     window_seconds = window_minutes * 60
     
@@ -406,30 +432,11 @@ def create_user():
             flash(f'Invalid role: {validated_role}', 'error')
             return redirect(url_for('admin_users'))
         
-        # Validate password strength
-        if len(password) < 8:
-            flash('Password must be at least 8 characters long', 'error')
-            return redirect(url_for('admin_users'))
-        
-        # Validate department ID if provided
-        if dept_id:
-            try:
-                dept_id = int(dept_id)
-            except ValueError:
-                flash('Invalid department ID', 'error')
-                return redirect(url_for('admin_users'))
-        
-        # Validate course ID for students
-        if validated_role == 'student' and course_id:
-            try:
-                course_id = int(course_id)
-            except ValueError:
-                flash('Invalid course ID', 'error')
-                return redirect(url_for('admin_users'))
-        
-        # Validate password strength (minimum 3 characters for ID numbers)
-        if len(password) < 3:
-            flash('Password must be at least 3 characters long', 'error')
+        # Validate password strength using admin settings
+        from security_config import validate_password_strength
+        is_valid_password, password_message = validate_password_strength(password)
+        if not is_valid_password:
+            flash(password_message, 'error')
             return redirect(url_for('admin_users'))
         
         # Validate department ID if provided
@@ -590,8 +597,17 @@ def reset_password(user_id):
             flash('Password cannot be empty', 'error')
             return redirect(url_for('admin_users'))
         
+        # Validate password strength using admin settings
+        from security_config import validate_password_strength
+        is_valid_password, password_message = validate_password_strength(new_password)
+        if not is_valid_password:
+            flash(password_message, 'error')
+            return redirect(url_for('admin_users'))
+        
+        hashed_password = hash_password(new_password)
+        
         conn = get_db_connection()
-        conn.execute('UPDATE user SET password = ? WHERE user_id = ?', (new_password, user_id))
+        conn.execute('UPDATE user SET password = ? WHERE user_id = ?', (hashed_password, user_id))
         conn.commit()
         conn.close()
         
@@ -2114,14 +2130,18 @@ def api_attendance_detect():
     print(f"Session contents: {dict(session)}")
     print(f"Session has user_id: {'user_id' in session}")
     print(f"Session role: {session.get('role', 'NO ROLE')}")
+    print(f"Request method: {request.method}")
+    print(f"Request headers: {dict(request.headers)}")
     
+    # Check session first
     if 'user_id' not in session:
         print("ERROR: No user_id in session! User needs to login again.")
         return jsonify({
             'success': False, 
             'message': 'Your session has expired. Please logout and login again to continue.',
             'expired': True,
-            'redirect': '/login'
+            'redirect': '/login',
+            'error_code': 'SESSION_EXPIRED'
         }), 401
     
     # Allow both faculty and admin to access this endpoint
@@ -2132,8 +2152,9 @@ def api_attendance_detect():
             'success': False, 
             'message': f'Only faculty and admin can access this feature. You are logged in as: {user_role}',
             'wrong_role': True,
-            'current_role': user_role
-        }), 401
+            'current_role': user_role,
+            'error_code': 'INSUFFICIENT_PERMISSIONS'
+        }), 403  # Changed to 403 for insufficient permissions
     
     filepath = None
     try:
@@ -2267,23 +2288,77 @@ def api_attendance_mark():
             conn.close()
             return jsonify({'success': False, 'message': 'Already marked today'})
         
-        # Insert attendance record
+        # Determine attendance status based on class schedule and late threshold
+        from settings_helper import get_late_threshold
+        late_threshold_minutes = get_late_threshold()
+        
+        # Get class schedule to check if student is late
+        class_info = conn.execute('''
+            SELECT schedule FROM class WHERE class_id = ?
+        ''', (class_id,)).fetchone()
+        
+        attendance_status = 'present'  # Default status
+        
+        if class_info and class_info['schedule']:
+            try:
+                # Parse schedule time (format: "HH:MM" or "HH:MM AM/PM")
+                schedule_time = class_info['schedule'].strip()
+                current_datetime = datetime.now()
+                
+                # Try to parse the schedule time
+                try:
+                    # Try 24-hour format first
+                    scheduled_time = datetime.strptime(schedule_time, '%H:%M').time()
+                except ValueError:
+                    try:
+                        # Try 12-hour format with AM/PM
+                        scheduled_time = datetime.strptime(schedule_time, '%I:%M %p').time()
+                    except ValueError:
+                        # If parsing fails, default to present
+                        scheduled_time = None
+                
+                if scheduled_time:
+                    # Combine today's date with scheduled time
+                    scheduled_datetime = datetime.combine(current_datetime.date(), scheduled_time)
+                    
+                    # Calculate time difference in minutes
+                    time_diff_minutes = (current_datetime - scheduled_datetime).total_seconds() / 60
+                    
+                    # Check if student is late (arrived after schedule + threshold)
+                    if time_diff_minutes > late_threshold_minutes:
+                        attendance_status = 'late'
+                        print(f"Student is late: arrived {time_diff_minutes:.1f} minutes after scheduled time (threshold: {late_threshold_minutes} min)")
+                    else:
+                        print(f"Student is on time: arrived {time_diff_minutes:.1f} minutes after scheduled time")
+            except Exception as e:
+                print(f"Error determining late status: {e}")
+                # Default to present if there's an error
+                attendance_status = 'present'
+        
+        # Insert attendance record with determined status
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        print(f"Inserting attendance record: studentclass_id={studentclass_id}, time={current_time}")
+        print(f"Inserting attendance record: studentclass_id={studentclass_id}, time={current_time}, status={attendance_status}")
         conn.execute('''
             INSERT INTO attendance (studentclass_id, attendance_date, attendance_status)
-            VALUES (?, ?, 'present')
-        ''', (studentclass_id, current_time))
+            VALUES (?, ?, ?)
+        ''', (studentclass_id, current_time, attendance_status))
         
         conn.commit()
-        print("Attendance record inserted successfully")
+        print(f"Attendance record inserted successfully with status: {attendance_status}")
         conn.close()
+        
+        # Create appropriate message based on status
+        if attendance_status == 'late':
+            message = f'Attendance marked for {student_name} (LATE)'
+        else:
+            message = f'Attendance marked for {student_name}'
         
         return jsonify({
             'success': True,
-            'message': f'Attendance marked for {student_name}',
+            'message': message,
             'student_id': student_id,
             'student_name': student_name,
+            'attendance_status': attendance_status,
             'time': datetime.now().strftime('%H:%M:%S')
         })
         
@@ -3826,12 +3901,7 @@ def api_get_all_settings():
         return jsonify({'success': False, 'message': 'Unauthorized'}), 401
     
     try:
-        conn = get_db_connection()
-        settings = conn.execute('SELECT setting_key, setting_value FROM system_settings').fetchall()
-        conn.close()
-        
-        settings_dict = {row['setting_key']: row['setting_value'] for row in settings}
-        
+        settings_dict = settings_manager.get_all_settings()
         return jsonify({'success': True, 'settings': settings_dict})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -3844,19 +3914,14 @@ def api_save_settings():
     
     try:
         settings = request.get_json()
-        conn = get_db_connection()
         
-        for key, value in settings.items():
-            conn.execute('''
-                UPDATE system_settings 
-                SET setting_value = ?, updated_at = CURRENT_TIMESTAMP, updated_by = ?
-                WHERE setting_key = ?
-            ''', (str(value), session['user_id'], key))
+        # Update settings using settings manager
+        success = settings_manager.update_settings(settings)
         
-        conn.commit()
-        conn.close()
-        
-        return jsonify({'success': True, 'message': 'Settings saved successfully'})
+        if success:
+            return jsonify({'success': True, 'message': 'Settings saved successfully'})
+        else:
+            return jsonify({'success': False, 'error': 'Failed to save settings'}), 500
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 

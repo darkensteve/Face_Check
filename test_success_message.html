@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Success Message</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-6">Test Settings Success Message</h1>
+        
+        <!-- Alert Container (Same as in admin_settings.html) -->
+        <div id="alertContainer" class="hidden mb-6 transition-all duration-300 ease-in-out">
+            <div class="rounded-lg p-4 shadow-lg" id="alertBox">
+                <div class="flex items-center">
+                    <i id="alertIcon" class="mr-3 text-xl"></i>
+                    <p id="alertMessage" class="font-medium"></p>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-lg p-6">
+            <h2 class="text-xl font-semibold mb-4">Test Different Alert Types</h2>
+            
+            <div class="space-y-4">
+                <button onclick="testSuccess()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
+                    <i class="fas fa-check mr-2"></i>Test Success Message
+                </button>
+                
+                <button onclick="testError()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition">
+                    <i class="fas fa-times mr-2"></i>Test Error Message
+                </button>
+                
+                <button onclick="testInfo()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                    <i class="fas fa-info mr-2"></i>Test Info Message
+                </button>
+                
+                <button onclick="testSaveButton()" id="testSaveBtn" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                    <i class="fas fa-save mr-2"></i>Test Save Button Animation
+                </button>
+            </div>
+
+            <div class="mt-6 p-4 bg-gray-50 rounded-lg">
+                <h3 class="font-semibold mb-2">What to expect:</h3>
+                <ul class="list-disc list-inside space-y-2 text-sm">
+                    <li><strong>Success:</strong> Green alert with check icon, auto-hides after 5 seconds</li>
+                    <li><strong>Error:</strong> Red alert with exclamation icon, stays visible</li>
+                    <li><strong>Info:</strong> Blue alert with info icon, auto-hides after 5 seconds</li>
+                    <li><strong>Save Button:</strong> Shows complete save animation sequence</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Same showAlert function as in admin_settings.html
+        function showAlert(message, type) {
+            const alertContainer = document.getElementById('alertContainer');
+            const alertBox = document.getElementById('alertBox');
+            const alertMessage = document.getElementById('alertMessage');
+            const alertIcon = document.getElementById('alertIcon');
+            
+            // Show the alert with fade-in effect
+            alertContainer.classList.remove('hidden');
+            alertMessage.textContent = message;
+            
+            // Set colors and icons based on type
+            alertBox.className = 'rounded-lg p-4 shadow-lg ';
+            if (type === 'success') {
+                alertBox.className += 'bg-green-100 border-l-4 border-green-500 text-green-700';
+                alertIcon.className = 'fas fa-check-circle mr-3 text-xl text-green-600';
+            } else if (type === 'error') {
+                alertBox.className += 'bg-red-100 border-l-4 border-red-500 text-red-700';
+                alertIcon.className = 'fas fa-exclamation-circle mr-3 text-xl text-red-600';
+            } else if (type === 'info') {
+                alertBox.className += 'bg-blue-100 border-l-4 border-blue-500 text-blue-700';
+                alertIcon.className = 'fas fa-info-circle mr-3 text-xl text-blue-600';
+            }
+            
+            // Scroll to top to ensure alert is visible
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            
+            // Auto-hide after 5 seconds for success/info
+            if (type !== 'error') {
+                setTimeout(() => {
+                    alertContainer.classList.add('hidden');
+                }, 5000);
+            }
+        }
+
+        function testSuccess() {
+            showAlert('✓ Settings saved successfully!', 'success');
+        }
+
+        function testError() {
+            showAlert('Error saving settings: Something went wrong', 'error');
+        }
+
+        function testInfo() {
+            showAlert('Processing your request...', 'info');
+        }
+
+        function testSaveButton() {
+            const saveBtn = document.getElementById('testSaveBtn');
+            const originalBtnText = saveBtn.innerHTML;
+            
+            // Step 1: Show loading state
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
+            saveBtn.className = 'px-4 py-2 bg-gray-400 text-white rounded-lg cursor-not-allowed transition';
+            
+            // Step 2: After 1 second, show success state
+            setTimeout(() => {
+                saveBtn.innerHTML = '<i class="fas fa-check mr-2"></i>Saved!';
+                saveBtn.className = 'px-4 py-2 bg-green-600 text-white rounded-lg transition';
+                showAlert('✓ Settings saved successfully!', 'success');
+                
+                // Step 3: After 2 more seconds, reset button
+                setTimeout(() => {
+                    saveBtn.disabled = false;
+                    saveBtn.innerHTML = originalBtnText;
+                    saveBtn.className = 'px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition';
+                }, 2000);
+            }, 1000);
+        }
+    </script>
+</body>
+</html>
+

@@ -116,6 +116,32 @@
                     {% endif %}
                 {% endwith %}
 
+                <!-- Filter Section -->
+                <div class="bg-white rounded-lg shadow-sm p-4 mb-4">
+                    <div class="flex items-center justify-between flex-wrap gap-4">
+                        <div>
+                            <label class="text-sm font-medium text-gray-700 mb-2 block">Filter by Type:</label>
+                            <div class="flex space-x-2">
+                                <button onclick="filterUsers('all')" id="filter-all" class="filter-btn px-4 py-2 rounded-lg border-2 border-blue-600 bg-blue-600 text-white font-medium transition duration-200 hover:bg-blue-700">
+                                    <i class="fas fa-users mr-2"></i>All Users
+                                </button>
+                                <button onclick="filterUsers('admin')" id="filter-admin" class="filter-btn px-4 py-2 rounded-lg border-2 border-gray-300 bg-white text-gray-700 font-medium transition duration-200 hover:bg-gray-50">
+                                    <i class="fas fa-user-shield mr-2"></i>Admin
+                                </button>
+                                <button onclick="filterUsers('faculty')" id="filter-faculty" class="filter-btn px-4 py-2 rounded-lg border-2 border-gray-300 bg-white text-gray-700 font-medium transition duration-200 hover:bg-gray-50">
+                                    <i class="fas fa-chalkboard-teacher mr-2"></i>Faculty
+                                </button>
+                                <button onclick="filterUsers('student')" id="filter-student" class="filter-btn px-4 py-2 rounded-lg border-2 border-gray-300 bg-white text-gray-700 font-medium transition duration-200 hover:bg-gray-50">
+                                    <i class="fas fa-user-graduate mr-2"></i>Student
+                                </button>
+                            </div>
+                        </div>
+                        <div class="text-sm text-gray-600">
+                            Showing <span id="userCount" class="font-semibold">{{ users|length }}</span> users
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Users Table -->
                 <div class="bg-white rounded-lg shadow overflow-hidden">
                     <div class="px-6 py-4 border-b border-gray-200">
@@ -134,9 +160,9 @@
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody class="bg-white divide-y divide-gray-200">
+                            <tbody class="bg-white divide-y divide-gray-200" id="usersTableBody">
                                 {% for user in users %}
-                                <tr class="hover:bg-gray-50">
+                                <tr class="hover:bg-gray-50 user-row" data-role="{{ user.role }}">
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <div class="flex items-center">
                                             <div class="flex-shrink-0 h-10 w-10">
@@ -395,6 +421,38 @@
         document.addEventListener('DOMContentLoaded', function() {
             filterCourses();
         });
+
+        // Filter users by role/type
+        function filterUsers(role) {
+            const allRows = document.querySelectorAll('.user-row');
+            const filterButtons = document.querySelectorAll('.filter-btn');
+            let visibleCount = 0;
+            
+            // Update button styles
+            filterButtons.forEach(btn => {
+                btn.classList.remove('border-blue-600', 'bg-blue-600', 'text-white');
+                btn.classList.add('border-gray-300', 'bg-white', 'text-gray-700');
+            });
+            
+            const activeButton = document.getElementById(`filter-${role}`);
+            activeButton.classList.remove('border-gray-300', 'bg-white', 'text-gray-700');
+            activeButton.classList.add('border-blue-600', 'bg-blue-600', 'text-white');
+            
+            // Filter rows
+            allRows.forEach(row => {
+                const userRole = row.getAttribute('data-role');
+                
+                if (role === 'all' || userRole === role) {
+                    row.style.display = '';
+                    visibleCount++;
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+            
+            // Update count
+            document.getElementById('userCount').textContent = visibleCount;
+        }
     </script>
 </body>
 </html>
