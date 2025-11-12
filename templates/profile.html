@@ -6,6 +6,23 @@
     <title>Profile - FaceCheck</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        /* Custom scrollbar for sidebar */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #374151;
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #4B5563;
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #6B7280;
+        }
+    </style>
 </head>
 <body class="bg-gray-100">
     <!-- Sidebar -->
@@ -43,24 +60,34 @@
                     Register Face
                 </a>
                 
-                <a href="{{ url_for('student_profile') }}" class="flex items-center px-6 py-3 bg-gray-700 text-white">
-                    <i class="fas fa-user mr-3"></i>
-                    Profile
+                <a href="/my_classes" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                    <i class="fas fa-book mr-3"></i>
+                    My Classes
                 </a>
             </nav>
             
-            <!-- User Info -->
-            <div class="absolute bottom-0 w-64 p-6 border-t border-gray-700">
-                <div class="flex items-center">
-                    <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center mr-3">
-                        <i class="fas fa-user text-white text-sm"></i>
+            <!-- User Info (Clickable to Profile) -->
+            <div class="absolute bottom-0 w-64 border-t border-gray-700">
+                <a href="{{ url_for('student_profile') }}" class="flex items-center px-6 py-3 hover:bg-gray-700 transition duration-200">
+                    {% if student.profile_picture %}
+                    <img src="{{ url_for('static', filename='profile_pictures/' + student.profile_picture) }}" 
+                         alt="{{ student.firstname }} {{ student.lastname }}" 
+                         class="w-8 h-8 rounded-full object-cover border-2 border-blue-600 mr-3"
+                         onerror="this.onerror=null; this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                    <div class="w-8 h-8 bg-blue-600 rounded-full items-center justify-center mr-3 hidden">
+                        <span class="text-white text-sm font-bold">{{ student.firstname[0] }}{{ student.lastname[0] }}</span>
                     </div>
+                    {% else %}
+                    <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center mr-3">
+                        <span class="text-white text-sm font-bold">{{ student.firstname[0] }}{{ student.lastname[0] }}</span>
+                    </div>
+                    {% endif %}
                     <div>
-                        <div class="text-sm font-medium">{{ session.username }}</div>
+                        <div class="text-sm font-medium">{{ student.firstname }} {{ student.lastname }}</div>
                         <div class="text-xs text-gray-400">Student</div>
                     </div>
-                </div>
-                <a href="{{ url_for('logout') }}" class="mt-3 flex items-center text-gray-300 hover:text-white transition duration-200">
+                </a>
+                <a href="{{ url_for('logout') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-sign-out-alt mr-2"></i>
                     Logout
                 </a>
@@ -83,9 +110,10 @@
             
             <!-- Main Content Area -->
             <main class="flex-1 overflow-y-auto p-6">
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <!-- Left Column - Main Info -->
-                    <div class="lg:col-span-2 space-y-6">
+                <div class="max-w-5xl mx-auto">
+                <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                    <!-- Left Column - Personal Information Only -->
+                    <div class="lg:col-span-2">
                         <!-- Personal Information -->
                         <div class="bg-white rounded-xl shadow-lg p-6">
                             <div class="flex items-center justify-between mb-6">
@@ -93,7 +121,7 @@
                                     <i class="fas fa-user mr-2 text-blue-600"></i>Personal Information
                                 </h3>
                             </div>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="space-y-4">
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-2">First Name</label>
                                     <div class="px-4 py-2 bg-gray-50 rounded-lg border border-gray-200">
@@ -130,21 +158,6 @@
                                         <p class="text-gray-900">{{ student.dept_name or 'Not assigned' }}</p>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
-
-                        <!-- Account Information -->
-                        <div class="bg-white rounded-xl shadow-lg p-6">
-                            <h3 class="text-lg font-semibold text-gray-900 mb-6">
-                                <i class="fas fa-key mr-2 text-blue-600"></i>Account Information
-                            </h3>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">Username</label>
-                                    <div class="px-4 py-2 bg-gray-50 rounded-lg border border-gray-200">
-                                        <p class="text-gray-900">{{ student.username }}</p>
-                                    </div>
-                                </div>
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-2">Account Status</label>
                                     <div class="px-4 py-2 bg-gray-50 rounded-lg border border-gray-200">
@@ -155,60 +168,48 @@
                                 </div>
                             </div>
                         </div>
-
-                        <!-- Enrolled Classes -->
-                        <div class="bg-white rounded-xl shadow-lg p-6">
-                            <h3 class="text-lg font-semibold text-gray-900 mb-6">
-                                <i class="fas fa-book mr-2 text-blue-600"></i>Enrolled Classes
-                            </h3>
-                            {% if enrolled_classes %}
-                            <div class="space-y-4">
-                                {% for class_item in enrolled_classes %}
-                                <div class="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition">
-                                    <div class="flex items-center justify-between">
-                                        <div class="flex-1">
-                                            <h4 class="font-semibold text-gray-900">{{ class_item.class_name }}</h4>
-                                            <p class="text-sm text-gray-600 mt-1">
-                                                <i class="fas fa-code mr-1 text-blue-600"></i><span class="font-mono">{{ class_item.edpcode }}</span>
-                                            </p>
-                                            {% if class_item.schedule %}
-                                            <div class="mt-2 space-y-1">
-                                                {% if class_item.days %}
-                                                <p class="text-sm text-gray-700">
-                                                    <i class="fas fa-calendar-day mr-2 text-blue-600"></i><span class="font-medium">Days:</span> {{ class_item.days }}
-                                                </p>
-                                                {% endif %}
-                                                {% if class_item.time %}
-                                                <p class="text-sm text-gray-700">
-                                                    <i class="fas fa-clock mr-2 text-blue-600"></i><span class="font-medium">Time:</span> {{ class_item.time }}
-                                                </p>
-                                                {% endif %}
-                                                {% if class_item.room %}
-                                                <p class="text-sm text-gray-700">
-                                                    <i class="fas fa-door-open mr-2 text-blue-600"></i><span class="font-medium">Room:</span> {{ class_item.room }}
-                                                </p>
-                                                {% endif %}
-                                            </div>
-                                            {% endif %}
-                                            <p class="text-sm text-gray-500 mt-3 pt-3 border-t border-gray-100">
-                                                <i class="fas fa-chalkboard-teacher mr-1"></i>Faculty: {{ class_item.faculty_firstname }} {{ class_item.faculty_lastname }}
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-                                {% endfor %}
-                            </div>
-                            {% else %}
-                            <div class="text-center py-8">
-                                <i class="fas fa-book-open text-4xl text-gray-400 mb-3"></i>
-                                <p class="text-gray-500">No enrolled classes</p>
-                            </div>
-                            {% endif %}
-                        </div>
                     </div>
 
-                    <!-- Right Column - Stats & Status -->
-                    <div class="space-y-6">
+                    <!-- Right Column - Everything Else -->
+                    <div class="lg:col-span-3 space-y-6">
+                        
+                        <!-- Profile Picture Card -->
+                        <div class="bg-white rounded-xl shadow-lg p-6">
+                            <h3 class="text-lg font-semibold text-gray-900 mb-4">
+                                <i class="fas fa-image mr-2 text-blue-600"></i>Profile Picture
+                            </h3>
+                            <div class="flex flex-col items-center">
+                                <!-- Profile Picture Display -->
+                                <div class="w-40 h-40 mb-4 relative group">
+                                    {% if student.profile_picture %}
+                                    <img id="profileImage" src="{{ url_for('static', filename='profile_pictures/' + student.profile_picture) }}" 
+                                         alt="Profile Picture" 
+                                         class="w-full h-full object-cover rounded-full border-4 border-blue-600 shadow-lg">
+                                    {% else %}
+                                    <div id="profileImage" class="w-full h-full rounded-full border-4 border-gray-300 bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shadow-lg">
+                                        <span class="text-white text-5xl font-bold">{{ student.firstname[0] }}{{ student.lastname[0] }}</span>
+                                    </div>
+                                    {% endif %}
+                                    <!-- Upload Overlay -->
+                                    <div class="absolute inset-0 bg-black bg-opacity-50 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer" onclick="document.getElementById('profilePictureInput').click()">
+                                        <i class="fas fa-camera text-white text-2xl"></i>
+                                    </div>
+                                </div>
+                                
+                                <!-- Upload Form -->
+                                <input type="file" id="profilePictureInput" accept="image/*" class="hidden" onchange="uploadProfilePicture(event)">
+                                
+                                <!-- Upload Button -->
+                                <button onclick="document.getElementById('profilePictureInput').click()" 
+                                        class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium mb-2">
+                                    <i class="fas fa-upload mr-2"></i>Upload Picture
+                                </button>
+                                
+                                <!-- Status Message -->
+                                <div id="uploadStatus" class="hidden w-full text-center text-sm mt-2"></div>
+                            </div>
+                        </div>
+                        
                         <!-- Profile Status Card -->
                         <div class="bg-white rounded-xl shadow-lg p-6">
                             <h3 class="text-lg font-semibold text-gray-900 mb-4">
@@ -265,34 +266,100 @@
                                 </a>
                             </div>
                         </div>
-
-                        <!-- Quick Actions -->
-                        <div class="bg-white rounded-xl shadow-lg p-6">
-                            <h3 class="text-lg font-semibold text-gray-900 mb-4">
-                                <i class="fas fa-bolt mr-2 text-blue-600"></i>Quick Actions
-                            </h3>
-                            <div class="space-y-3">
-                                <a href="{{ url_for('my_attendance') }}" class="flex items-center p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition">
-                                    <i class="fas fa-calendar-check text-blue-600 mr-3"></i>
-                                    <span class="text-sm font-medium text-gray-700">View Attendance</span>
-                                </a>
-                                <a href="{{ url_for('student_dashboard') }}" class="flex items-center p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition">
-                                    <i class="fas fa-tachometer-alt text-blue-600 mr-3"></i>
-                                    <span class="text-sm font-medium text-gray-700">Go to Dashboard</span>
-                                </a>
-                                {% if not has_face_registered %}
-                                <a href="/register_face" class="flex items-center p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition">
-                                    <i class="fas fa-camera text-blue-600 mr-3"></i>
-                                    <span class="text-sm font-medium text-gray-700">Register Face</span>
-                                </a>
-                                {% endif %}
-                            </div>
-                        </div>
                     </div>
+                </div>
                 </div>
             </main>
         </div>
     </div>
+    
+    <script>
+    async function uploadProfilePicture(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        
+        // Validate file type
+        if (!file.type.startsWith('image/')) {
+            showUploadStatus('Please select an image file', 'error');
+            return;
+        }
+        
+        // Validate file size (max 5MB)
+        if (file.size > 5 * 1024 * 1024) {
+            showUploadStatus('Image size must be less than 5MB', 'error');
+            return;
+        }
+        
+        const formData = new FormData();
+        formData.append('profile_picture', file);
+        
+        // Show loading state
+        showUploadStatus('Uploading...', 'loading');
+        
+        try {
+            const response = await fetch('/api/upload-profile-picture', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                showUploadStatus('Profile picture updated successfully!', 'success');
+                
+                // Update the display image
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const imgElement = document.getElementById('profileImage');
+                    
+                    // If it was a div (default initials), replace with img
+                    if (imgElement.tagName === 'DIV') {
+                        const newImg = document.createElement('img');
+                        newImg.id = 'profileImage';
+                        newImg.src = e.target.result;
+                        newImg.alt = 'Profile Picture';
+                        newImg.className = 'w-full h-full object-cover rounded-full border-4 border-blue-600 shadow-lg';
+                        imgElement.parentNode.replaceChild(newImg, imgElement);
+                    } else {
+                        // Just update the src
+                        imgElement.src = e.target.result;
+                    }
+                };
+                reader.readAsDataURL(file);
+                
+                // Hide success message after 3 seconds
+                setTimeout(() => {
+                    document.getElementById('uploadStatus').classList.add('hidden');
+                }, 3000);
+            } else {
+                showUploadStatus(data.error || 'Upload failed', 'error');
+            }
+        } catch (error) {
+            showUploadStatus('Network error. Please try again.', 'error');
+            console.error('Upload error:', error);
+        }
+    }
+    
+    function showUploadStatus(message, type) {
+        const statusDiv = document.getElementById('uploadStatus');
+        statusDiv.classList.remove('hidden');
+        
+        // Reset classes
+        statusDiv.className = 'w-full text-center text-sm mt-2 p-2 rounded-lg';
+        
+        // Add type-specific styling
+        if (type === 'success') {
+            statusDiv.classList.add('bg-green-100', 'text-green-800');
+            statusDiv.innerHTML = '<i class="fas fa-check-circle mr-1"></i>' + message;
+        } else if (type === 'error') {
+            statusDiv.classList.add('bg-red-100', 'text-red-800');
+            statusDiv.innerHTML = '<i class="fas fa-exclamation-circle mr-1"></i>' + message;
+        } else if (type === 'loading') {
+            statusDiv.classList.add('bg-blue-100', 'text-blue-800');
+            statusDiv.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>' + message;
+        }
+    }
+    </script>
 </body>
 </html>
 

@@ -7,14 +7,14 @@
     "max_login_attempts": "5",
     "lockout_duration": "15",
     "password_min_length": "8",
-    "password_require_special": "true",
+    "password_require_special": "false",
     "password_require_number": "true",
-    "password_require_uppercase": "true",
+    "password_require_uppercase": "false",
     "auto_backup": "false",
     "backup_frequency": "daily",
     "backup_retention_days": "30",
     "database_path": "facecheck.db",
     "enable_logging": "true",
     "log_retention_days": "90",
-    "last_updated": "2025-11-12T14:47:48.069335"
+    "last_updated": "2025-11-12T16:00:19.220414"
 }

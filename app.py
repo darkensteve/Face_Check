@@ -5,6 +5,7 @@ import os
 import time
 import secrets
 import warnings
+from pathlib import Path
 
 # Suppress known deprecation warning from face_recognition_models
 warnings.filterwarnings('ignore', category=UserWarning, module='face_recognition_models')
@@ -368,7 +369,7 @@ def admin_users():
     
     conn = get_db_connection()
     users = conn.execute('''
-        SELECT u.*, d.dept_name, 
+        SELECT u.*, d.dept_name, s.profile_picture,
                CASE WHEN s.student_id IS NOT NULL THEN 'Student' 
                     WHEN f.faculty_id IS NOT NULL THEN 'Faculty'
                     ELSE 'Admin' END as user_type
@@ -1213,7 +1214,7 @@ def student_dashboard():
     
     # Get student info
     student = conn.execute('''
-        SELECT u.*, s.student_id, s.year_level, s.attendance_image, c.course_name, d.dept_name
+        SELECT u.*, s.student_id, s.year_level, s.attendance_image, s.profile_picture, c.course_name, d.dept_name
         FROM user u
         JOIN student s ON u.user_id = s.user_id
         LEFT JOIN course c ON s.course_id = c.course_id
@@ -1298,7 +1299,8 @@ def student_dashboard():
     
     conn.close()
     return render_template('student_dashboard.html', 
-                         student_info=student, 
+                         student_info=student,
+                         student=student,
                          today_attendance=today_status,
                          attendance_history=formatted_history,
                          has_face_registered=has_face_registered)
@@ -1313,7 +1315,7 @@ def my_attendance():
     
     # Get student info
     student = conn.execute('''
-        SELECT u.*, s.student_id, s.year_level, c.course_name, d.dept_name
+        SELECT u.*, s.student_id, s.year_level, s.profile_picture, c.course_name, d.dept_name
         FROM user u
         JOIN student s ON u.user_id = s.user_id
         LEFT JOIN course c ON s.course_id = c.course_id
@@ -1374,11 +1376,88 @@ def my_attendance():
     conn.close()
     return render_template('my_attendance.html',
                          student_info=student,
+                         student=student,
                          attendance_records=formatted_records,
                          total_records=total_records,
                          present_count=present_count,
                          absent_count=absent_count,
                          attendance_rate=round(attendance_rate, 1))
+
+# My Classes Route
+@app.route('/my_classes')
+def my_classes():
+    if 'user_id' not in session or session['role'] != 'student':
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    
+    # Get student info
+    student = conn.execute('''
+        SELECT u.*, s.student_id, s.year_level, s.profile_picture, c.course_name, d.dept_name
+        FROM user u
+        JOIN student s ON u.user_id = s.user_id
+        LEFT JOIN course c ON s.course_id = c.course_id
+        LEFT JOIN department d ON u.dept_id = d.dept_id
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    
+    # Get enrolled classes with days
+    enrolled_classes_raw = conn.execute('''
+        SELECT cl.class_id, cl.class_name, cl.edpcode, cl.start_time, cl.end_time, cl.room,
+               u_f.firstname as faculty_firstname, u_f.lastname as faculty_lastname,
+               GROUP_CONCAT(DISTINCT d.day_name) as days
+        FROM student_class sc
+        JOIN class cl ON sc.class_id = cl.class_id
+        JOIN faculty f ON cl.faculty_id = f.faculty_id
+        JOIN user u_f ON f.user_id = u_f.user_id
+        LEFT JOIN class_days cd ON cl.class_id = cd.class_id
+        LEFT JOIN days d ON cd.day_id = d.day_id
+        WHERE sc.student_id = ?
+        GROUP BY cl.class_id, cl.class_name, cl.edpcode, cl.start_time, cl.end_time, cl.room,
+                 u_f.firstname, u_f.lastname
+        ORDER BY cl.class_name
+    ''', (student['student_id'],)).fetchall()
+    
+    # Format enrolled classes with schedule
+    enrolled_classes = []
+    for class_item in enrolled_classes_raw:
+        # Format time (convert from 24-hour to 12-hour if needed)
+        time_str = ''
+        if class_item['start_time'] and class_item['end_time']:
+            try:
+                # Try to parse and format times
+                start_time = class_item['start_time']
+                end_time = class_item['end_time']
+                
+                # If times are in HH:MM format, convert to 12-hour
+                if ':' in str(start_time):
+                    try:
+                        start_dt = datetime.strptime(str(start_time), '%H:%M')
+                        end_dt = datetime.strptime(str(end_time), '%H:%M')
+                        time_str = f"{start_dt.strftime('%I:%M %p')} - {end_dt.strftime('%I:%M %p')}"
+                    except:
+                        time_str = f"{start_time} - {end_time}"
+                else:
+                    time_str = f"{start_time} - {end_time}"
+            except Exception as e:
+                time_str = f"{class_item['start_time']} - {class_item['end_time']}"
+        
+        enrolled_classes.append({
+            'class_id': class_item['class_id'],
+            'class_name': class_item['class_name'],
+            'edpcode': class_item['edpcode'],
+            'days': class_item['days'],
+            'time': time_str,
+            'room': class_item['room'],
+            'faculty_firstname': class_item['faculty_firstname'],
+            'faculty_lastname': class_item['faculty_lastname'],
+            'schedule': time_str
+        })
+    
+    conn.close()
+    return render_template('my_classes.html',
+                         student=student,
+                         enrolled_classes=enrolled_classes)
 
 # Student Profile Route
 @app.route('/profile')
@@ -1390,7 +1469,7 @@ def student_profile():
     
     # Get comprehensive student info
     student = conn.execute('''
-        SELECT u.*, s.student_id, s.year_level, s.attendance_image, c.course_name, d.dept_name
+        SELECT u.*, s.student_id, s.year_level, s.attendance_image, s.profile_picture, c.course_name, d.dept_name
         FROM user u
         JOIN student s ON u.user_id = s.user_id
         LEFT JOIN course c ON s.course_id = c.course_id
@@ -1838,6 +1917,81 @@ def api_students():
     
     return jsonify([dict(student) for student in students])
 
+@app.route('/api/upload-profile-picture', methods=['POST'])
+def api_upload_profile_picture():
+    """Handle profile picture uploads for students"""
+    if 'user_id' not in session or session['role'] != 'student':
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    if 'profile_picture' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['profile_picture']
+    
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    # Validate file type
+    allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+    file_ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
+    
+    if file_ext not in allowed_extensions:
+        return jsonify({'error': 'Invalid file type. Allowed: PNG, JPG, JPEG, GIF, WEBP'}), 400
+    
+    try:
+        # Get student info
+        conn = get_db_connection()
+        student = conn.execute('''
+            SELECT s.student_id, s.profile_picture, u.idno
+            FROM student s
+            JOIN user u ON s.user_id = u.user_id
+            WHERE u.user_id = ?
+        ''', (session['user_id'],)).fetchone()
+        
+        if not student:
+            conn.close()
+            return jsonify({'error': 'Student not found'}), 404
+        
+        # Create profile_pictures directory inside static if it doesn't exist
+        profile_pics_dir = Path('static/profile_pictures')
+        profile_pics_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate unique filename using student ID and timestamp
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        filename = f"student_{student['idno']}_{timestamp}.{file_ext}"
+        filepath = profile_pics_dir / filename
+        
+        # Delete old profile picture if it exists
+        if student['profile_picture']:
+            old_filepath = profile_pics_dir / student['profile_picture']
+            if old_filepath.exists():
+                try:
+                    old_filepath.unlink()
+                except Exception as e:
+                    print(f"Warning: Could not delete old profile picture: {e}")
+        
+        # Save the new file
+        file.save(str(filepath))
+        
+        # Update database with new filename
+        conn.execute('''
+            UPDATE student
+            SET profile_picture = ?
+            WHERE student_id = ?
+        ''', (filename, student['student_id']))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Profile picture uploaded successfully',
+            'filename': filename
+        }), 200
+        
+    except Exception as e:
+        print(f"Error uploading profile picture: {e}")
+        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
+
 def calculate_ear(eye_landmarks):
     """Calculate Eye Aspect Ratio (EAR) for blink detection"""
     import numpy as np 
@@ -1854,8 +2008,13 @@ def calculate_ear(eye_landmarks):
     ear = (A + B) / (2.0 * C)
     return ear
 
-def process_face_recognition(image_path):
-    """Process face recognition using the same logic as face_recog_test.py"""
+def process_face_recognition(image_path, attendance_type='class'):
+    """
+    Process face recognition using the same logic as face_recog_test.py
+    Args:
+        image_path: Path to the image file
+        attendance_type: 'class' for students, 'event' for faculty
+    """
     try:
         # Check if face recognition is available
         if not FACE_RECOGNITION_AVAILABLE:
@@ -1871,24 +2030,38 @@ def process_face_recognition(image_path):
                     'student_name': 'Unknown'
                 }
         
-        print(f"Processing image: {image_path}")
+        print(f"Processing image: {image_path}, attendance_type: {attendance_type}")
         
-        # Load known faces from database
+        # Load known faces from database based on attendance type
         conn = get_db_connection()
-        students = conn.execute('''
-            SELECT s.student_id, u.firstname, u.lastname, s.attendance_image
-            FROM student s
-            JOIN user u ON s.user_id = u.user_id
-            WHERE s.attendance_image IS NOT NULL
-        ''').fetchall()
+        
+        if attendance_type == 'event':
+            # For events, load faculty members
+            people = conn.execute('''
+                SELECT f.faculty_id as person_id, u.user_id, u.firstname, u.lastname, f.attendance_image
+                FROM faculty f
+                JOIN user u ON f.user_id = u.user_id
+                WHERE f.attendance_image IS NOT NULL
+            ''').fetchall()
+            person_type = 'faculty'
+        else:
+            # For classes, load students (default)
+            people = conn.execute('''
+                SELECT s.student_id as person_id, u.user_id, u.firstname, u.lastname, s.attendance_image
+                FROM student s
+                JOIN user u ON s.user_id = u.user_id
+                WHERE s.attendance_image IS NOT NULL
+            ''').fetchall()
+            person_type = 'student'
+        
         conn.close()
         
-        print(f"Found {len(students)} registered students")
+        print(f"Found {len(people)} registered {person_type}s")
         
-        if not students:
+        if not people:
             return {
                 'success': False,
-                'message': 'No registered students found',
+                'message': f'No registered {person_type}s found',
                 'student_id': 'Unknown',
                 'student_name': 'Unknown'
             }
@@ -1989,16 +2162,16 @@ def process_face_recognition(image_path):
         best_match = None
         best_distance = float('inf')
         
-        for student in students:
-            print(f"Checking student: {student['firstname']} {student['lastname']}")
-            if not student['attendance_image'] or not os.path.exists(student['attendance_image']):
-                print(f"  No valid image: {student['attendance_image']}")
+        for person in people:
+            print(f"Checking {person_type}: {person['firstname']} {person['lastname']}")
+            if not person['attendance_image'] or not os.path.exists(person['attendance_image']):
+                print(f"  No valid image: {person['attendance_image']}")
                 continue
                 
             # Load known face
-            known_image = cv2.imread(student['attendance_image'])
+            known_image = cv2.imread(person['attendance_image'])
             if known_image is None:
-                print(f"  Could not load image: {student['attendance_image']}")
+                print(f"  Could not load image: {person['attendance_image']}")
                 continue
                 
             known_rgb = cv2.cvtColor(known_image, cv2.COLOR_BGR2RGB)
@@ -2015,7 +2188,7 @@ def process_face_recognition(image_path):
             
             if min_distance < best_distance:
                 best_distance = min_distance
-                best_match = student
+                best_match = person
         
         # Check if match is good enough (tolerance from face_recog_test.py)
         MATCH_TOLERANCE = 0.62
@@ -2078,9 +2251,13 @@ def process_face_recognition(image_path):
         if best_match and best_distance <= MATCH_TOLERANCE:
             print("Match found!")
             confidence = int((1 - best_distance) * 100)  # Convert distance to confidence percentage
+            
+            # For events, use user_id; for classes, use student_id (keep backward compatibility)
+            person_id = int(best_match['user_id']) if attendance_type == 'event' else int(best_match['person_id'])
+            
             return {
                 'success': True,
-                'student_id': int(best_match['student_id']),
+                'student_id': person_id,  # Keep 'student_id' key for backward compatibility
                 'student_name': f"{best_match['firstname']} {best_match['lastname']}",
                 'distance': float(best_distance),
                 'confidence': confidence,
@@ -2097,7 +2274,7 @@ def process_face_recognition(image_path):
             print("No match found")
             return {
                 'success': False,
-                'message': 'No matching student found',
+                'message': f'No matching {person_type} found',
                 'student_id': 'Unknown',
                 'student_name': 'Unknown',
                 'distance': float(best_distance if best_match else 999.0),  # Use 999.0 instead of float('inf')
@@ -2166,6 +2343,10 @@ def api_attendance_detect():
         if file.filename == '':
             return jsonify({'success': False, 'message': 'No image selected'}), 400
         
+        # Get attendance type from form data (class or event)
+        attendance_type = request.form.get('attendance_type', 'class')
+        print(f"Attendance type: {attendance_type}")
+        
         # Save the image temporarily with secure filename
         import uuid
         safe_filename = f"temp_{session['user_id']}_{uuid.uuid4().hex[:8]}.jpg"
@@ -2191,9 +2372,9 @@ def api_attendance_detect():
                 'student_name': 'Unknown'
             }), 503
         
-        # Process the image for face recognition
-        print(f"Processing face recognition for image: {filepath}")
-        result = process_face_recognition(filepath)
+        # Process the image for face recognition with attendance type
+        print(f"Processing face recognition for image: {filepath}, type: {attendance_type}")
+        result = process_face_recognition(filepath, attendance_type=attendance_type)
         print(f"Recognition result: {result}")
         
         return jsonify(result)
@@ -2294,25 +2475,25 @@ def api_attendance_mark():
         
         # Get class schedule to check if student is late
         class_info = conn.execute('''
-            SELECT schedule FROM class WHERE class_id = ?
+            SELECT start_time FROM class WHERE class_id = ?
         ''', (class_id,)).fetchone()
         
         attendance_status = 'present'  # Default status
         
-        if class_info and class_info['schedule']:
+        if class_info and class_info['start_time']:
             try:
-                # Parse schedule time (format: "HH:MM" or "HH:MM AM/PM")
-                schedule_time = class_info['schedule'].strip()
+                # Parse start_time (format: "HH:MM" or "HH:MM:SS")
+                start_time_str = class_info['start_time'].strip()
                 current_datetime = datetime.now()
                 
-                # Try to parse the schedule time
+                # Try to parse the start time
                 try:
-                    # Try 24-hour format first
-                    scheduled_time = datetime.strptime(schedule_time, '%H:%M').time()
+                    # Try HH:MM:SS format first
+                    scheduled_time = datetime.strptime(start_time_str, '%H:%M:%S').time()
                 except ValueError:
                     try:
-                        # Try 12-hour format with AM/PM
-                        scheduled_time = datetime.strptime(schedule_time, '%I:%M %p').time()
+                        # Try HH:MM format
+                        scheduled_time = datetime.strptime(start_time_str, '%H:%M').time()
                     except ValueError:
                         # If parsing fails, default to present
                         scheduled_time = None
@@ -2602,6 +2783,235 @@ def api_faculty_classes():
     
     conn.close()
     return jsonify([dict(record) for record in classes])
+
+@app.route('/api/faculty/events')
+def api_faculty_events():
+    """Get events assigned to the current faculty member (as organizer)"""
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    conn = get_db_connection()
+    
+    # First get the faculty_id for the current user
+    faculty = conn.execute('''
+        SELECT f.faculty_id FROM faculty f
+        WHERE f.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    
+    if not faculty:
+        conn.close()
+        return jsonify([])
+    
+    # Then get events where this faculty is the organizer
+    events = conn.execute('''
+        SELECT e.event_id, e.event_name, e.description, e.event_date, 
+               e.start_time, e.end_time, e.room
+        FROM event e
+        WHERE e.faculty_id = ?
+        ORDER BY e.event_date DESC
+    ''', (faculty['faculty_id'],)).fetchall()
+    
+    conn.close()
+    return jsonify([dict(record) for record in events])
+
+@app.route('/api/faculty/all')
+def api_faculty_all():
+    """Get all active faculty members"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    conn = get_db_connection()
+    
+    faculty_list = conn.execute('''
+        SELECT u.user_id, u.firstname, u.lastname, u.idno,
+               (u.firstname || ' ' || u.lastname) as faculty_name
+        FROM user u
+        JOIN faculty f ON u.user_id = f.user_id
+        WHERE u.is_active = 1
+        ORDER BY u.firstname, u.lastname
+    ''').fetchall()
+    
+    conn.close()
+    return jsonify([dict(record) for record in faculty_list])
+
+@app.route('/api/event/attendance/mark', methods=['POST'])
+def api_event_attendance_mark():
+    """Mark attendance for a faculty member at an event"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        data = request.get_json()
+        print(f"Event attendance mark request: {data}")
+        
+        person_id = data.get('person_id')
+        event_id = data.get('event_id')
+        
+        if not person_id or not event_id:
+            return jsonify({'success': False, 'message': 'Missing person or event information'}), 400
+        
+        conn = get_db_connection()
+        
+        # Check if event exists
+        event = conn.execute('SELECT * FROM event WHERE event_id = ?', (event_id,)).fetchone()
+        if not event:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Event not found'}), 404
+        
+        # Check if user exists
+        user = conn.execute('SELECT * FROM user WHERE user_id = ?', (person_id,)).fetchone()
+        if not user:
+            conn.close()
+            return jsonify({'success': False, 'message': 'User not found'}), 404
+        
+        # Check if already marked today
+        today = datetime.now().strftime('%Y-%m-%d')
+        existing = conn.execute('''
+            SELECT event_attend_id FROM event_attendance 
+            WHERE event_id = ? AND user_id = ? AND DATE(attendance_time) = ?
+        ''', (event_id, person_id, today)).fetchone()
+        
+        if existing:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Already marked today'}), 400
+        
+        # Mark attendance
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        conn.execute('''
+            INSERT INTO event_attendance (attendance_time, status, event_id, user_id)
+            VALUES (?, ?, ?, ?)
+        ''', (current_time, 'present', event_id, person_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Attendance marked for {user["firstname"]} {user["lastname"]}'
+        })
+        
+    except Exception as e:
+        print(f"Error marking event attendance: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/event/attendance/today')
+def api_event_attendance_today():
+    """Get today's attendance for a specific event"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    event_id = request.args.get('event_id')
+    if not event_id:
+        return jsonify([])
+    
+    conn = get_db_connection()
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    attendance = conn.execute('''
+        SELECT ea.user_id, u.firstname, u.lastname,
+               (u.firstname || ' ' || u.lastname) as faculty_name,
+               ea.status, ea.attendance_time
+        FROM event_attendance ea
+        JOIN user u ON ea.user_id = u.user_id
+        WHERE DATE(ea.attendance_time) = ? AND ea.event_id = ?
+        ORDER BY ea.attendance_time DESC
+    ''', (today, event_id)).fetchall()
+    
+    # Format the data for frontend
+    formatted_attendance = []
+    for record in attendance:
+        time_str = ''
+        if record['attendance_time']:
+            try:
+                if isinstance(record['attendance_time'], str):
+                    dt = datetime.strptime(record['attendance_time'], '%Y-%m-%d %H:%M:%S')
+                    time_str = dt.strftime('%I:%M %p')
+                else:
+                    time_str = record['attendance_time'].strftime('%I:%M %p')
+            except:
+                time_str = str(record['attendance_time'])
+        
+        formatted_attendance.append({
+            'user_id': record['user_id'],
+            'faculty_name': record['faculty_name'],
+            'time': time_str,
+            'status': record['status']
+        })
+    
+    conn.close()
+    return jsonify(formatted_attendance)
+
+@app.route('/api/event/attendance/override', methods=['POST'])
+def api_event_attendance_override():
+    """Override attendance for a faculty member at an event"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    # Only faculty and admin can override
+    if session.get('role') not in ['faculty', 'admin']:
+        return jsonify({'success': False, 'message': 'Unauthorized - Faculty or Admin access required'}), 401
+    
+    try:
+        data = request.get_json()
+        print(f"Event attendance override request: {data}")
+        
+        user_id = data.get('user_id')
+        event_id = data.get('event_id')
+        status = data.get('status', 'present')
+        
+        if not user_id or not event_id:
+            return jsonify({'success': False, 'message': 'Missing user or event information'}), 400
+        
+        if status not in ['present', 'absent']:
+            return jsonify({'success': False, 'message': 'Invalid status'}), 400
+        
+        conn = get_db_connection()
+        
+        # Get user info
+        user = conn.execute('SELECT * FROM user WHERE user_id = ?', (user_id,)).fetchone()
+        if not user:
+            conn.close()
+            return jsonify({'success': False, 'message': 'User not found'}), 404
+        
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        # Check if attendance exists for today
+        existing = conn.execute('''
+            SELECT event_attend_id FROM event_attendance 
+            WHERE event_id = ? AND user_id = ? AND DATE(attendance_time) = ?
+        ''', (event_id, user_id, today)).fetchone()
+        
+        if existing:
+            # Update existing
+            conn.execute('''
+                UPDATE event_attendance 
+                SET status = ?, attendance_time = ?
+                WHERE event_attend_id = ?
+            ''', (status, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), existing['event_attend_id']))
+            action = 'updated'
+        else:
+            # Insert new
+            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            conn.execute('''
+                INSERT INTO event_attendance (attendance_time, status, event_id, user_id)
+                VALUES (?, ?, ?, ?)
+            ''', (current_time, status, event_id, user_id))
+            action = 'created'
+        
+        conn.commit()
+        conn.close()
+        
+        faculty_name = f"{user['firstname']} {user['lastname']}"
+        
+        return jsonify({
+            'success': True,
+            'message': f'Attendance {action} for {faculty_name}: {status.title()}',
+            'time': datetime.now().strftime('%I:%M %p')
+        })
+        
+    except Exception as e:
+        print(f"Error in event attendance override: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/admin/classes/<int:class_id>/delete', methods=['POST'])
 def delete_class(class_id):
@@ -2919,7 +3329,7 @@ def faculty_manage_students():
     
     # Get faculty info
     faculty = conn.execute('''
-        SELECT f.faculty_id FROM faculty f 
+        SELECT f.faculty_id, u.firstname, u.lastname, u.idno FROM faculty f 
         JOIN user u ON f.user_id = u.user_id 
         WHERE u.user_id = ?
     ''', (session['user_id'],)).fetchone()
@@ -2946,7 +3356,7 @@ def faculty_manage_students():
     ''', (faculty['faculty_id'],)).fetchall()
     
     conn.close()
-    return render_template('faculty/faculty_manage_students.html', classes=classes, events=events)
+    return render_template('faculty/faculty_manage_students.html', classes=classes, events=events, faculty=faculty)
 
 @app.route('/faculty/students/<path:selection>')
 def faculty_get_students(selection):
@@ -2973,7 +3383,7 @@ def faculty_get_students(selection):
         # Get students enrolled in this class
         students = conn.execute('''
             SELECT u.user_id, u.idno, u.firstname, u.lastname, u.is_active,
-                   s.year_level, c.course_name
+                   s.year_level, s.profile_picture, c.course_name
             FROM student_class sc
             JOIN student s ON sc.student_id = s.student_id
             JOIN user u ON s.user_id = u.user_id
@@ -2988,7 +3398,7 @@ def faculty_get_students(selection):
         # Get students who have attended this event
         students = conn.execute('''
             SELECT DISTINCT u.user_id, u.idno, u.firstname, u.lastname, u.is_active,
-                   s.year_level, c.course_name
+                   s.year_level, s.profile_picture, c.course_name
             FROM event_attendance ea
             JOIN user u ON ea.user_id = u.user_id
             JOIN student s ON u.user_id = s.user_id
@@ -3283,9 +3693,10 @@ def attendance():
         flash('Only faculty and admin can access this page', 'error')
         return redirect(url_for('login'))
     
-    # Get classes for faculty
+    # Get classes and events for faculty
     conn = get_db_connection()
     classes = []
+    events = []
     
     if session.get('role') == 'faculty':
         # Get faculty's classes
@@ -3297,22 +3708,38 @@ def attendance():
         
         if faculty:
             classes = conn.execute('''
-                SELECT c.class_id, c.class_name, c.edpcode
+                SELECT c.class_id, c.class_name, c.edpcode, c.start_time, c.end_time, c.room
                 FROM class c
                 WHERE c.faculty_id = ?
                 ORDER BY c.class_name
             ''', (faculty['faculty_id'],)).fetchall()
+            
+            # Get events where this faculty is the organizer
+            events = conn.execute('''
+                SELECT e.event_id, e.event_name, e.description, e.event_date, 
+                       e.start_time, e.end_time, e.room
+                FROM event e
+                WHERE e.faculty_id = ?
+                ORDER BY e.event_date DESC
+            ''', (faculty['faculty_id'],)).fetchall()
     elif session.get('role') == 'admin':
-        # Admin can see all classes
+        # Admin can see all classes and events
         classes = conn.execute('''
-            SELECT c.class_id, c.class_name, c.edpcode
+            SELECT c.class_id, c.class_name, c.edpcode, c.start_time, c.end_time, c.room
             FROM class c
             ORDER BY c.class_name
+        ''').fetchall()
+        
+        events = conn.execute('''
+            SELECT e.event_id, e.event_name, e.description, e.event_date,
+                   e.start_time, e.end_time, e.room
+            FROM event e
+            ORDER BY e.event_date DESC
         ''').fetchall()
     
     conn.close()
     
-    return render_template('faculty_attendance.html', classes=classes)
+    return render_template('faculty_attendance.html', classes=classes, events=events)
 
 # Faculty Reports & Analytics
 @app.route('/attendance_reports')
