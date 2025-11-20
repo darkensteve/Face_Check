@@ -1,8 +1,10 @@
 {
     "late_threshold_minutes": "15",
-    "attendance_grace_period": "10",
     "minimum_attendance_percentage": "75",
     "absent_auto_mark": "true",
+    "lates_to_absent": "3",
+    "absence_notification_threshold": "5",
+    "enable_notifications": "true",
     "session_timeout": "3600",
     "max_login_attempts": "5",
     "lockout_duration": "15",

@@ -38,7 +38,7 @@
                     Manage Students
                 </a>
                 
-                <a href="/my_classes" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                <a href="{{ url_for('faculty_my_classes') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-chalkboard mr-3"></i>
                     My Classes
                 </a>
@@ -177,6 +177,90 @@
         </div>
     </div>
 
+    <!-- Student Profile Modal -->
+    <div id="studentProfileModal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl">
+                <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+                        <h3 class="text-xl font-semibold text-slate-900">Student Profile</h3>
+                    <button id="closeProfileModal" class="text-slate-400 hover:text-slate-700 transition">
+                        <i class="fas fa-times text-lg"></i>
+                    </button>
+                </div>
+                <div id="studentProfileLoader" class="p-8 text-center text-slate-500">
+                    <i class="fas fa-circle-notch fa-spin text-2xl mb-3 text-blue-600"></i>
+                    <p>Loading student information...</p>
+                </div>
+                <div id="studentProfileError" class="p-6 hidden">
+                    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                        <p id="profileErrorText">Unable to load student profile.</p>
+                    </div>
+                </div>
+                <div id="studentProfileContent" class="p-6 space-y-6 hidden">
+                    <div class="flex items-center space-x-4">
+                        <div class="w-16 h-16 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-2xl font-semibold overflow-hidden">
+                            <img id="profileAvatar" class="w-full h-full object-cover hidden" alt="Student avatar">
+                            <span id="profileInitials">ST</span>
+                        </div>
+                        <div>
+                            <p id="profileName" class="text-2xl font-semibold text-slate-900"></p>
+                            <p id="profileCourse" class="text-sm text-slate-500"></p>
+                        </div>
+                        <span id="profileStatus" class="ml-auto inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold border"></span>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="bg-slate-50 rounded-xl p-4">
+                            <p class="text-xs uppercase text-slate-400 mb-1">Year Level</p>
+                            <p id="profileYear" class="text-sm font-semibold text-slate-900"></p>
+                        </div>
+                        <div class="bg-slate-50 rounded-xl p-4">
+                            <p class="text-xs uppercase text-slate-400 mb-1">Department</p>
+                            <p id="profileDepartment" class="text-sm font-semibold text-slate-900"></p>
+                        </div>
+                        <div class="bg-slate-50 rounded-xl p-4">
+                            <p class="text-xs uppercase text-slate-400 mb-1">Member Since</p>
+                            <p id="profileJoined" class="text-sm font-semibold text-slate-900"></p>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                        <div class="rounded-xl border border-slate-200 p-4 text-center">
+                            <p class="text-xs uppercase text-slate-400 mb-1">Total Records</p>
+                            <p id="profileStatTotal" class="text-2xl font-semibold text-slate-900">0</p>
+                        </div>
+                        <div class="rounded-xl border border-slate-200 p-4 text-center">
+                            <p class="text-xs uppercase text-slate-400 mb-1">Present</p>
+                            <p id="profileStatPresent" class="text-2xl font-semibold text-emerald-600">0</p>
+                        </div>
+                        <div class="rounded-xl border border-slate-200 p-4 text-center">
+                            <p class="text-xs uppercase text-slate-400 mb-1">Late</p>
+                            <p id="profileStatLate" class="text-2xl font-semibold text-amber-600">0</p>
+                        </div>
+                        <div class="rounded-xl border border-slate-200 p-4 text-center">
+                            <p class="text-xs uppercase text-slate-400 mb-1">Absent</p>
+                            <p id="profileStatAbsent" class="text-2xl font-semibold text-rose-600">0</p>
+                        </div>
+                        <div class="rounded-xl border border-slate-200 p-4 text-center">
+                            <p class="text-xs uppercase text-slate-400 mb-1">Attendance Rate</p>
+                            <p id="profileStatRate" class="text-2xl font-semibold text-blue-600">0%</p>
+                        </div>
+                    </div>
+                    
+                        <div class="rounded-2xl border border-slate-200 p-5">
+                    <div class="rounded-2xl border border-slate-200 p-5">
+                        <div class="flex items-center justify-between mb-3">
+                            <h4 class="text-sm font-semibold text-slate-800">Classes with You</h4>
+                        </div>
+                        <div id="profileClassList" class="space-y-3 text-sm text-slate-600">
+                            <p class="text-slate-500">No shared classes found.</p>
+                        </div>
+                    </div>
+            </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Edit Student Modal -->
     <div id="editStudentModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden z-50">
         <div class="flex items-center justify-center min-h-screen p-4">
@@ -270,6 +354,19 @@
     </div>
 
     <script>
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/[&<>"']/g, function(tag) {
+                const chars = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+                return chars[tag] || tag;
+            });
+        }
+
+        function escapeJs(str) {
+            if (!str) return '';
+            return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        }
+
         // Initialize elements
         document.addEventListener('DOMContentLoaded', function() {
             // Update time and date
@@ -282,6 +379,17 @@
             document.getElementById('resetPasswordForm').addEventListener('submit', resetPassword);
             document.getElementById('cancelEdit').addEventListener('click', closeEditModal);
             document.getElementById('cancelReset').addEventListener('click', closeResetModal);
+            document.getElementById('closeProfileModal').addEventListener('click', closeStudentProfileModal);
+            document.getElementById('studentProfileModal').addEventListener('click', function(e) {
+                if (e.target === this) {
+                    closeStudentProfileModal();
+                }
+            });
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    closeStudentProfileModal();
+                }
+            });
         });
 
         // Update date and time
@@ -344,59 +452,72 @@
             
             // Add student rows
             students.forEach(student => {
-                const row = document.createElement('tr');
-                row.className = 'hover:bg-gray-50';
+                const safeFirst = escapeHtml(student.firstname);
+                const safeLast = escapeHtml(student.lastname);
+                const fullName = [safeFirst, safeLast].filter(Boolean).join(' ') || 'View Profile';
+                const safeInitials = escapeHtml(((student.firstname || '').charAt(0) + (student.lastname || '').charAt(0)).toUpperCase()) || 'ST';
+                const safeCourse = escapeHtml(student.course_name || 'N/A');
+                const safeYear = escapeHtml(student.year_level || 'N/A');
+                const safeId = escapeHtml(student.idno || '');
+                const safeIdJs = escapeJs(student.idno || '');
+                const safeFirstJs = escapeJs(student.firstname || '');
+                const safeLastJs = escapeJs(student.lastname || '');
+                const yearLevelValue = student.year_level ? "'" + escapeJs(student.year_level) + "'" : 1;
+                const nameButton = `<button type="button" class="student-name-link text-blue-600 font-semibold hover:underline" data-user-id="${student.user_id}">${fullName}</button>`;
                 
-                // Build profile picture HTML
-                let profilePictureHtml = '';
+                let avatarBlock = '';
                 if (student.profile_picture) {
-                    profilePictureHtml = `
-                        <div class="flex items-center">
-                            <img src="/static/profile_pictures/${student.profile_picture}" 
-                                 alt="${student.firstname} ${student.lastname}" 
-                                 class="h-10 w-10 rounded-full object-cover border-2 border-blue-500 mr-3"
-                                 onerror="this.onerror=null; this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                            <div class="h-10 w-10 rounded-full bg-blue-500 items-center justify-center text-white font-bold mr-3 hidden">
-                                ${student.firstname.charAt(0)}${student.lastname.charAt(0)}
-                            </div>
-                            <div>
-                                <div class="text-sm font-medium text-gray-900">${student.firstname} ${student.lastname}</div>
-                            </div>
+                    avatarBlock = `
+                        <img src="/static/profile_pictures/${student.profile_picture}" 
+                             alt="${fullName}" 
+                             class="h-10 w-10 rounded-full object-cover border-2 border-blue-500 mr-3"
+                             onerror="this.onerror=null; this.classList.add('hidden'); this.nextElementSibling.classList.remove('hidden');">
+                        <div class="h-10 w-10 rounded-full bg-blue-500 items-center justify-center text-white font-bold mr-3 hidden">
+                            ${safeInitials}
                         </div>
                     `;
                 } else {
-                    profilePictureHtml = `
-                        <div class="flex items-center">
-                            <div class="h-10 w-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold mr-3">
-                                ${student.firstname.charAt(0)}${student.lastname.charAt(0)}
-                            </div>
-                            <div>
-                                <div class="text-sm font-medium text-gray-900">${student.firstname} ${student.lastname}</div>
-                            </div>
+                    avatarBlock = `
+                        <div class="h-10 w-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold mr-3">
+                            ${safeInitials}
                         </div>
                     `;
                 }
                 
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-50';
                 row.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap">${profilePictureHtml}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${student.idno}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${student.course_name || 'N/A'}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${student.year_level || 'N/A'}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="flex items-center">
+                            ${avatarBlock}
+                            <div>
+                                ${nameButton}
+                                <div class="text-xs text-gray-500">${safeCourse}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${safeId}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${safeCourse}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${safeYear}</td>
                     <td class="px-6 py-4 whitespace-nowrap">
                         <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full ${student.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
                             ${student.is_active ? 'Active' : 'Inactive'}
                         </span>
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <button onclick="openEditModal(${student.user_id}, '${student.idno}', '${student.firstname}', '${student.lastname}', ${student.year_level || 1}, ${student.is_active})" class="text-blue-600 hover:text-blue-900 mr-3">
+                        <button onclick="openEditModal(${student.user_id}, '${safeIdJs}', '${safeFirstJs}', '${safeLastJs}', ${yearLevelValue}, ${student.is_active ? 1 : 0})" class="text-blue-600 hover:text-blue-900 mr-3">
                             <i class="fas fa-edit"></i> Edit
                         </button>
-                        <button onclick="openResetModal(${student.user_id}, '${student.firstname} ${student.lastname}')" class="text-red-600 hover:text-red-900">
+                        <button onclick="openResetModal(${student.user_id}, '${safeFirstJs} ${safeLastJs}')" class="text-red-600 hover:text-red-900">
                             <i class="fas fa-key"></i> Reset Password
                         </button>
                     </td>
                 `;
                 tbody.appendChild(row);
+
+                row.querySelectorAll('.student-name-link').forEach(button => {
+                    button.addEventListener('click', () => showStudentProfile(button.dataset.userId));
+                });
             });
         }
 
@@ -516,6 +637,92 @@
             setTimeout(() => {
                 notification.remove();
             }, 3000);
+        }
+
+        async function showStudentProfile(userId) {
+            const modal = document.getElementById('studentProfileModal');
+            const loader = document.getElementById('studentProfileLoader');
+            const content = document.getElementById('studentProfileContent');
+            const errorBox = document.getElementById('studentProfileError');
+            const errorText = document.getElementById('profileErrorText');
+            
+            modal.classList.remove('hidden');
+            loader.classList.remove('hidden');
+            content.classList.add('hidden');
+            errorBox.classList.add('hidden');
+            
+            try {
+                const response = await fetch(`/faculty/students/profile/${userId}`);
+                const data = await response.json();
+                
+                if (!response.ok || !data.success) {
+                    throw new Error(data.message || 'Unable to load student profile');
+                }
+                
+                populateStudentProfile(data);
+                loader.classList.add('hidden');
+                content.classList.remove('hidden');
+            } catch (error) {
+                loader.classList.add('hidden');
+                errorText.textContent = error.message || 'Unable to load student profile';
+                errorBox.classList.remove('hidden');
+            }
+        }
+
+        function populateStudentProfile(data) {
+            const student = data.student;
+            const stats = data.attendance_stats || {};
+            const lastAttendance = data.last_attendance;
+            const classes = data.classes || [];
+            
+            const fullName = `${student.firstname || ''} ${student.lastname || ''}`.trim();
+            document.getElementById('profileName').textContent = fullName || 'Student';
+            document.getElementById('profileCourse').textContent = student.course_name || 'Course not assigned';
+            document.getElementById('profileYear').textContent = student.year_level || 'N/A';
+            document.getElementById('profileDepartment').textContent = student.dept_name || 'N/A';
+            document.getElementById('profileJoined').textContent = student.created_at ? new Date(student.created_at).toLocaleDateString() : 'N/A';
+            
+            const statusChip = document.getElementById('profileStatus');
+            statusChip.textContent = student.is_active ? 'Active' : 'Inactive';
+            statusChip.className = `ml-auto inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold border ${
+                student.is_active ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'
+            }`;
+            
+            const avatarImg = document.getElementById('profileAvatar');
+            const avatarInitials = document.getElementById('profileInitials');
+            if (student.profile_picture) {
+                avatarImg.src = `/static/profile_pictures/${student.profile_picture}`;
+                avatarImg.classList.remove('hidden');
+                avatarInitials.classList.add('hidden');
+            } else {
+                const initials = ((student.firstname || 'S').charAt(0) + (student.lastname || 'T').charAt(0)).toUpperCase();
+                avatarInitials.textContent = initials;
+                avatarImg.classList.add('hidden');
+                avatarInitials.classList.remove('hidden');
+            }
+            
+            document.getElementById('profileStatTotal').textContent = stats.total || 0;
+            document.getElementById('profileStatPresent').textContent = stats.present || 0;
+            document.getElementById('profileStatLate').textContent = stats.late || 0;
+            document.getElementById('profileStatAbsent').textContent = stats.absent || 0;
+            document.getElementById('profileStatRate').textContent = `${stats.rate || 0}%`;
+            
+            const classList = document.getElementById('profileClassList');
+            if (classes.length) {
+                classList.innerHTML = classes.map(cls => `
+                    <div class="border border-slate-200 rounded-xl p-3">
+                        <p class="font-semibold text-slate-900">${cls.name} <span class="text-xs text-slate-400">(${cls.code || 'N/A'})</span></p>
+                        <p class="text-xs text-slate-500">${cls.schedule}</p>
+                        <p class="text-xs text-slate-400">Room ${cls.room || 'N/A'}</p>
+                    </div>
+                `).join('');
+            } else {
+                classList.innerHTML = `<p class="text-slate-500">No shared classes found.</p>`;
+            }
+        }
+
+        function closeStudentProfileModal() {
+            document.getElementById('studentProfileModal').classList.add('hidden');
         }
     </script>
 </body>

@@ -148,6 +148,19 @@ def create_database():
             )
         """)
         
+        # NOTIFICATIONS table
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS notifications (
+                notification_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                message TEXT NOT NULL,
+                notification_type VARCHAR(20) NOT NULL,
+                is_read BOOLEAN DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES user(user_id)
+            )
+        """)
+        
         # Insert default data
         insert_default_data(c)
         

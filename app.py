@@ -41,6 +41,22 @@ except ImportError as e:
 # Import settings manager
 from config_settings import settings_manager
 
+# Import notification system
+try:
+    from notification_system import (
+        get_user_notifications, 
+        get_unread_count, 
+        mark_notification_read, 
+        mark_all_read,
+        check_and_notify_absences,
+        convert_lates_to_absent,
+        create_notification
+    )
+    NOTIFICATIONS_AVAILABLE = True
+except ImportError:
+    print("Warning: Notification system not available")
+    NOTIFICATIONS_AVAILABLE = False
+
 app = Flask(__name__)
 # Generate secure secret key from environment or create new one
 app.secret_key = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
@@ -369,10 +385,19 @@ def admin_users():
     
     conn = get_db_connection()
     users = conn.execute('''
-        SELECT u.*, d.dept_name, s.profile_picture,
+        SELECT u.*, 
+               d.dept_name, 
+               s.profile_picture,
+               s.attendance_image AS student_attendance_image,
+               f.attendance_image AS faculty_attendance_image,
                CASE WHEN s.student_id IS NOT NULL THEN 'Student' 
                     WHEN f.faculty_id IS NOT NULL THEN 'Faculty'
-                    ELSE 'Admin' END as user_type
+                    ELSE 'Admin' END as user_type,
+               CASE 
+                    WHEN u.role = 'student' AND s.attendance_image IS NOT NULL THEN 1
+                    WHEN u.role = 'faculty' AND f.attendance_image IS NOT NULL THEN 1
+                    ELSE 0
+               END AS face_registered
         FROM user u
         LEFT JOIN department d ON u.dept_id = d.dept_id
         LEFT JOIN student s ON u.user_id = s.user_id
@@ -499,6 +524,29 @@ def create_user():
         
         conn.commit()
         conn.close()
+        
+        # Create welcome notification for new user
+        if NOTIFICATIONS_AVAILABLE:
+            try:
+                if validated_role == 'student':
+                    welcome_msg = (
+                        "🎉 Welcome to FaceCheck! Your student account is ready. "
+                        "Register your face in the portal so you can start marking attendance."
+                    )
+                elif validated_role == 'faculty':
+                    welcome_msg = (
+                        "👋 Welcome aboard! Your faculty account is active. "
+                        "Register your face to start taking attendance and managing your classes."
+                    )
+                else:
+                    welcome_msg = (
+                        "⚙️ Welcome to the admin team! Use the dashboard to manage users, classes, "
+                        "and system settings."
+                    )
+                
+                create_notification(user_id, welcome_msg, 'welcome_account')
+            except Exception as notification_error:
+                print(f"Warning: Failed to create welcome notification: {notification_error}")
         
         flash('User created successfully', 'success')
         
@@ -1222,15 +1270,6 @@ def student_dashboard():
         WHERE u.user_id = ?
     ''', (session['user_id'],)).fetchone()
     
-    # Get today's attendance
-    today = datetime.now().strftime('%Y-%m-%d')
-    today_attendance = conn.execute('''
-        SELECT a.attendance_status, a.attendance_date
-        FROM attendance a
-        JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
-        WHERE sc.student_id = ? AND DATE(a.attendance_date) = ?
-    ''', (student['student_id'], today)).fetchall()
-    
     # Get attendance history - format datetime at SQL level to remove microseconds
     attendance_history = conn.execute('''
         SELECT strftime('%Y-%m-%d %H:%M:%S', a.attendance_date) as attendance_date,
@@ -1272,9 +1311,6 @@ def student_dashboard():
             'status': record['attendance_status']
         })
     
-    # Get today's attendance status (single record or None)
-    today_status = today_attendance[0] if today_attendance else None
-    
     # Check if student has registered their face (check database first, then file system)
     has_face_registered = False
     
@@ -1301,7 +1337,6 @@ def student_dashboard():
     return render_template('student_dashboard.html', 
                          student_info=student,
                          student=student,
-                         today_attendance=today_status,
                          attendance_history=formatted_history,
                          has_face_registered=has_face_registered)
 
@@ -1344,6 +1379,9 @@ def my_attendance():
         time_str = ''
         formatted_datetime = ''
         
+        iso_date = ''
+        iso_datetime = ''
+        
         if record['attendance_date']:
             try:
                 date_str_raw = str(record['attendance_date'])
@@ -1352,15 +1390,21 @@ def my_attendance():
                 date_str = date_obj.strftime('%B %d, %Y')
                 time_str = date_obj.strftime('%I:%M %p')
                 formatted_datetime = date_obj.strftime('%B %d, %Y %I:%M %p')
+                iso_date = date_obj.strftime('%Y-%m-%d')
+                iso_datetime = date_obj.strftime('%Y-%m-%dT%H:%M:%S')
             except:
                 date_str = date_str_raw.split(' ')[0] if ' ' in date_str_raw else date_str_raw
                 time_str = ''
                 formatted_datetime = date_str_raw
+                iso_date = date_str_raw.split(' ')[0] if ' ' in date_str_raw else date_str_raw
+                iso_datetime = date_str_raw
         
         formatted_records.append({
             'date': date_str,
             'time': time_str,
             'datetime': formatted_datetime,
+            'iso_date': iso_date,
+            'iso_datetime': iso_datetime,
             'status': record['attendance_status'],
             'class_name': record['class_name'],
             'edpcode': record['edpcode'],
@@ -1420,6 +1464,7 @@ def my_classes():
     
     # Format enrolled classes with schedule
     enrolled_classes = []
+    faculty_names = set()
     for class_item in enrolled_classes_raw:
         # Format time (convert from 24-hour to 12-hour if needed)
         time_str = ''
@@ -1453,11 +1498,19 @@ def my_classes():
             'faculty_lastname': class_item['faculty_lastname'],
             'schedule': time_str
         })
+        faculty_names.add(f"{class_item['faculty_firstname']} {class_item['faculty_lastname']}")
+    
+    total_classes = len(enrolled_classes)
+    weekly_hours_estimate = total_classes * 3
+    faculty_count = len(faculty_names)
     
     conn.close()
     return render_template('my_classes.html',
                          student=student,
-                         enrolled_classes=enrolled_classes)
+                         enrolled_classes=enrolled_classes,
+                         total_classes=total_classes,
+                         weekly_hours_estimate=weekly_hours_estimate,
+                         faculty_count=faculty_count)
 
 # Student Profile Route
 @app.route('/profile')
@@ -1805,6 +1858,19 @@ def api_register_face():
             ''', (face_path, session['user_id']))
             
             conn.commit()
+            
+            # Create notification for successful face registration
+            if NOTIFICATIONS_AVAILABLE:
+                try:
+                    from notification_system import create_notification
+                    create_notification(
+                        session['user_id'],
+                        '✅ Success! Your face has been registered successfully. You can now mark attendance using face recognition.',
+                        'face_registration'
+                    )
+                except Exception as e:
+                    print(f"Error creating registration notification: {e}")
+                    
         except Exception as e:
             # Clean up the saved file if database update fails
             if os.path.exists(face_path):
@@ -1896,6 +1962,19 @@ def api_faculty_register_face():
         
         conn.commit()
         conn.close()
+        
+        # Create notification for successful face registration
+        if NOTIFICATIONS_AVAILABLE:
+            try:
+                from notification_system import create_notification
+                create_notification(
+                    session['user_id'],
+                    '✅ Success! Your face has been registered successfully. You can now mark attendance for events.',
+                    'face_registration'
+                )
+            except Exception as e:
+                print(f"Error creating registration notification: {e}")
+        
         return jsonify({'success': True, 'message': 'Face registered successfully'})
         
     except ImportError as e:
@@ -2528,6 +2607,64 @@ def api_attendance_mark():
         print(f"Attendance record inserted successfully with status: {attendance_status}")
         conn.close()
         
+        # Create immediate notification for every attendance action
+        if NOTIFICATIONS_AVAILABLE:
+            try:
+                # Get student_id and user_id from the database (using numeric student_id)
+                conn = get_db_connection()
+                student_record = conn.execute('''
+                    SELECT s.student_id, s.user_id
+                    FROM student s
+                    WHERE s.student_id = ?
+                ''', (student_id,)).fetchone()
+                
+                if student_record:
+                    db_student_id = student_record['student_id']
+                    student_user_id = student_record['user_id']
+                    
+                    # Get class details
+                    class_info = conn.execute('''
+                        SELECT class_name, edpcode, start_time, end_time
+                        FROM class WHERE class_id = ?
+                    ''', (class_id,)).fetchone()
+                    
+                    class_label = 'your class'
+                    if class_info:
+                        class_dict = dict(class_info)
+                        base_name = class_dict.get('class_name') or 'your class'
+                        edp_code = class_dict.get('edpcode')
+                        schedule = ''
+                        if class_dict.get('start_time') and class_dict.get('end_time'):
+                            try:
+                                start_dt = datetime.strptime(str(class_dict['start_time']), '%H:%M:%S')
+                                end_dt = datetime.strptime(str(class_dict['end_time']), '%H:%M:%S')
+                                schedule = f" [{start_dt.strftime('%I:%M %p')} - {end_dt.strftime('%I:%M %p')}]"
+                            except Exception:
+                                pass
+                        if edp_code:
+                            class_label = f"{base_name} ({edp_code}){schedule}"
+                        else:
+                            class_label = f"{base_name}{schedule}"
+                    
+                    # Create immediate notification based on status
+                    current_time_str = datetime.now().strftime('%I:%M %p')
+                    
+                    if attendance_status == 'present':
+                        notification_msg = f'✅ Attendance marked successfully for {class_label} at {current_time_str}.'
+                        create_notification(student_user_id, notification_msg, 'attendance_present')
+                    elif attendance_status == 'late':
+                        notification_msg = f'⚠️ You were marked LATE for {class_label} at {current_time_str}. Please arrive on time next time.'
+                        create_notification(student_user_id, notification_msg, 'attendance_late')
+                    
+                    # Check and notify for absences threshold
+                    check_and_notify_absences(db_student_id)
+                    # Check for late conversions
+                    convert_lates_to_absent(db_student_id)
+                    
+                conn.close()
+            except Exception as e:
+                print(f"Error checking notifications: {e}")
+        
         # Create appropriate message based on status
         if attendance_status == 'late':
             message = f'Attendance marked for {student_name} (LATE)'
@@ -2711,6 +2848,29 @@ def api_attendance_override():
         conn.close()
         
         student_name = f"{student['firstname']} {student['lastname']}"
+        
+        # Create notification for manual override
+        if NOTIFICATIONS_AVAILABLE:
+            try:
+                from notification_system import create_notification
+                conn = get_db_connection()
+                class_info = conn.execute('SELECT class_name FROM class WHERE class_id = ?', (class_id,)).fetchone()
+                class_name = class_info['class_name'] if class_info else 'a class'
+                conn.close()
+                
+                current_time_str = datetime.now().strftime('%I:%M %p')
+                
+                if status == 'present':
+                    notification_msg = f'✅ Your attendance was manually marked as PRESENT for {class_name} at {current_time_str} by faculty.'
+                    create_notification(student['user_id'], notification_msg, 'attendance_override_present')
+                elif status == 'absent':
+                    notification_msg = f'❌ Your attendance was manually marked as ABSENT for {class_name} at {current_time_str} by faculty.'
+                    create_notification(student['user_id'], notification_msg, 'attendance_override_absent')
+                elif status == 'late':
+                    notification_msg = f'⚠️ Your attendance was manually marked as LATE for {class_name} at {current_time_str} by faculty.'
+                    create_notification(student['user_id'], notification_msg, 'attendance_override_late')
+            except Exception as e:
+                print(f"Error creating override notification: {e}")
         
         return jsonify({
             'success': True, 
@@ -3529,8 +3689,164 @@ def faculty_reset_student_password():
     except Exception as e:
         return jsonify({'success': False, 'message': f'Error resetting password: {str(e)}'}), 500
 
+@app.route('/faculty/students/profile/<int:user_id>')
+def faculty_student_profile(user_id):
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    conn = get_db_connection()
+    
+    faculty = conn.execute('''
+        SELECT f.faculty_id FROM faculty f 
+        JOIN user u ON f.user_id = u.user_id 
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    
+    if not faculty:
+        conn.close()
+        return jsonify({'success': False, 'message': 'Faculty record not found'}), 404
+    
+    student_info = conn.execute('''
+        SELECT u.user_id, u.idno, u.firstname, u.lastname, u.created_at, u.is_active,
+               s.student_id, s.year_level, s.attendance_image, s.profile_picture,
+               c.course_name, d.dept_name
+        FROM user u
+        JOIN student s ON u.user_id = s.user_id
+        LEFT JOIN course c ON s.course_id = c.course_id
+        LEFT JOIN department d ON u.dept_id = d.dept_id
+        WHERE u.user_id = ?
+    ''', (user_id,)).fetchone()
+    
+    if not student_info:
+        conn.close()
+        return jsonify({'success': False, 'message': 'Student not found'}), 404
+    
+    # Verify access
+    access = conn.execute('''
+        SELECT 1 FROM student_class sc
+        JOIN class c ON sc.class_id = c.class_id
+        JOIN student s ON sc.student_id = s.student_id
+        WHERE s.user_id = ? AND c.faculty_id = ?
+        UNION
+        SELECT 1 FROM event_attendance ea
+        JOIN event e ON ea.event_id = e.event_id
+        WHERE ea.user_id = ? AND e.faculty_id = ?
+    ''', (user_id, faculty['faculty_id'], user_id, faculty['faculty_id'])).fetchone()
+    
+    if not access:
+        conn.close()
+        return jsonify({'success': False, 'message': 'You do not have permission to view this student'}), 403
+    
+    student_id = student_info['student_id']
+    
+    stats = conn.execute('''
+        SELECT 
+            COUNT(*) as total_records,
+            SUM(CASE WHEN a.attendance_status = 'present' THEN 1 ELSE 0 END) as present_count,
+            SUM(CASE WHEN a.attendance_status = 'late' THEN 1 ELSE 0 END) as late_count,
+            SUM(CASE WHEN a.attendance_status = 'absent' THEN 1 ELSE 0 END) as absent_count
+        FROM attendance a
+        JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+        WHERE sc.student_id = ?
+    ''', (student_id,)).fetchone()
+    
+    total_records = stats['total_records'] or 0
+    present_count = stats['present_count'] or 0
+    late_count = stats['late_count'] or 0
+    absent_count = stats['absent_count'] or 0
+    attendance_rate = round((present_count / total_records * 100), 1) if total_records > 0 else 0
+    
+    last_attendance = conn.execute('''
+        SELECT a.attendance_status, a.attendance_date, cl.class_name
+        FROM attendance a
+        JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+        JOIN class cl ON sc.class_id = cl.class_id
+        WHERE sc.student_id = ?
+        ORDER BY a.attendance_date DESC
+        LIMIT 1
+    ''', (student_id,)).fetchone()
+    
+    classes = conn.execute('''
+        SELECT cl.class_name, cl.edpcode, cl.room,
+               GROUP_CONCAT(DISTINCT d.day_name) as days,
+               cl.start_time, cl.end_time
+        FROM student_class sc
+        JOIN class cl ON sc.class_id = cl.class_id
+        LEFT JOIN class_days cd ON cl.class_id = cd.class_id
+        LEFT JOIN days d ON cd.day_id = d.day_id
+        WHERE sc.student_id = ? AND cl.faculty_id = ?
+        GROUP BY cl.class_name, cl.edpcode, cl.room, cl.start_time, cl.end_time
+        ORDER BY cl.class_name
+        LIMIT 5
+    ''', (student_id, faculty['faculty_id'])).fetchall()
+    
+    conn.close()
+    
+    def format_time(value):
+        if not value:
+            return None
+        try:
+            return datetime.strptime(str(value), '%H:%M:%S').strftime('%I:%M %p')
+        except Exception:
+            return str(value)
+    
+    classes_list = []
+    for item in classes:
+        schedule_parts = []
+        if item['days']:
+            schedule_parts.append(item['days'])
+        if item['start_time'] and item['end_time']:
+            schedule_parts.append(f"{format_time(item['start_time'])} - {format_time(item['end_time'])}")
+        classes_list.append({
+            'name': item['class_name'],
+            'code': item['edpcode'],
+            'room': item['room'],
+            'schedule': ' • '.join(schedule_parts) if schedule_parts else 'Schedule not set'
+        })
+    
+    last_attendance_data = None
+    if last_attendance:
+        try:
+            attendance_dt = datetime.strptime(last_attendance['attendance_date'], '%Y-%m-%d %H:%M:%S')
+            formatted_dt = attendance_dt.strftime('%B %d, %Y %I:%M %p')
+        except Exception:
+            formatted_dt = last_attendance['attendance_date']
+        last_attendance_data = {
+            'status': last_attendance['attendance_status'],
+            'class_name': last_attendance['class_name'],
+            'timestamp': formatted_dt
+        }
+    
+    return jsonify({
+        'success': True,
+        'student': {
+            'user_id': student_info['user_id'],
+            'student_id': student_id,
+            'idno': student_info['idno'],
+            'firstname': student_info['firstname'],
+            'lastname': student_info['lastname'],
+            'full_name': f"{student_info['firstname']} {student_info['lastname']}",
+            'course_name': student_info['course_name'],
+            'year_level': student_info['year_level'],
+            'dept_name': student_info['dept_name'],
+            'is_active': bool(student_info['is_active']),
+            'profile_picture': student_info['profile_picture'],
+            'attendance_image': student_info['attendance_image'],
+            'created_at': student_info['created_at']
+        },
+        'attendance_stats': {
+            'total': total_records,
+            'present': present_count,
+            'late': late_count,
+            'absent': absent_count,
+            'rate': attendance_rate
+        },
+        'last_attendance': last_attendance_data,
+        'classes': classes_list
+    })
+
 # Faculty My Classes
-@app.route('/my_classes')
+@app.route('/faculty/my_classes')
 def faculty_my_classes():
     if 'user_id' not in session or session['role'] != 'faculty':
         return redirect(url_for('login'))
@@ -4511,6 +4827,74 @@ def check_session():
             'valid': False,
             'message': 'No active session'
         }), 401
+
+# Notification API endpoints
+@app.route('/api/notifications')
+def api_get_notifications():
+    """Get notifications for current user"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    if not NOTIFICATIONS_AVAILABLE:
+        return jsonify({'success': False, 'message': 'Notifications not available'}), 500
+    
+    try:
+        unread_only = request.args.get('unread_only', 'false').lower() == 'true'
+        notifications = get_user_notifications(session['user_id'], unread_only)
+        unread_count = get_unread_count(session['user_id'])
+        
+        return jsonify({
+            'success': True,
+            'notifications': notifications,
+            'unread_count': unread_count
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/notifications/unread-count')
+def api_get_unread_count():
+    """Get unread notification count for current user"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    if not NOTIFICATIONS_AVAILABLE:
+        return jsonify({'success': False, 'count': 0})
+    
+    try:
+        count = get_unread_count(session['user_id'])
+        return jsonify({'success': True, 'count': count})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e), 'count': 0})
+
+@app.route('/api/notifications/mark-read/<int:notification_id>', methods=['POST'])
+def api_mark_notification_read(notification_id):
+    """Mark a notification as read"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    if not NOTIFICATIONS_AVAILABLE:
+        return jsonify({'success': False, 'message': 'Notifications not available'}), 500
+    
+    try:
+        success = mark_notification_read(notification_id)
+        return jsonify({'success': success})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/notifications/mark-all-read', methods=['POST'])
+def api_mark_all_notifications_read():
+    """Mark all notifications as read for current user"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    if not NOTIFICATIONS_AVAILABLE:
+        return jsonify({'success': False, 'message': 'Notifications not available'}), 500
+    
+    try:
+        success = mark_all_read(session['user_id'])
+        return jsonify({'success': success})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 # Error handlers
 @app.errorhandler(404)

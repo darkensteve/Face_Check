@@ -14,6 +14,9 @@ DEFAULT_SETTINGS = {
     'late_threshold_minutes': '15',
     'minimum_attendance_percentage': '75',
     'absent_auto_mark': 'true',
+    'lates_to_absent': '3',
+    'absence_notification_threshold': '5',
+    'enable_notifications': 'true',
     
     # Security Management
     'session_timeout': '3600',

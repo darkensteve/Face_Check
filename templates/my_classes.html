@@ -43,7 +43,7 @@
                     Register Face
                 </a>
                 
-                <a href="/my_classes" class="flex items-center px-6 py-3 bg-gray-700 text-white">
+                <a href="{{ url_for('my_classes') }}" class="flex items-center px-6 py-3 bg-gray-700 text-white">
                     <i class="fas fa-book mr-3"></i>
                     My Classes
                 </a>
@@ -92,92 +92,176 @@
             </header>
             
             <!-- Main Content Area -->
-            <main class="flex-1 overflow-y-auto p-6">
-                <div class="max-w-6xl mx-auto">
-                    {% if enrolled_classes %}
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {% for class_item in enrolled_classes %}
-                        <div class="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-200 overflow-hidden">
-                            <!-- Class Header -->
-                            <div class="bg-gradient-to-r from-blue-600 to-blue-700 p-6 text-white">
-                                <h3 class="text-xl font-bold mb-2">{{ class_item.class_name }}</h3>
-                                <p class="text-blue-100 text-sm">
-                                    <i class="fas fa-code mr-2"></i>{{ class_item.edpcode }}
-                                </p>
+            <main class="flex-1 overflow-y-auto p-6 bg-slate-50/60">
+                <div class="max-w-7xl mx-auto space-y-8">
+                    <!-- Overview cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                            <p class="text-sm text-slate-500">Total Classes</p>
+                            <div class="mt-2 flex items-baseline space-x-2">
+                                <span class="text-3xl font-bold text-slate-900">{{ total_classes }}</span>
+                                <span class="text-sm text-slate-400">enrolled</span>
                             </div>
-                            
-                            <!-- Class Details -->
-                            <div class="p-6 space-y-4">
-                                {% if class_item.days %}
-                                <div class="flex items-start">
-                                    <div class="flex-shrink-0">
-                                        <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                                            <i class="fas fa-calendar-day text-blue-600"></i>
-                                        </div>
+                        </div>
+                        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                            <p class="text-sm text-slate-500">Weekly Load</p>
+                            <div class="mt-2 text-slate-900 font-semibold">
+                                {{ weekly_hours_estimate }} hrs (est.)
+                            </div>
+                            <p class="text-xs text-slate-400 mt-1">Assuming 3hrs per class</p>
+                        </div>
+                        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                            <p class="text-sm text-slate-500">Instructors</p>
+                            <div class="mt-2 text-slate-900 font-semibold">
+                                {{ faculty_count }} faculty members
+                            </div>
+                            <p class="text-xs text-slate-400 mt-1">Across all sections</p>
+                        </div>
+                    </div>
+
+                    <!-- Filters -->
+                    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Search</label>
+                                <div class="relative">
+                                    <span class="absolute inset-y-0 left-3 flex items-center text-slate-400"><i class="fas fa-search"></i></span>
+                                    <input id="classSearch" type="text" placeholder="Class, code, instructor" class="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Days</label>
+                                <select id="dayFilter" class="w-full rounded-xl border border-slate-200 text-sm px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                    <option value="all">All schedules</option>
+                                    <option value="monday">Monday</option>
+                                    <option value="tuesday">Tuesday</option>
+                                    <option value="wednesday">Wednesday</option>
+                                    <option value="thursday">Thursday</option>
+                                    <option value="friday">Friday</option>
+                                    <option value="saturday">Saturday</option>
+                                </select>
+                            </div>
+                            <div class="flex items-end">
+                                <button id="resetClasses" class="inline-flex items-center justify-center w-full px-4 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">
+                                    <i class="fas fa-undo mr-2 text-xs"></i>Reset
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {% if enrolled_classes %}
+                    <div id="classGrid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                        {% for class_item in enrolled_classes %}
+                        <div class="class-card bg-white/95 backdrop-blur rounded-2xl border border-slate-200 shadow-md hover:shadow-lg transition-all duration-200" data-days="{{ class_item.days|lower }}" data-class="{{ class_item.class_name|lower }}" data-instructor="{{ (class_item.faculty_firstname ~ ' ' ~ class_item.faculty_lastname)|lower }}">
+                            <div class="p-6 border-b border-slate-100 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-t-2xl">
+                                <div class="flex items-start justify-between">
+                                    <div>
+                                        <p class="text-xs uppercase tracking-widest text-white/70 mb-1">Course</p>
+                                        <h3 class="text-2xl font-semibold">{{ class_item.class_name }}</h3>
                                     </div>
-                                    <div class="ml-4">
-                                        <p class="text-sm font-medium text-gray-900">Schedule</p>
-                                        <p class="text-sm text-gray-600">{{ class_item.days }}</p>
+                                    <div class="text-right">
+                                        <p class="text-xs uppercase tracking-widest text-white/70 mb-1">EDP Code</p>
+                                        <p class="text-lg font-semibold">{{ class_item.edpcode }}</p>
                                     </div>
                                 </div>
-                                {% endif %}
-                                
-                                {% if class_item.time %}
-                                <div class="flex items-start">
-                                    <div class="flex-shrink-0">
-                                        <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                                            <i class="fas fa-clock text-green-600"></i>
-                                        </div>
+                            </div>
+                            <div class="p-6 space-y-5">
+                                <div class="flex items-start space-x-3">
+                                    <div class="flex-shrink-0 w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                                        <i class="fas fa-calendar-alt"></i>
                                     </div>
-                                    <div class="ml-4">
-                                        <p class="text-sm font-medium text-gray-900">Time</p>
-                                        <p class="text-sm text-gray-600">{{ class_item.time }}</p>
+                                    <div>
+                                        <p class="text-xs uppercase tracking-wide text-slate-400">Schedule</p>
+                                        <p class="text-sm text-slate-900">{{ class_item.days or 'TBA' }}</p>
                                     </div>
                                 </div>
-                                {% endif %}
-                                
-                                {% if class_item.room %}
-                                <div class="flex items-start">
-                                    <div class="flex-shrink-0">
-                                        <div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                                            <i class="fas fa-door-open text-purple-600"></i>
-                                        </div>
+
+                                <div class="flex items-start space-x-3">
+                                    <div class="flex-shrink-0 w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                                        <i class="fas fa-clock"></i>
                                     </div>
-                                    <div class="ml-4">
-                                        <p class="text-sm font-medium text-gray-900">Room</p>
-                                        <p class="text-sm text-gray-600">{{ class_item.room }}</p>
+                                    <div>
+                                        <p class="text-xs uppercase tracking-wide text-slate-400">Time</p>
+                                        <p class="text-sm text-slate-900">{{ class_item.time or 'TBA' }}</p>
                                     </div>
                                 </div>
-                                {% endif %}
-                                
-                                <div class="pt-4 border-t border-gray-200">
-                                    <div class="flex items-center">
-                                        <div class="flex-shrink-0">
-                                            <div class="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
-                                                <i class="fas fa-chalkboard-teacher text-gray-600 text-xs"></i>
-                                            </div>
-                                        </div>
-                                        <div class="ml-3">
-                                            <p class="text-xs text-gray-500">Instructor</p>
-                                            <p class="text-sm font-medium text-gray-900">{{ class_item.faculty_firstname }} {{ class_item.faculty_lastname }}</p>
-                                        </div>
+
+                                <div class="flex items-start space-x-3">
+                                    <div class="flex-shrink-0 w-10 h-10 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center">
+                                        <i class="fas fa-door-open"></i>
                                     </div>
+                                    <div>
+                                        <p class="text-xs uppercase tracking-wide text-slate-400">Room</p>
+                                        <p class="text-sm text-slate-900">{{ class_item.room or 'TBA' }}</p>
+                                    </div>
+                                </div>
+
+                                <div class="pt-4 border-t border-slate-100">
+                                    <p class="text-xs uppercase tracking-wide text-slate-400 mb-1">Instructor</p>
+                                    <p class="text-sm font-medium text-slate-900">{{ class_item.faculty_firstname }} {{ class_item.faculty_lastname }}</p>
                                 </div>
                             </div>
                         </div>
                         {% endfor %}
                     </div>
                     {% else %}
-                    <div class="bg-white rounded-xl shadow-lg p-12 text-center">
-                        <i class="fas fa-book-open text-6xl text-gray-400 mb-4"></i>
-                        <h3 class="text-xl font-semibold text-gray-900 mb-2">No Enrolled Classes</h3>
-                        <p class="text-gray-600">You are not currently enrolled in any classes.</p>
+                    <div class="bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center">
+                        <i class="fas fa-book-open text-6xl text-slate-300 mb-4"></i>
+                        <h3 class="text-2xl font-semibold text-slate-800 mb-2">No Enrolled Classes</h3>
+                        <p class="text-slate-500">You're not enrolled in any classes yet. Once you are added, they will appear here.</p>
                     </div>
                     {% endif %}
                 </div>
             </main>
         </div>
     </div>
+    <script>
+        (function() {
+            const searchInput = document.getElementById('classSearch');
+            const dayFilter = document.getElementById('dayFilter');
+            const resetButton = document.getElementById('resetClasses');
+            const cards = document.querySelectorAll('.class-card');
+
+            function normalizeDay(day) {
+                return day.toLowerCase().trim();
+            }
+
+            function matchesDay(daysString, selectedDay) {
+                if (!selectedDay || selectedDay === 'all') return true;
+                if (!daysString) return false;
+                return daysString.split(',').map(normalizeDay).some(day => day.includes(selectedDay));
+            }
+
+            function applyClassFilters() {
+                const query = (searchInput.value || '').toLowerCase();
+                const day = dayFilter.value;
+
+                cards.forEach(card => {
+                    const className = card.dataset.class || '';
+                    const instructor = card.dataset.instructor || '';
+                    const days = card.dataset.days || '';
+                    const matchesQuery = !query || className.includes(query) || instructor.includes(query);
+                    const matchesSchedule = matchesDay(days, day);
+                    if (matchesQuery && matchesSchedule) {
+                        card.classList.remove('hidden');
+                    } else {
+                        card.classList.add('hidden');
+                    }
+                });
+            }
+
+            searchInput.addEventListener('input', () => {
+                window.clearTimeout(searchInput._timer);
+                searchInput._timer = window.setTimeout(applyClassFilters, 200);
+            });
+            dayFilter.addEventListener('change', applyClassFilters);
+            resetButton.addEventListener('click', () => {
+                searchInput.value = '';
+                dayFilter.value = 'all';
+                applyClassFilters();
+            });
+        })();
+    </script>
 </body>
 </html>
 

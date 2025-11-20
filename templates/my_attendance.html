@@ -43,7 +43,7 @@
                     Register Face
                 </a>
                 
-                <a href="/my_classes" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                <a href="{{ url_for('my_classes') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-book mr-3"></i>
                     My Classes
                 </a>
@@ -147,8 +147,40 @@
                 <!-- Attendance Records Table -->
                 <div class="bg-white rounded-xl shadow-lg overflow-hidden">
                     <div class="px-6 py-4 border-b border-gray-200">
-                        <h3 class="text-lg font-semibold text-gray-900">Attendance History</h3>
-                        <p class="text-sm text-gray-500">All your attendance records sorted by date</p>
+                        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                            <div>
+                                <h3 class="text-lg font-semibold text-gray-900">Attendance History</h3>
+                                <p class="text-sm text-gray-500">All your attendance records sorted by date</p>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3 w-full lg:w-auto">
+                                <div>
+                                    <label for="statusFilter" class="block text-xs font-medium text-gray-500 mb-1 uppercase tracking-wider">Status</label>
+                                    <select id="statusFilter" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                        <option value="all">All</option>
+                                        <option value="present">Present</option>
+                                        <option value="late">Late</option>
+                                        <option value="absent">Absent</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="searchFilter" class="block text-xs font-medium text-gray-500 mb-1 uppercase tracking-wider">Class / Faculty</label>
+                                    <input id="searchFilter" type="text" placeholder="Search..." class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                </div>
+                                <div>
+                                    <label for="startDateFilter" class="block text-xs font-medium text-gray-500 mb-1 uppercase tracking-wider">Start Date</label>
+                                    <input id="startDateFilter" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                </div>
+                                <div>
+                                    <label for="endDateFilter" class="block text-xs font-medium text-gray-500 mb-1 uppercase tracking-wider">End Date</label>
+                                    <input id="endDateFilter" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                </div>
+                                <div class="flex items-end">
+                                    <button id="clearFilters" class="w-full inline-flex items-center justify-center px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50">
+                                        <i class="fas fa-undo mr-2 text-xs"></i> Reset
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     
                     <div class="overflow-x-auto">
@@ -164,7 +196,7 @@
                             <tbody class="bg-white divide-y divide-gray-200">
                                 {% if attendance_records %}
                                     {% for record in attendance_records %}
-                                    <tr class="hover:bg-gray-50">
+                                    <tr class="hover:bg-gray-50 attendance-row" data-status="{{ record.status.lower() }}" data-class="{{ record.class_name|lower }}" data-faculty="{{ record.faculty|lower }}" data-date="{{ record.iso_date }}" data-datetime="{{ record.iso_datetime }}">
                                         <td class="px-6 py-4 whitespace-nowrap">
                                             <div class="text-sm font-medium text-gray-900">{{ record.date }}</div>
                                             <div class="text-sm text-gray-500">{{ record.time }}</div>
@@ -214,6 +246,68 @@
             </main>
         </div>
     </div>
+    <script>
+        (function() {
+            const statusFilter = document.getElementById('statusFilter');
+            const searchFilter = document.getElementById('searchFilter');
+            const startDateInput = document.getElementById('startDateFilter');
+            const endDateInput = document.getElementById('endDateFilter');
+            const clearButton = document.getElementById('clearFilters');
+            const rows = document.querySelectorAll('.attendance-row');
+
+            function applyFilters() {
+                const statusValue = statusFilter.value;
+                const searchValue = searchFilter.value.trim().toLowerCase();
+                const startDateValue = startDateInput.value ? new Date(startDateInput.value) : null;
+                const endDateValue = endDateInput.value ? new Date(endDateInput.value) : null;
+
+                rows.forEach(row => {
+                    const rowStatus = row.dataset.status;
+                    const rowClass = row.dataset.class || '';
+                    const rowFaculty = row.dataset.faculty || '';
+                    const rowDateValue = row.dataset.date ? new Date(row.dataset.date) : null;
+                    const matchesStatus = statusValue === 'all' || rowStatus === statusValue;
+                    const matchesSearch = !searchValue || rowClass.includes(searchValue) || rowFaculty.includes(searchValue);
+                    let matchesDate = true;
+
+                    if (startDateValue && rowDateValue) {
+                        matchesDate = rowDateValue >= startDateValue;
+                    }
+                    if (matchesDate && endDateValue && rowDateValue) {
+                        // add one day to include entire day
+                        const endDateInclusive = new Date(endDateValue);
+                        endDateInclusive.setDate(endDateInclusive.getDate() + 1);
+                        matchesDate = rowDateValue < endDateInclusive;
+                    }
+                    if ((startDateValue || endDateValue) && !rowDateValue) {
+                        matchesDate = false;
+                    }
+
+                    if (matchesStatus && matchesSearch && matchesDate) {
+                        row.classList.remove('hidden');
+                    } else {
+                        row.classList.add('hidden');
+                    }
+                });
+            }
+
+            statusFilter.addEventListener('change', applyFilters);
+            searchFilter.addEventListener('input', () => {
+                window.clearTimeout(searchFilter._timer);
+                searchFilter._timer = window.setTimeout(applyFilters, 150);
+            });
+
+            startDateInput.addEventListener('change', applyFilters);
+            endDateInput.addEventListener('change', applyFilters);
+
+            clearButton.addEventListener('click', () => {
+                statusFilter.value = 'all';
+                searchFilter.value = '';
+                startDateInput.value = '';
+                endDateInput.value = '';
+                applyFilters();
+            });
+        })();
+    </script>
 </body>
 </html>
-

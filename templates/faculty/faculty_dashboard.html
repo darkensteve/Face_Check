@@ -38,7 +38,7 @@
                     Manage Students
                 </a>
                 
-                <a href="/my_classes" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                <a href="{{ url_for('faculty_my_classes') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-chalkboard mr-3"></i>
                     My Classes
                 </a>
@@ -86,6 +86,26 @@
                         <div>
                             <h2 class="text-2xl font-bold text-gray-800">Faculty Dashboard</h2>
                             <p class="text-gray-600">Welcome, {{ session.username }}</p>
+                        </div>
+                        <!-- Notification Bell -->
+                        <div class="relative">
+                            <button id="notificationBtn" class="relative p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-full transition">
+                                <i class="fas fa-bell text-xl"></i>
+                                <span id="notificationBadge" class="hidden absolute top-0 right-0 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white bg-red-600 rounded-full"></span>
+                            </button>
+                            <!-- Notification Dropdown -->
+                            <div id="notificationDropdown" class="hidden absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+                                <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+                                    <h3 class="text-sm font-semibold text-gray-900">Notifications</h3>
+                                    <button id="markAllReadBtn" class="text-xs text-blue-600 hover:text-blue-800">Mark all read</button>
+                                </div>
+                                <div id="notificationList" class="max-h-96 overflow-y-auto">
+                                    <div class="px-4 py-8 text-center text-gray-500">
+                                        <i class="fas fa-bell-slash text-3xl mb-2"></i>
+                                        <p class="text-sm">No notifications</p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -219,6 +239,106 @@
             </main>
         </div>
     </div>
+
+    <script>
+        // Notification System
+        let notificationDropdownOpen = false;
+
+        async function loadNotifications() {
+            try {
+                const response = await fetch('/api/notifications/unread-count');
+                const data = await response.json();
+                
+                if (data.success && data.count > 0) {
+                    document.getElementById('notificationBadge').textContent = data.count;
+                    document.getElementById('notificationBadge').classList.remove('hidden');
+                } else {
+                    document.getElementById('notificationBadge').classList.add('hidden');
+                }
+            } catch (error) {
+                console.error('Error loading notifications:', error);
+            }
+        }
+
+        async function loadNotificationList() {
+            try {
+                const response = await fetch('/api/notifications');
+                const data = await response.json();
+                
+                const listContainer = document.getElementById('notificationList');
+                
+                if (data.success && data.notifications.length > 0) {
+                    listContainer.innerHTML = data.notifications.map(notif => `
+                        <div class="px-4 py-3 border-b border-gray-100 hover:bg-gray-50 ${notif.is_read ? 'opacity-60' : ''}" data-id="${notif.notification_id}">
+                            <p class="text-sm text-gray-800">${notif.message}</p>
+                            <p class="text-xs text-gray-500 mt-1">${formatDate(notif.created_at)}</p>
+                        </div>
+                    `).join('');
+                } else {
+                    listContainer.innerHTML = `
+                        <div class="px-4 py-8 text-center text-gray-500">
+                            <i class="fas fa-bell-slash text-3xl mb-2"></i>
+                            <p class="text-sm">No notifications</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading notification list:', error);
+            }
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            const now = new Date();
+            const diffInSeconds = Math.floor((now - date) / 1000);
+            
+            if (diffInSeconds < 60) return 'Just now';
+            if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+            if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+            return `${Math.floor(diffInSeconds / 86400)}d ago`;
+        }
+
+        document.getElementById('notificationBtn').addEventListener('click', function(e) {
+            e.stopPropagation();
+            notificationDropdownOpen = !notificationDropdownOpen;
+            const dropdown = document.getElementById('notificationDropdown');
+            
+            if (notificationDropdownOpen) {
+                dropdown.classList.remove('hidden');
+                loadNotificationList();
+            } else {
+                dropdown.classList.add('hidden');
+            }
+        });
+
+        document.getElementById('markAllReadBtn').addEventListener('click', async function() {
+            try {
+                const response = await fetch('/api/notifications/mark-all-read', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    loadNotifications();
+                    loadNotificationList();
+                }
+            } catch (error) {
+                console.error('Error marking notifications as read:', error);
+            }
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function() {
+            if (notificationDropdownOpen) {
+                document.getElementById('notificationDropdown').classList.add('hidden');
+                notificationDropdownOpen = false;
+            }
+        });
+
+        // Load notifications on page load and refresh every 30 seconds
+        loadNotifications();
+        setInterval(loadNotifications, 30000);
+    </script>
 </body>
 </html>
 
