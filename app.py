@@ -2886,6 +2886,364 @@ def api_attendance_override():
         print(f"Error in attendance override: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
+@app.route('/api/admin/attendance/override', methods=['POST'])
+def api_admin_attendance_override():
+    """Admin override attendance by attendance_id"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return jsonify({'success': False, 'message': 'Unauthorized - Admin access required'}), 401
+    
+    try:
+        data = request.get_json()
+        attendance_id = data.get('attendance_id')
+        status = data.get('status', 'present')
+        reason = data.get('reason', 'Admin override')
+        
+        if not attendance_id:
+            return jsonify({'success': False, 'message': 'Missing attendance ID'}), 400
+        
+        if status not in ['present', 'late', 'absent']:
+            return jsonify({'success': False, 'message': 'Invalid status. Must be present, late, or absent'}), 400
+        
+        conn = get_db_connection()
+        
+        # Get attendance record with student and class info
+        attendance = conn.execute('''
+            SELECT a.*, sc.student_id, sc.class_id, s.user_id, u.firstname, u.lastname, c.class_name
+            FROM attendance a
+            JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+            JOIN student s ON sc.student_id = s.student_id
+            JOIN user u ON s.user_id = u.user_id
+            JOIN class c ON sc.class_id = c.class_id
+            WHERE a.attendance_id = ?
+        ''', (attendance_id,)).fetchone()
+        
+        if not attendance:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Attendance record not found'}), 404
+        
+        # Update attendance status
+        conn.execute('''
+            UPDATE attendance 
+            SET attendance_status = ?
+            WHERE attendance_id = ?
+        ''', (status, attendance_id))
+        
+        conn.commit()
+        conn.close()
+        
+        # Create notification for student
+        if NOTIFICATIONS_AVAILABLE:
+            try:
+                from notification_system import create_notification
+                current_time_str = datetime.now().strftime('%I:%M %p on %B %d, %Y')
+                class_name = attendance['class_name']
+                
+                if status == 'present':
+                    notification_msg = f'✅ Your attendance was manually updated to PRESENT for {class_name} at {current_time_str} by admin.'
+                    create_notification(attendance['user_id'], notification_msg, 'attendance_override_present')
+                elif status == 'absent':
+                    notification_msg = f'❌ Your attendance was manually updated to ABSENT for {class_name} at {current_time_str} by admin.'
+                    create_notification(attendance['user_id'], notification_msg, 'attendance_override_absent')
+                elif status == 'late':
+                    notification_msg = f'⚠️ Your attendance was manually updated to LATE for {class_name} at {current_time_str} by admin.'
+                    create_notification(attendance['user_id'], notification_msg, 'attendance_override_late')
+            except Exception as e:
+                print(f"Error creating override notification: {e}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Attendance updated to {status.title()}',
+            'attendance_id': attendance_id,
+            'status': status
+        })
+        
+    except Exception as e:
+        print(f"Error in admin attendance override: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/admin/attendance/export/<fmt>')
+def admin_attendance_export(fmt):
+    """Export admin attendance records in CSV, Excel, or PDF format"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        # Get filter parameters
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+        status_filter = request.args.get('status')
+        class_filter = request.args.get('class')
+        
+        conn = get_db_connection()
+        
+        # Build query with filters
+        query = '''
+            SELECT 
+                a.attendance_id,
+                strftime('%Y-%m-%d %H:%M:%S', a.attendance_date) as attendance_date,
+                a.attendance_status,
+                u.firstname,
+                u.lastname,
+                u.idno,
+                c.class_name,
+                c.edpcode,
+                fu.firstname as faculty_firstname,
+                fu.lastname as faculty_lastname
+            FROM attendance a
+            JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+            JOIN student s ON sc.student_id = s.student_id
+            JOIN user u ON s.user_id = u.user_id
+            JOIN class c ON sc.class_id = c.class_id
+            JOIN faculty f ON c.faculty_id = f.faculty_id
+            JOIN user fu ON f.user_id = fu.user_id
+            WHERE 1=1
+        '''
+        params = []
+        
+        if date_from:
+            query += ' AND DATE(a.attendance_date) >= ?'
+            params.append(date_from)
+        if date_to:
+            query += ' AND DATE(a.attendance_date) <= ?'
+            params.append(date_to)
+        if status_filter:
+            query += ' AND a.attendance_status = ?'
+            params.append(status_filter)
+        if class_filter:
+            query += ' AND c.class_name LIKE ?'
+            params.append(f'%{class_filter}%')
+        
+        query += ' ORDER BY a.attendance_date DESC, u.lastname, u.firstname'
+        
+        attendance_records = conn.execute(query, params).fetchall()
+        conn.close()
+        
+        if fmt == 'csv':
+            from io import StringIO
+            import csv
+            output = StringIO()
+            writer = csv.writer(output)
+            
+            # Header
+            writer.writerow(['Attendance Records Export'])
+            writer.writerow([f'Generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'])
+            if date_from or date_to:
+                writer.writerow([f'Date Range: {date_from or "All"} to {date_to or "All"}'])
+            writer.writerow([])
+            
+            # Column headers
+            writer.writerow(['Student Name', 'Student ID', 'Class Name', 'EDP Code', 'Faculty', 'Date', 'Status'])
+            
+            # Format date for better readability
+            def format_date_for_export(date_str):
+                """Format date string to be more readable"""
+                if not date_str:
+                    return ''
+                try:
+                    # Parse and reformat: YYYY-MM-DD HH:MM:SS
+                    dt = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+                    return dt.strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    return str(date_str)
+            
+            # Data rows
+            for record in attendance_records:
+                formatted_date = format_date_for_export(record['attendance_date'])
+                writer.writerow([
+                    f"{record['firstname']} {record['lastname']}",
+                    str(record['idno']),
+                    record['class_name'],
+                    str(record['edpcode']) if record['edpcode'] else '',
+                    f"{record['faculty_firstname']} {record['faculty_lastname']}",
+                    formatted_date,
+                    record['attendance_status'].title()
+                ])
+            
+            csv_data = output.getvalue()
+            output.close()
+            
+            return app.response_class(
+                csv_data,
+                mimetype='text/csv',
+                headers={
+                    'Content-Disposition': f'attachment; filename=attendance_records_{datetime.now().strftime("%Y%m%d")}.csv',
+                    'Content-Type': 'text/csv; charset=utf-8'
+                }
+            )
+            
+        elif fmt == 'xlsx':
+            try:
+                from io import BytesIO
+                from openpyxl import Workbook
+                from openpyxl.styles import Font, PatternFill, Alignment
+                from openpyxl.utils import get_column_letter
+                
+                wb = Workbook()
+                ws = wb.active
+                ws.title = 'Attendance Records'
+                
+                # Title
+                ws.append(['Attendance Records Export'])
+                ws.append([f'Generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'])
+                if date_from or date_to:
+                    ws.append([f'Date Range: {date_from or "All"} to {date_to or "All"}'])
+                ws.append([])
+                
+                # Column headers
+                headers = ['Student Name', 'Student ID', 'Class Name', 'EDP Code', 'Faculty', 'Date', 'Status']
+                ws.append(headers)
+                
+                # Style header row
+                header_font = Font(bold=True, color='FFFFFF')
+                header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+                header_alignment = Alignment(horizontal='center', vertical='center')
+                
+                header_row = 5  # Row 5 is the header row
+                for cell in ws[header_row]:
+                    cell.font = header_font
+                    cell.fill = header_fill
+                    cell.alignment = header_alignment
+                
+                # Format date for better Excel compatibility
+                def format_date_for_excel(date_str):
+                    """Format date string to be more Excel-friendly"""
+                    if not date_str:
+                        return ''
+                    try:
+                        # Parse the date string and reformat it
+                        dt = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+                        # Format as: YYYY-MM-DD HH:MM:SS (more readable)
+                        return dt.strftime('%Y-%m-%d %H:%M:%S')
+                    except:
+                        return str(date_str)
+                
+                # Data rows
+                for record in attendance_records:
+                    formatted_date = format_date_for_excel(record['attendance_date'])
+                    ws.append([
+                        f"{record['firstname']} {record['lastname']}",
+                        str(record['idno']),
+                        record['class_name'],
+                        str(record['edpcode']) if record['edpcode'] else '',
+                        f"{record['faculty_firstname']} {record['faculty_lastname']}",
+                        formatted_date,  # Use formatted date
+                        record['attendance_status'].title()
+                    ])
+                
+                # Set column widths explicitly (Date column needs to be wider)
+                ws.column_dimensions['A'].width = 20  # Student Name
+                ws.column_dimensions['B'].width = 15  # Student ID
+                ws.column_dimensions['C'].width = 20  # Class Name
+                ws.column_dimensions['D'].width = 12  # EDP Code
+                ws.column_dimensions['E'].width = 20  # Faculty
+                ws.column_dimensions['F'].width = 20  # Date (wider for full date/time)
+                ws.column_dimensions['G'].width = 12  # Status
+                
+                # Format date column as text to prevent Excel from misinterpreting
+                from openpyxl.styles.numbers import FORMAT_TEXT
+                date_col = get_column_letter(6)  # Column F
+                for row in range(header_row + 1, ws.max_row + 1):
+                    cell = ws[f'{date_col}{row}']
+                    cell.number_format = FORMAT_TEXT
+                
+                # Save to BytesIO
+                output = BytesIO()
+                wb.save(output)
+                output.seek(0)
+                
+                return app.response_class(
+                    output.read(),
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={
+                        'Content-Disposition': f'attachment; filename=attendance_records_{datetime.now().strftime("%Y%m%d")}.xlsx'
+                    }
+                )
+            except ImportError:
+                return jsonify({'error': 'openpyxl library not installed. Install with: pip install openpyxl'}), 500
+                
+        elif fmt == 'pdf':
+            try:
+                from io import BytesIO
+                from reportlab.lib.pagesizes import letter, landscape
+                from reportlab.pdfgen import canvas
+                from reportlab.lib.units import inch
+                from reportlab.lib import colors
+                from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+                from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+                from reportlab.lib.enums import TA_CENTER, TA_LEFT
+                
+                buffer = BytesIO()
+                doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), topMargin=0.5*inch)
+                elements = []
+                
+                styles = getSampleStyleSheet()
+                title_style = ParagraphStyle(
+                    'CustomTitle',
+                    parent=styles['Heading1'],
+                    fontSize=16,
+                    textColor=colors.HexColor('#1F2937'),
+                    spaceAfter=12,
+                    alignment=TA_CENTER
+                )
+                
+                # Title
+                elements.append(Paragraph('Attendance Records Export', title_style))
+                elements.append(Paragraph(f'Generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}', styles['Normal']))
+                if date_from or date_to:
+                    elements.append(Paragraph(f'Date Range: {date_from or "All"} to {date_to or "All"}', styles['Normal']))
+                elements.append(Spacer(1, 0.2*inch))
+                
+                # Prepare table data
+                table_data = [['Student Name', 'Student ID', 'Class Name', 'EDP Code', 'Faculty', 'Date', 'Status']]
+                
+                for record in attendance_records:
+                    table_data.append([
+                        f"{record['firstname']} {record['lastname']}",
+                        record['idno'],
+                        record['class_name'],
+                        record['edpcode'],
+                        f"{record['faculty_firstname']} {record['faculty_lastname']}",
+                        record['attendance_date'],
+                        record['attendance_status'].title()
+                    ])
+                
+                # Create table
+                table = Table(table_data, repeatRows=1)
+                table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4472C4')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 10),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+                    ('FONTSIZE', (0, 1), (-1, -1), 8),
+                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey]),
+                ]))
+                
+                elements.append(table)
+                
+                # Build PDF
+                doc.build(elements)
+                buffer.seek(0)
+                
+                return app.response_class(
+                    buffer.read(),
+                    mimetype='application/pdf',
+                    headers={
+                        'Content-Disposition': f'attachment; filename=attendance_records_{datetime.now().strftime("%Y%m%d")}.pdf'
+                    }
+                )
+            except ImportError:
+                return jsonify({'error': 'reportlab library not installed. Install with: pip install reportlab'}), 500
+        else:
+            return jsonify({'error': 'Invalid format. Use csv, xlsx, or pdf'}), 400
+            
+    except Exception as e:
+        print(f"Error in admin attendance export: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/students/by-class/<int:class_id>')
 def api_students_by_class(class_id):
     """Get all students enrolled in a specific class"""
@@ -3261,8 +3619,9 @@ def admin_attendance():
     # Get attendance statistics
     total_records = len(attendance_records)
     present_count = len([r for r in attendance_records if r['attendance_status'] == 'present'])
-    absent_count = total_records - present_count
-    attendance_rate = (present_count / total_records * 100) if total_records > 0 else 0
+    late_count = len([r for r in attendance_records if r['attendance_status'] == 'late'])
+    absent_count = len([r for r in attendance_records if r['attendance_status'] == 'absent'])
+    attendance_rate = ((present_count + late_count) / total_records * 100) if total_records > 0 else 0
     
     conn.close()
     
@@ -3270,6 +3629,7 @@ def admin_attendance():
                          attendance_records=attendance_records,
                          total_records=total_records,
                          present_count=present_count,
+                         late_count=late_count,
                          absent_count=absent_count,
                          attendance_rate=round(attendance_rate, 1))
 
@@ -3470,8 +3830,150 @@ def export_reports(fmt):
             response.headers['Content-Disposition'] = f'attachment; filename=report_{report_type}_{date_from}_{date_to}.csv'
             return response
             
+        elif fmt == 'excel' or fmt == 'xlsx':
+            try:
+                from io import BytesIO
+                from openpyxl import Workbook
+                from openpyxl.styles import Font, PatternFill, Alignment
+                from openpyxl.utils import get_column_letter
+                
+                wb = Workbook()
+                ws = wb.active
+                ws.title = 'Reports'
+                
+                # Title
+                ws.append(['Reports & Analytics Export'])
+                ws.append([f'Generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'])
+                ws.append([f'Date Range: {date_from} to {date_to}'])
+                ws.append([f'Report Type: {report_type.title()}'])
+                ws.append([])
+                
+                # Column headers
+                headers = ['Date', 'Class/Event', 'Present', 'Absent', 'Late']
+                ws.append(headers)
+                
+                # Style header row
+                header_font = Font(bold=True, color='FFFFFF')
+                header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+                header_alignment = Alignment(horizontal='center', vertical='center')
+                
+                header_row = 6  # Row 6 is the header row
+                for cell in ws[header_row]:
+                    cell.font = header_font
+                    cell.fill = header_fill
+                    cell.alignment = header_alignment
+                
+                # Data rows
+                for row in data:
+                    ws.append([
+                        str(row['date']),
+                        row['name'],
+                        row['present'],
+                        row['absent'],
+                        row['late']
+                    ])
+                
+                # Set column widths
+                ws.column_dimensions['A'].width = 15  # Date
+                ws.column_dimensions['B'].width = 25  # Class/Event
+                ws.column_dimensions['C'].width = 12  # Present
+                ws.column_dimensions['D'].width = 12  # Absent
+                ws.column_dimensions['E'].width = 12  # Late
+                
+                # Save to BytesIO
+                output = BytesIO()
+                wb.save(output)
+                output.seek(0)
+                
+                return app.response_class(
+                    output.read(),
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={
+                        'Content-Disposition': f'attachment; filename=report_{report_type}_{date_from}_{date_to}.xlsx'
+                    }
+                )
+            except ImportError:
+                flash('openpyxl library not installed. Install with: pip install openpyxl', 'error')
+                return redirect(url_for('admin_reports'))
+            except Exception as e:
+                flash(f'Excel export failed: {str(e)}', 'error')
+                return redirect(url_for('admin_reports'))
+                
+        elif fmt == 'pdf':
+            try:
+                from io import BytesIO
+                from reportlab.lib.pagesizes import letter, landscape
+                from reportlab.pdfgen import canvas
+                from reportlab.lib.units import inch
+                from reportlab.lib import colors
+                from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+                from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+                from reportlab.lib.enums import TA_CENTER, TA_LEFT
+                
+                buffer = BytesIO()
+                doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), topMargin=0.5*inch)
+                elements = []
+                
+                styles = getSampleStyleSheet()
+                title_style = ParagraphStyle(
+                    'CustomTitle',
+                    parent=styles['Heading1'],
+                    fontSize=16,
+                    spaceAfter=30,
+                    alignment=TA_CENTER
+                )
+                
+                elements.append(Paragraph('Reports & Analytics Export', title_style))
+                elements.append(Paragraph(f'Generated on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}', styles['Normal']))
+                elements.append(Paragraph(f'Date Range: {date_from} to {date_to}', styles['Normal']))
+                elements.append(Paragraph(f'Report Type: {report_type.title()}', styles['Normal']))
+                elements.append(Spacer(1, 20))
+                
+                # Table data
+                table_data = [['Date', 'Class/Event', 'Present', 'Absent', 'Late']]
+                for row in data:
+                    table_data.append([
+                        str(row['date']),
+                        row['name'],
+                        str(row['present']),
+                        str(row['absent']),
+                        str(row['late'])
+                    ])
+                
+                table = Table(table_data)
+                table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4472C4')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 12),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                    ('FONTSIZE', (0, 1), (-1, -1), 10),
+                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey]),
+                ]))
+                
+                elements.append(table)
+                doc.build(elements)
+                buffer.seek(0)
+                
+                return app.response_class(
+                    buffer.read(),
+                    mimetype='application/pdf',
+                    headers={
+                        'Content-Disposition': f'attachment; filename=report_{report_type}_{date_from}_{date_to}.pdf'
+                    }
+                )
+            except ImportError:
+                flash('reportlab library not installed. Install with: pip install reportlab', 'error')
+                return redirect(url_for('admin_reports'))
+            except Exception as e:
+                flash(f'PDF export failed: {str(e)}', 'error')
+                return redirect(url_for('admin_reports'))
+            
         else:
-            flash('Export format not yet implemented', 'info')
+            flash('Export format not supported', 'error')
             return redirect(url_for('admin_reports'))
             
     except Exception as e:
@@ -3845,6 +4347,104 @@ def faculty_student_profile(user_id):
         'classes': classes_list
     })
 
+@app.route('/faculty/profile')
+def faculty_profile():
+    """Faculty profile page - similar to student profile"""
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    
+    # Get comprehensive faculty info
+    faculty = conn.execute('''
+        SELECT u.*, f.faculty_id, f.position, f.attendance_image, d.dept_name
+        FROM user u
+        JOIN faculty f ON u.user_id = f.user_id
+        LEFT JOIN department d ON u.dept_id = d.dept_id
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    
+    # Get classes assigned to this faculty
+    classes = conn.execute('''
+        SELECT cl.class_id, cl.class_name, cl.edpcode, cl.start_time, cl.end_time, cl.room,
+               GROUP_CONCAT(DISTINCT d.day_name) as days,
+               COUNT(DISTINCT sc.student_id) as student_count
+        FROM class cl
+        LEFT JOIN student_class sc ON cl.class_id = sc.class_id
+        LEFT JOIN class_days cd ON cl.class_id = cd.class_id
+        LEFT JOIN days d ON cd.day_id = d.day_id
+        WHERE cl.faculty_id = ?
+        GROUP BY cl.class_id, cl.class_name, cl.edpcode, cl.start_time, cl.end_time, cl.room
+        ORDER BY cl.class_name
+    ''', (faculty['faculty_id'],)).fetchall()
+    
+    # Format classes with schedule
+    formatted_classes = []
+    for class_item in classes:
+        time_str = ''
+        if class_item['start_time'] and class_item['end_time']:
+            try:
+                start_dt = datetime.strptime(str(class_item['start_time']), '%H:%M:%S')
+                end_dt = datetime.strptime(str(class_item['end_time']), '%H:%M:%S')
+                time_str = f"{start_dt.strftime('%I:%M %p')} - {end_dt.strftime('%I:%M %p')}"
+            except:
+                time_str = f"{class_item['start_time']} - {class_item['end_time']}"
+        
+        days_str = class_item['days'] or 'Schedule not set'
+        schedule = f"{days_str} • {time_str}" if time_str else days_str
+        
+        formatted_classes.append({
+            'class_name': class_item['class_name'],
+            'edpcode': class_item['edpcode'],
+            'schedule': schedule,
+            'room': class_item['room'],
+            'student_count': class_item['student_count'] or 0
+        })
+    
+    # Check face registration status
+    has_face_registered = False
+    if faculty['attendance_image']:
+        face_image_path = f"static/attendance_images/{faculty['attendance_image']}"
+        if os.path.exists(face_image_path):
+            has_face_registered = True
+        else:
+            conn.execute('UPDATE faculty SET attendance_image = NULL WHERE user_id = ?', (session['user_id'],))
+            conn.commit()
+    
+    if not has_face_registered:
+        face_image_path = f"known_faces/{faculty['idno']}.jpg"
+        if os.path.exists(face_image_path):
+            conn.execute('UPDATE faculty SET attendance_image = ? WHERE user_id = ?', (face_image_path, session['user_id']))
+            conn.commit()
+            has_face_registered = True
+    
+    # Get today's attendance stats
+    today = datetime.now().strftime('%Y-%m-%d')
+    today_stats = conn.execute('''
+        SELECT COUNT(*) as today_count
+        FROM attendance a
+        JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+        JOIN class cl ON sc.class_id = cl.class_id
+        WHERE cl.faculty_id = ? AND DATE(a.attendance_date) = ?
+    ''', (faculty['faculty_id'], today)).fetchone()
+    
+    # Get total students across all classes
+    total_students = conn.execute('''
+        SELECT COUNT(DISTINCT sc.student_id) as total
+        FROM class c
+        JOIN student_class sc ON c.class_id = sc.class_id
+        WHERE c.faculty_id = ?
+    ''', (faculty['faculty_id'],)).fetchone()
+    
+    conn.close()
+    
+    return render_template('faculty/faculty_profile.html',
+                         faculty=faculty,
+                         classes=formatted_classes,
+                         has_face_registered=has_face_registered,
+                         today_attendance=today_stats['today_count'] if today_stats else 0,
+                         total_students=total_students['total'] if total_students else 0)
+
 # Faculty My Classes
 @app.route('/faculty/my_classes')
 def faculty_my_classes():
@@ -3903,6 +4503,76 @@ def faculty_my_classes():
                          classes=classes, 
                          events=events, 
                          total_students=total_students['total'] if total_students else 0)
+
+@app.route('/faculty/class/<int:class_id>')
+def faculty_class_view(class_id):
+    """Full page view for faculty class details"""
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    
+    # Get faculty info
+    faculty = conn.execute('''
+        SELECT f.faculty_id, u.firstname, u.lastname, u.idno, f.attendance_image
+        FROM faculty f 
+        JOIN user u ON f.user_id = u.user_id 
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    
+    if not faculty:
+        conn.close()
+        flash('Faculty record not found', 'error')
+        return redirect(url_for('faculty_dashboard'))
+    
+    # Get class details
+    class_info = conn.execute('''
+        SELECT c.*, 
+               GROUP_CONCAT(DISTINCT d.day_name) as days
+        FROM class c
+        LEFT JOIN class_days cd ON c.class_id = cd.class_id
+        LEFT JOIN days d ON cd.day_id = d.day_id
+        WHERE c.class_id = ? AND c.faculty_id = ?
+        GROUP BY c.class_id
+    ''', (class_id, faculty['faculty_id'])).fetchone()
+    
+    if not class_info:
+        conn.close()
+        flash('Class not found or access denied', 'error')
+        return redirect(url_for('faculty_my_classes'))
+    
+    # Get enrolled students
+    students = conn.execute('''
+        SELECT u.idno, u.firstname, u.lastname, s.student_id, s.year_level, 
+               c.course_name, d.dept_name, s.profile_picture
+        FROM student_class sc
+        JOIN student s ON sc.student_id = s.student_id
+        JOIN user u ON s.user_id = u.user_id
+        LEFT JOIN course c ON s.course_id = c.course_id
+        LEFT JOIN department d ON u.dept_id = d.dept_id
+        WHERE sc.class_id = ?
+        ORDER BY u.firstname, u.lastname
+    ''', (class_id,)).fetchall()
+    
+    # Format time
+    def format_time(value):
+        if not value:
+            return None
+        try:
+            return datetime.strptime(str(value), '%H:%M:%S').strftime('%I:%M %p')
+        except Exception:
+            return str(value)
+    
+    start_time = format_time(class_info['start_time'])
+    end_time = format_time(class_info['end_time'])
+    
+    conn.close()
+    return render_template('faculty/faculty_class_view.html',
+                         class_info=class_info,
+                         students=students,
+                         faculty=faculty,
+                         start_time=start_time,
+                         end_time=end_time)
 
 @app.route('/faculty/class-details/<type>/<int:id>')
 def faculty_class_details(type, id):

@@ -93,9 +93,19 @@
                             <p class="text-gray-600">View and manage all attendance records</p>
                         </div>
                         <div class="flex space-x-4">
-                            <button onclick="exportAttendance()" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-200 flex items-center">
-                                <i class="fas fa-download mr-2"></i>
-                                Export CSV
+                            <div class="relative group">
+                                <button onclick="exportAttendance('csv')" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-200 flex items-center">
+                                    <i class="fas fa-file-csv mr-2"></i>
+                                    Export CSV
+                                </button>
+                            </div>
+                            <button onclick="exportAttendance('xlsx')" class="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition duration-200 flex items-center">
+                                <i class="fas fa-file-excel mr-2"></i>
+                                Export Excel
+                            </button>
+                            <button onclick="exportAttendance('pdf')" class="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition duration-200 flex items-center">
+                                <i class="fas fa-file-pdf mr-2"></i>
+                                Export PDF
                             </button>
                             <button onclick="refreshData()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition duration-200 flex items-center">
                                 <i class="fas fa-sync-alt mr-2"></i>
@@ -109,7 +119,7 @@
             <!-- Main Content Area -->
             <main class="flex-1 overflow-y-auto p-6">
                 <!-- Statistics Cards -->
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
                     <div class="bg-white rounded-xl shadow-lg p-6">
                         <div class="flex items-center">
                             <div class="p-3 bg-blue-100 rounded-lg">
@@ -130,6 +140,18 @@
                             <div class="ml-4">
                                 <p class="text-sm font-medium text-gray-600">Present</p>
                                 <p class="text-2xl font-bold text-gray-900">{{ present_count }}</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded-xl shadow-lg p-6">
+                        <div class="flex items-center">
+                            <div class="p-3 bg-yellow-100 rounded-lg">
+                                <i class="fas fa-clock text-yellow-600 text-xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-gray-600">Late</p>
+                                <p class="text-2xl font-bold text-gray-900">{{ late_count }}</p>
                             </div>
                         </div>
                     </div>
@@ -176,6 +198,7 @@
                             <select id="statusFilter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                                 <option value="">All Status</option>
                                 <option value="present">Present</option>
+                                <option value="late">Late</option>
                                 <option value="absent">Absent</option>
                             </select>
                         </div>
@@ -213,6 +236,7 @@
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Faculty</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                                 </tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
@@ -243,9 +267,17 @@
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full
-                                            {% if record.attendance_status == 'present' %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}">
+                                            {% if record.attendance_status == 'present' %}bg-green-100 text-green-800
+                                            {% elif record.attendance_status == 'late' %}bg-yellow-100 text-yellow-800
+                                            {% else %}bg-red-100 text-red-800{% endif %}" id="status-{{ record.attendance_id }}">
                                             {{ record.attendance_status.title() }}
                                         </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                        <button onclick="openEditModal({{ record.attendance_id }}, '{{ record.attendance_status }}', '{{ record.firstname }} {{ record.lastname }}', '{{ record.class_name }}', '{{ record.attendance_date }}')" 
+                                                class="text-blue-600 hover:text-blue-900">
+                                            <i class="fas fa-edit"></i> Edit
+                                        </button>
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -290,7 +322,7 @@
                 // Status filter
                 if (status) {
                     const statusCell = row.cells[4].textContent.trim().toLowerCase();
-                    if (statusCell !== status) show = false;
+                    if (statusCell !== status.toLowerCase()) show = false;
                 }
                 
                 // Class filter
@@ -319,32 +351,37 @@
             });
         }
         
-        function exportAttendance() {
-            // Simple CSV export
-            const table = document.getElementById('attendanceTable');
-            const rows = Array.from(table.querySelectorAll('tr:not([style*="display: none"])'));
+        function exportAttendance(format) {
+            // Get filter values
+            const dateFrom = document.getElementById('dateFrom').value;
+            const dateTo = document.getElementById('dateTo').value;
+            const status = document.getElementById('statusFilter').value;
+            const classFilter = document.getElementById('classFilter').value;
             
-            let csv = 'Student Name,Student ID,Class,Faculty,Date,Status\n';
+            // Build query string
+            const params = new URLSearchParams();
+            if (dateFrom) params.append('date_from', dateFrom);
+            if (dateTo) params.append('date_to', dateTo);
+            if (status) params.append('status', status);
+            if (classFilter) params.append('class', classFilter);
             
-            rows.slice(1).forEach(row => { // Skip header
-                const cells = Array.from(row.cells);
-                const studentName = cells[0].querySelector('.text-sm.font-medium').textContent;
-                const studentId = cells[0].querySelector('.text-sm.text-gray-500').textContent;
-                const className = cells[1].querySelector('.text-sm.font-medium').textContent;
-                const faculty = cells[2].textContent.trim();
-                const date = cells[3].textContent.trim();
-                const status = cells[4].textContent.trim();
-                
-                csv += `"${studentName}","${studentId}","${className}","${faculty}","${date}","${status}"\n`;
-            });
+            const url = `/api/admin/attendance/export/${format}?${params.toString()}`;
             
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `attendance_records_${new Date().toISOString().split('T')[0]}.csv`;
-            a.click();
-            window.URL.revokeObjectURL(url);
+            // Show loading notification
+            showNotification(`Generating ${format.toUpperCase()} export...`, 'info');
+            
+            // Create a temporary link to trigger download
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `attendance_records_${new Date().toISOString().split('T')[0]}.${format}`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Show success notification after a short delay
+            setTimeout(() => {
+                showNotification(`${format.toUpperCase()} export generated successfully`, 'success');
+            }, 1000);
         }
         
         function refreshData() {
@@ -374,6 +411,157 @@
         document.addEventListener('DOMContentLoaded', function() {
             populateClassFilter();
         });
+
+        // Edit Attendance Modal
+        function openEditModal(attendanceId, currentStatus, studentName, className, attendanceDate) {
+            document.getElementById('editAttendanceId').value = attendanceId;
+            document.getElementById('editStudentName').textContent = studentName;
+            document.getElementById('editClassName').textContent = className;
+            document.getElementById('editAttendanceDate').textContent = attendanceDate;
+            document.getElementById('editStatus').value = currentStatus;
+            
+            document.getElementById('editAttendanceModal').classList.remove('hidden');
+        }
+
+        function closeEditModal() {
+            document.getElementById('editAttendanceModal').classList.add('hidden');
+        }
+
+        async function saveAttendanceEdit() {
+            const attendanceId = document.getElementById('editAttendanceId').value;
+            const newStatus = document.getElementById('editStatus').value;
+            const reason = document.getElementById('editReason').value || 'Admin override';
+
+            if (!attendanceId || !newStatus) {
+                alert('Please select a status');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/admin/attendance/override', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        attendance_id: attendanceId,
+                        status: newStatus,
+                        reason: reason
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Update the status badge in the table
+                    const statusBadge = document.getElementById(`status-${attendanceId}`);
+                    statusBadge.textContent = newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
+                    
+                    // Update badge colors
+                    statusBadge.className = 'px-2 inline-flex text-xs leading-5 font-semibold rounded-full ';
+                    if (newStatus === 'present') {
+                        statusBadge.className += 'bg-green-100 text-green-800';
+                    } else if (newStatus === 'late') {
+                        statusBadge.className += 'bg-yellow-100 text-yellow-800';
+                    } else {
+                        statusBadge.className += 'bg-red-100 text-red-800';
+                    }
+
+                    // Show success notification
+                    showNotification('Attendance updated successfully', 'success');
+                    
+                    // Close modal
+                    closeEditModal();
+                    
+                    // Reload page after 1 second to update statistics
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    alert('Error: ' + (data.message || 'Failed to update attendance'));
+                }
+            } catch (error) {
+                console.error('Error updating attendance:', error);
+                alert('Error updating attendance. Please try again.');
+            }
+        }
+
+        function showNotification(message, type) {
+            const notification = document.createElement('div');
+            notification.className = `fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50 ${
+                type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+            }`;
+            notification.innerHTML = `
+                <div class="flex items-center">
+                    <i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'} mr-2"></i>
+                    <span>${message}</span>
+                </div>
+            `;
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
+        }
+
+        // Close modal when clicking outside
+        document.getElementById('editAttendanceModal').addEventListener('click', function(e) {
+            if (e.target.id === 'editAttendanceModal') {
+                closeEditModal();
+            }
+        });
     </script>
+
+    <!-- Edit Attendance Modal -->
+    <div id="editAttendanceModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-lg shadow-xl max-w-md w-full">
+                <div class="px-6 py-4 border-b border-gray-200">
+                    <h3 class="text-lg font-semibold text-gray-900">Edit Attendance</h3>
+                </div>
+                <div class="p-6">
+                    <input type="hidden" id="editAttendanceId">
+                    
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Student</label>
+                        <p id="editStudentName" class="text-sm text-gray-900 font-semibold"></p>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Class</label>
+                        <p id="editClassName" class="text-sm text-gray-900 font-semibold"></p>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Date</label>
+                        <p id="editAttendanceDate" class="text-sm text-gray-900"></p>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                        <select id="editStatus" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="present">Present</option>
+                            <option value="late">Late</option>
+                            <option value="absent">Absent</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-6">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Reason (Optional)</label>
+                        <textarea id="editReason" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Enter reason for override..."></textarea>
+                    </div>
+                    
+                    <div class="flex justify-end space-x-3">
+                        <button onclick="closeEditModal()" class="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition duration-200">
+                            Cancel
+                        </button>
+                        <button onclick="saveAttendanceEdit()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition duration-200">
+                            <i class="fas fa-save mr-2"></i>Save Changes
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

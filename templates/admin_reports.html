@@ -96,7 +96,7 @@
                             <button onclick="exportReport('csv')" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
                                 <i class="fas fa-file-csv mr-2"></i>Export CSV
                             </button>
-                            <button onclick="exportReport('excel')" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                            <button onclick="exportReport('xlsx')" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
                                 <i class="fas fa-file-excel mr-2"></i>Export Excel
                             </button>
                             <button onclick="exportReport('pdf')" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition">
@@ -405,7 +405,55 @@
             const dateTo = document.getElementById('dateTo').value;
             const reportType = document.getElementById('reportType').value;
 
-            window.location.href = `/admin/reports/export/${format}?date_from=${dateFrom}&date_to=${dateTo}&type=${reportType}`;
+            if (!dateFrom || !dateTo) {
+                showNotification('Please select both start and end dates', 'error');
+                return;
+            }
+
+            // Show loading notification
+            const formatName = format === 'csv' ? 'CSV' : format === 'xlsx' ? 'Excel' : 'PDF';
+            showNotification(`Generating ${formatName} report...`, 'info');
+
+            // Create a temporary link to trigger download
+            const link = document.createElement('a');
+            link.href = `/admin/reports/export/${format}?date_from=${dateFrom}&date_to=${dateTo}&type=${reportType}`;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            // Show success notification after a short delay
+            setTimeout(() => {
+                showNotification(`${formatName} report generated successfully`, 'success');
+            }, 1000);
+        }
+
+        function showNotification(message, type) {
+            const notification = document.createElement('div');
+            notification.className = `fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg text-white transition-all duration-300 ${
+                type === 'success' ? 'bg-green-500' : 
+                type === 'error' ? 'bg-red-500' : 
+                'bg-blue-500'
+            }`;
+            notification.innerHTML = `
+                <div class="flex items-center">
+                    <i class="fas ${
+                        type === 'success' ? 'fa-check-circle' : 
+                        type === 'error' ? 'fa-exclamation-circle' : 
+                        'fa-info-circle'
+                    } mr-2"></i>
+                    <span>${message}</span>
+                </div>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                setTimeout(() => {
+                    notification.remove();
+                }, 300);
+            }, type === 'error' ? 4000 : 3000);
         }
     </script>
 </body>

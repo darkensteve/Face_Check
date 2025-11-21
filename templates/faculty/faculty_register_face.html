@@ -59,9 +59,9 @@
                 </a>
             </nav>
             
-            <!-- User Info -->
-            <div class="absolute bottom-0 w-64 p-6 border-t border-gray-700">
-                <div class="flex items-center">
+            <!-- User Info (Clickable to Profile) -->
+            <div class="absolute bottom-0 w-64 border-t border-gray-700">
+                <a href="{{ url_for('faculty_profile') }}" class="flex items-center px-6 py-3 hover:bg-gray-700 transition duration-200">
                     <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center mr-3">
                         <i class="fas fa-user text-white text-sm"></i>
                     </div>
@@ -69,8 +69,8 @@
                         <div class="text-sm font-medium">{{ session.username }}</div>
                         <div class="text-xs text-gray-400">Faculty</div>
                     </div>
-                </div>
-                <a href="{{ url_for('logout') }}" class="mt-3 flex items-center text-gray-300 hover:text-white transition duration-200">
+                </a>
+                <a href="{{ url_for('logout') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-sign-out-alt mr-2"></i>
                     Logout
                 </a>
