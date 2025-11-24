@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Classes - FaceCheck</title>
+<title>My Classes &amp; Events - FaceCheck</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
@@ -40,7 +40,7 @@
                 
                 <a href="{{ url_for('faculty_my_classes') }}" class="flex items-center px-6 py-3 bg-gray-700 text-white">
                     <i class="fas fa-chalkboard mr-3"></i>
-                    My Classes
+                    My Classes/Events
                 </a>
                 
                 <a href="/attendance" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
@@ -238,9 +238,9 @@
                                         <p class="text-sm text-gray-600">{{ event_info.event_date }}</p>
                                     </div>
                                     <div class="flex space-x-2">
-                                        <button onclick="viewClassDetails({{ event_info.event_id }}, 'event')" class="text-blue-600 hover:text-blue-800">
+                                        <a href="{{ url_for('faculty_event_view', event_id=event_info.event_id) }}" class="text-blue-600 hover:text-blue-800">
                                             <i class="fas fa-eye"></i>
-                                        </button>
+                                        </a>
                                     </div>
                                 </div>
                                 

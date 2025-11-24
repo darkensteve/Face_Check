@@ -40,7 +40,7 @@
                 
                 <a href="{{ url_for('faculty_my_classes') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-chalkboard mr-3"></i>
-                    My Classes
+                    My Classes/Events
                 </a>
                 
                 <a href="/attendance" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
@@ -145,21 +145,35 @@
                         </div>
                         <div class="flex items-end">
                             <button id="loadStudents" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition duration-200">
-                                <i class="fas fa-search mr-2"></i>Load Students
+                                <i class="fas fa-search mr-2"></i><span id="loadButtonText">Load Students</span>
                             </button>
                         </div>
                     </div>
                 </div>
 
-                <!-- Students Table -->
+                <!-- Students/Participants Table -->
                 <div class="bg-white rounded-xl shadow-lg">
                     <div class="px-6 py-4 border-b border-gray-200">
-                        <h3 class="text-lg font-semibold text-gray-900">Students</h3>
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-lg font-semibold text-gray-900" id="sectionTitle">Students</h3>
+                            <div class="hidden" id="searchContainer">
+                                <div class="relative">
+                                    <span class="absolute inset-y-0 left-3 flex items-center text-gray-400">
+                                        <i class="fas fa-search"></i>
+                                    </span>
+                                    <input type="text" id="studentSearch" placeholder="Search by name, ID, or course..." 
+                                           class="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-64">
+                                    <button type="button" id="clearStudentSearch" class="absolute inset-y-0 right-3 flex items-center text-gray-400 hover:text-gray-600 hidden">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <div class="p-6">
                         <div id="noSelectionMessage" class="text-center py-8">
                             <i class="fas fa-chalkboard text-gray-400 text-4xl mb-4"></i>
-                            <p class="text-gray-500">Please select a class or event to view students</p>
+                            <p class="text-gray-500">Please select a class or event to view participants</p>
                         </div>
                         
                         <div id="studentsTable" class="hidden">
@@ -167,8 +181,8 @@
                                 <table class="min-w-full divide-y divide-gray-200">
                                     <thead class="bg-gray-50">
                                         <tr>
-                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student ID</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" id="participantHeader">Student</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" id="idHeader">Student ID</th>
                                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Course</th>
                                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Year Level</th>
                                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
@@ -176,7 +190,7 @@
                                         </tr>
                                     </thead>
                                     <tbody id="studentsTableBody" class="bg-white divide-y divide-gray-200">
-                                        <!-- Students will be populated here -->
+                                        <!-- Students/Participants will be populated here -->
                                     </tbody>
                                 </table>
                             </div>
@@ -385,6 +399,61 @@
             
             // Set up event listeners
             document.getElementById('loadStudents').addEventListener('click', loadStudents);
+            
+            // Update labels when selection changes
+            document.getElementById('classSelect').addEventListener('change', function() {
+                const selectedValue = this.value;
+                
+                // Always hide table and search when selection changes
+                document.getElementById('searchContainer').classList.add('hidden');
+                document.getElementById('studentsTable').classList.add('hidden');
+                document.getElementById('noSelectionMessage').classList.remove('hidden');
+                
+                // Clear search
+                currentSearchQuery = '';
+                allStudents = [];
+                if (document.getElementById('studentSearch')) {
+                    document.getElementById('studentSearch').value = '';
+                }
+                if (document.getElementById('clearStudentSearch')) {
+                    document.getElementById('clearStudentSearch').classList.add('hidden');
+                }
+                
+                if (selectedValue) {
+                    const isEvent = selectedValue.startsWith('event_');
+                    updateLabels(isEvent);
+                } else {
+                    // Reset to default (students)
+                    updateLabels(false);
+                }
+            });
+            
+            // Search functionality
+            const studentSearch = document.getElementById('studentSearch');
+            const clearStudentSearch = document.getElementById('clearStudentSearch');
+            
+            if (studentSearch) {
+                studentSearch.addEventListener('input', function() {
+                    currentSearchQuery = this.value;
+                    
+                    if (this.value.trim()) {
+                        clearStudentSearch.classList.remove('hidden');
+                    } else {
+                        clearStudentSearch.classList.add('hidden');
+                    }
+                    
+                    filterStudentsBySearch();
+                });
+            }
+            
+            if (clearStudentSearch) {
+                clearStudentSearch.addEventListener('click', function() {
+                    studentSearch.value = '';
+                    currentSearchQuery = '';
+                    this.classList.add('hidden');
+                    filterStudentsBySearch();
+                });
+            }
             document.getElementById('editStudentForm').addEventListener('submit', editStudent);
             document.getElementById('resetPasswordForm').addEventListener('submit', resetPassword);
             document.getElementById('cancelEdit').addEventListener('click', closeEditModal);
@@ -412,6 +481,26 @@
             document.getElementById('currentDate').textContent = dateString;
         }
 
+        // Update labels based on selection type
+        function updateLabels(isEvent) {
+            const sectionTitle = document.getElementById('sectionTitle');
+            const loadButtonText = document.getElementById('loadButtonText');
+            const participantHeader = document.getElementById('participantHeader');
+            const idHeader = document.getElementById('idHeader');
+            
+            if (isEvent) {
+                sectionTitle.textContent = 'Participants';
+                loadButtonText.textContent = 'Load Participants';
+                participantHeader.textContent = 'Participant';
+                idHeader.textContent = 'Participant ID';
+            } else {
+                sectionTitle.textContent = 'Students';
+                loadButtonText.textContent = 'Load Students';
+                participantHeader.textContent = 'Student';
+                idHeader.textContent = 'Student ID';
+            }
+        }
+
         // Load students for selected class/event
         async function loadStudents() {
             const classSelect = document.getElementById('classSelect');
@@ -422,38 +511,60 @@
                 return;
             }
             
+            // Determine if it's an event or class
+            const isEvent = selectedValue.startsWith('event_');
+            updateLabels(isEvent);
+            
             try {
                 const response = await fetch(`/faculty/students/${selectedValue}`);
                 if (response.ok) {
                     const data = await response.json();
-                    displayStudents(data);
+                    displayStudents(data, isEvent);
                 } else {
-                    showNotification('Error loading students', 'error');
+                    showNotification('Error loading participants', 'error');
                 }
             } catch (error) {
-                console.error('Error loading students:', error);
-                showNotification('Error loading students', 'error');
+                console.error('Error loading participants:', error);
+                showNotification('Error loading participants', 'error');
             }
         }
 
-        // Display students in table
-        function displayStudents(students) {
+        // Search functionality
+        let currentSearchQuery = '';
+        let allStudents = [];
+
+        function filterStudentsBySearch() {
             const tbody = document.getElementById('studentsTableBody');
-            const noSelectionMessage = document.getElementById('noSelectionMessage');
-            const studentsTable = document.getElementById('studentsTable');
+            const query = currentSearchQuery.toLowerCase().trim();
             
-            // Hide no selection message and show table
-            noSelectionMessage.classList.add('hidden');
-            studentsTable.classList.remove('hidden');
+            if (!query) {
+                // Show all students
+                renderStudents(allStudents);
+                return;
+            }
             
-            // Clear existing rows
+            const filtered = allStudents.filter(student => {
+                const name = `${student.firstname} ${student.lastname}`.toLowerCase();
+                const idno = (student.idno || '').toLowerCase();
+                const course = (student.course_name || '').toLowerCase();
+                return name.includes(query) || idno.includes(query) || course.includes(query);
+            });
+            
+            renderStudents(filtered);
+        }
+
+        function renderStudents(students) {
+            const tbody = document.getElementById('studentsTableBody');
+            const isEvent = document.getElementById('classSelect').value.startsWith('event_');
+            const participantType = isEvent ? 'participants' : 'students';
+            
             tbody.innerHTML = '';
             
             if (students.length === 0) {
                 tbody.innerHTML = `
                     <tr>
                         <td colspan="6" class="px-6 py-4 text-center text-gray-500">
-                            No students found in this class/event
+                            ${currentSearchQuery ? `No ${participantType} match your search` : `No ${participantType} found in this ${isEvent ? 'event' : 'class'}`}
                         </td>
                     </tr>
                 `;
@@ -529,6 +640,27 @@
                     button.addEventListener('click', () => showStudentProfile(button.dataset.userId));
                 });
             });
+        }
+
+        // Display students in table
+        function displayStudents(students, isEvent) {
+            const noSelectionMessage = document.getElementById('noSelectionMessage');
+            const studentsTable = document.getElementById('studentsTable');
+            const searchContainer = document.getElementById('searchContainer');
+            
+            // Store all students for search
+            allStudents = students;
+            currentSearchQuery = '';
+            document.getElementById('studentSearch').value = '';
+            document.getElementById('clearStudentSearch').classList.add('hidden');
+            
+            // Hide no selection message and show table
+            noSelectionMessage.classList.add('hidden');
+            studentsTable.classList.remove('hidden');
+            searchContainer.classList.remove('hidden');
+            
+            // Render students
+            renderStudents(students);
         }
 
         // Open edit modal

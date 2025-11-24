@@ -4835,12 +4835,20 @@ def faculty_class_view(class_id):
         ORDER BY u.firstname, u.lastname
     ''', (class_id,)).fetchall()
     
-    # Format time
+    # Format time (convert from 24-hour to 12-hour with AM/PM)
     def format_time(value):
         if not value:
             return None
         try:
-            return datetime.strptime(str(value), '%H:%M:%S').strftime('%I:%M %p')
+            time_str = str(value)
+            # Handle different time formats (HH:MM:SS or HH:MM)
+            time_formats = ['%H:%M:%S', '%H:%M']
+            for fmt in time_formats:
+                try:
+                    return datetime.strptime(time_str, fmt).strftime('%I:%M %p')
+                except ValueError:
+                    continue
+            return time_str
         except Exception:
             return str(value)
     
@@ -4852,6 +4860,75 @@ def faculty_class_view(class_id):
                          class_info=class_info,
                          students=students,
                          faculty=faculty,
+                         start_time=start_time,
+                         end_time=end_time)
+
+@app.route('/faculty/event/<int:event_id>')
+def faculty_event_view(event_id):
+    """Full page view for faculty event details"""
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    
+    # Get faculty info
+    faculty = conn.execute('''
+        SELECT f.faculty_id, u.firstname, u.lastname, u.idno, f.attendance_image
+        FROM faculty f 
+        JOIN user u ON f.user_id = u.user_id 
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    
+    if not faculty:
+        conn.close()
+        flash('Faculty record not found', 'error')
+        return redirect(url_for('faculty_dashboard'))
+    
+    # Get event details
+    event_info = conn.execute('''
+        SELECT * FROM event 
+        WHERE event_id = ? AND faculty_id = ?
+    ''', (event_id, faculty['faculty_id'])).fetchone()
+    
+    if not event_info:
+        conn.close()
+        flash('Event not found or access denied', 'error')
+        return redirect(url_for('faculty_my_classes'))
+    
+    # Get all faculty (all faculty members are considered part of events)
+    faculty_members = conn.execute('''
+        SELECT u.idno, u.firstname, u.lastname, d.dept_name, f.position, f.attendance_image
+        FROM faculty f
+        JOIN user u ON f.user_id = u.user_id
+        LEFT JOIN department d ON u.dept_id = d.dept_id
+        ORDER BY u.firstname, u.lastname
+    ''').fetchall()
+    
+    # Format time (convert from 24-hour to 12-hour with AM/PM)
+    def format_time(value):
+        if not value:
+            return None
+        try:
+            time_str = str(value)
+            # Handle different time formats (HH:MM:SS or HH:MM)
+            time_formats = ['%H:%M:%S', '%H:%M']
+            for fmt in time_formats:
+                try:
+                    return datetime.strptime(time_str, fmt).strftime('%I:%M %p')
+                except ValueError:
+                    continue
+            return time_str
+        except Exception:
+            return str(value)
+    
+    start_time = format_time(event_info['start_time'])
+    end_time = format_time(event_info['end_time'])
+    
+    conn.close()
+    return render_template('faculty/faculty_event_view.html',
+                         event_info=event_info,
+                         faculty=faculty,
+                         faculty_members=faculty_members,
                          start_time=start_time,
                          end_time=end_time)
 
