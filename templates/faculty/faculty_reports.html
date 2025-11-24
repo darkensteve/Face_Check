@@ -54,14 +54,25 @@
                     Register Face
                 </a>
             </nav>
+            <!-- User Info (Clickable to Profile) -->
             <div class="absolute bottom-0 w-64 border-t border-gray-700">
                 <a href="{{ url_for('faculty_profile') }}" class="flex items-center px-6 py-3 hover:bg-gray-700 transition duration-200">
-                    <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center mr-3">
-                        <i class="fas fa-user text-white text-sm"></i>
+                    {% if faculty_info.attendance_image %}
+                    <img src="{{ url_for('static', filename='attendance_images/' + faculty_info.attendance_image) }}" 
+                         alt="{{ faculty_info.firstname }} {{ faculty_info.lastname }}" 
+                         class="w-8 h-8 rounded-full object-cover border-2 border-blue-600 mr-3"
+                         onerror="this.onerror=null; this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                    <div class="w-8 h-8 bg-blue-600 rounded-full items-center justify-center mr-3 hidden">
+                        <span class="text-white text-sm font-bold">{{ faculty_info.firstname[0] }}{{ faculty_info.lastname[0] }}</span>
                     </div>
+                    {% else %}
+                    <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center mr-3">
+                        <span class="text-white text-sm font-bold">{{ faculty_info.firstname[0] }}{{ faculty_info.lastname[0] }}</span>
+                    </div>
+                    {% endif %}
                     <div>
-                        <div class="text-sm font-medium">Faculty</div>
-                        <div class="text-xs text-gray-400">Reports</div>
+                        <div class="text-sm font-medium">{{ faculty_info.firstname }} {{ faculty_info.lastname }}</div>
+                        <div class="text-xs text-gray-400">Faculty</div>
                     </div>
                 </a>
                 <a href="{{ url_for('logout') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">

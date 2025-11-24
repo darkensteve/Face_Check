@@ -7,7 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
-<body class="bg-gray-100">
+<body class="bg-gray-100 overflow-hidden h-screen">
     <!-- Sidebar -->
     <div class="flex h-screen">
         <!-- Sidebar -->
@@ -165,7 +165,7 @@
                                 {% for user in users %}
                                 <tr class="hover:bg-gray-50 user-row" data-role="{{ user.role }}">
                                     <td class="px-6 py-4 whitespace-nowrap">
-                                        <div class="flex items-center">
+                                        <button type="button" onclick="showUserProfile({{ user.user_id }})" class="flex items-center w-full text-left hover:opacity-80 transition">
                                             <div class="flex-shrink-0 h-10 w-10">
                                                 {% if user.role == 'student' and user.profile_picture %}
                                                 <img src="{{ url_for('static', filename='profile_pictures/' + user.profile_picture) }}" 
@@ -182,10 +182,10 @@
                                                 {% endif %}
                                             </div>
                                             <div class="ml-4">
-                                                <div class="text-sm font-medium text-gray-900">{{ user.firstname }} {{ user.lastname }}</div>
+                                                <div class="text-sm font-medium text-blue-600 hover:text-blue-800">{{ user.firstname }} {{ user.lastname }}</div>
                                                 <div class="text-sm text-gray-500">{{ user.idno }}</div>
                                             </div>
-                                        </div>
+                                        </button>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full
@@ -345,6 +345,78 @@
         </div>
     </div>
 
+    <!-- User Profile Modal -->
+    <div id="userProfileModal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl">
+                <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+                    <h3 class="text-xl font-semibold text-slate-900" id="profileModalTitle">User Profile</h3>
+                    <button id="closeProfileModal" class="text-slate-400 hover:text-slate-700 transition">
+                        <i class="fas fa-times text-lg"></i>
+                    </button>
+                </div>
+                <div id="userProfileLoader" class="p-8 text-center text-slate-500">
+                    <i class="fas fa-circle-notch fa-spin text-2xl mb-3 text-blue-600"></i>
+                    <p>Loading user information...</p>
+                </div>
+                <div id="userProfileError" class="p-6 hidden">
+                    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                        <p id="profileErrorText">Unable to load user profile.</p>
+                    </div>
+                </div>
+                <div id="userProfileContent" class="p-6 space-y-6 hidden">
+                    <div class="flex items-center space-x-4">
+                        <div class="w-16 h-16 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-2xl font-semibold overflow-hidden">
+                            <img id="profileAvatar" class="w-full h-full object-cover hidden" alt="User avatar">
+                            <span id="profileInitials">US</span>
+                        </div>
+                        <div>
+                            <p id="profileName" class="text-2xl font-semibold text-slate-900"></p>
+                            <p id="profileRole" class="text-sm text-slate-500"></p>
+                        </div>
+                        <span id="profileStatus" class="ml-auto inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold border"></span>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" id="profileInfoGrid">
+                        <!-- Dynamic info fields based on role -->
+                    </div>
+                    
+                    <div id="attendanceStatsSection" class="grid grid-cols-2 md:grid-cols-5 gap-4 hidden">
+                        <div class="rounded-xl border border-slate-200 p-4 text-center">
+                            <p class="text-xs uppercase text-slate-400 mb-1">Total Records</p>
+                            <p id="profileStatTotal" class="text-2xl font-semibold text-slate-900">0</p>
+                        </div>
+                        <div class="rounded-xl border border-slate-200 p-4 text-center">
+                            <p class="text-xs uppercase text-slate-400 mb-1">Present</p>
+                            <p id="profileStatPresent" class="text-2xl font-semibold text-emerald-600">0</p>
+                        </div>
+                        <div class="rounded-xl border border-slate-200 p-4 text-center">
+                            <p class="text-xs uppercase text-slate-400 mb-1">Late</p>
+                            <p id="profileStatLate" class="text-2xl font-semibold text-amber-600">0</p>
+                        </div>
+                        <div class="rounded-xl border border-slate-200 p-4 text-center">
+                            <p class="text-xs uppercase text-slate-400 mb-1">Absent</p>
+                            <p id="profileStatAbsent" class="text-2xl font-semibold text-rose-600">0</p>
+                        </div>
+                        <div class="rounded-xl border border-slate-200 p-4 text-center">
+                            <p class="text-xs uppercase text-slate-400 mb-1">Attendance Rate</p>
+                            <p id="profileStatRate" class="text-2xl font-semibold text-blue-600">0%</p>
+                        </div>
+                    </div>
+                    
+                    <div id="classesSection" class="rounded-2xl border border-slate-200 p-5 hidden">
+                        <div class="flex items-center justify-between mb-3">
+                            <h4 class="text-sm font-semibold text-slate-800" id="classesSectionTitle">Classes</h4>
+                        </div>
+                        <div id="profileClassList" class="space-y-3 text-sm text-slate-600">
+                            <p class="text-slate-500">No classes found.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Reset Password Modal -->
     <div id="resetModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden z-50">
         <div class="flex items-center justify-center min-h-screen p-4">
@@ -444,6 +516,14 @@
         // Initialize course filtering on page load
         document.addEventListener('DOMContentLoaded', function() {
             filterCourses();
+            
+            // Setup profile modal close handlers
+            document.getElementById('closeProfileModal').addEventListener('click', closeUserProfileModal);
+            document.getElementById('userProfileModal').addEventListener('click', function(e) {
+                if (e.target === this) {
+                    closeUserProfileModal();
+                }
+            });
         });
 
         // Filter users by role/type
@@ -476,6 +556,168 @@
             
             // Update count
             document.getElementById('userCount').textContent = visibleCount;
+        }
+
+        async function showUserProfile(userId) {
+            const modal = document.getElementById('userProfileModal');
+            const loader = document.getElementById('userProfileLoader');
+            const content = document.getElementById('userProfileContent');
+            const errorBox = document.getElementById('userProfileError');
+            const errorText = document.getElementById('profileErrorText');
+            
+            modal.classList.remove('hidden');
+            loader.classList.remove('hidden');
+            content.classList.add('hidden');
+            errorBox.classList.add('hidden');
+            
+            try {
+                const response = await fetch(`/admin/users/profile/${userId}`);
+                const data = await response.json();
+                
+                if (!response.ok || !data.success) {
+                    throw new Error(data.message || 'Unable to load user profile');
+                }
+                
+                populateUserProfile(data.user);
+                loader.classList.add('hidden');
+                content.classList.remove('hidden');
+            } catch (error) {
+                console.error('Error loading user profile:', error);
+                loader.classList.add('hidden');
+                errorText.textContent = error.message || 'Unable to load user profile';
+                errorBox.classList.remove('hidden');
+            }
+        }
+
+        function populateUserProfile(user) {
+            // Set title
+            document.getElementById('profileModalTitle').textContent = `${user.role.charAt(0).toUpperCase() + user.role.slice(1)} Profile`;
+            
+            // Set name and role
+            document.getElementById('profileName').textContent = user.full_name;
+            document.getElementById('profileRole').textContent = user.role.charAt(0).toUpperCase() + user.role.slice(1) + (user.dept_name ? ` • ${user.dept_name}` : '');
+            
+            // Set avatar
+            const avatarImg = document.getElementById('profileAvatar');
+            const avatarInitials = document.getElementById('profileInitials');
+            if (user.profile_picture) {
+                avatarImg.src = `/static/profile_pictures/${user.profile_picture}`;
+                avatarImg.classList.remove('hidden');
+                avatarInitials.classList.add('hidden');
+            } else {
+                const initials = ((user.firstname || 'U').charAt(0) + (user.lastname || 'S').charAt(0)).toUpperCase();
+                avatarInitials.textContent = initials;
+                avatarImg.classList.add('hidden');
+                avatarInitials.classList.remove('hidden');
+            }
+            
+            // Set status
+            const statusEl = document.getElementById('profileStatus');
+            if (user.is_active) {
+                statusEl.textContent = 'Active';
+                statusEl.className = 'ml-auto inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-200';
+            } else {
+                statusEl.textContent = 'Inactive';
+                statusEl.className = 'ml-auto inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800 border border-red-200';
+            }
+            
+            // Populate info grid
+            const infoGrid = document.getElementById('profileInfoGrid');
+            let infoHTML = `
+                <div class="bg-slate-50 rounded-xl p-4">
+                    <p class="text-xs uppercase text-slate-400 mb-1">ID Number</p>
+                    <p class="text-sm font-semibold text-slate-900">${user.idno || 'N/A'}</p>
+                </div>
+                <div class="bg-slate-50 rounded-xl p-4">
+                    <p class="text-xs uppercase text-slate-400 mb-1">Department</p>
+                    <p class="text-sm font-semibold text-slate-900">${user.dept_name || 'N/A'}</p>
+                </div>
+                <div class="bg-slate-50 rounded-xl p-4">
+                    <p class="text-xs uppercase text-slate-400 mb-1">Member Since</p>
+                    <p class="text-sm font-semibold text-slate-900">${user.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}</p>
+                </div>
+            `;
+            
+            if (user.role === 'student') {
+                if (user.year_level) {
+                    infoHTML += `
+                        <div class="bg-slate-50 rounded-xl p-4">
+                            <p class="text-xs uppercase text-slate-400 mb-1">Year Level</p>
+                            <p class="text-sm font-semibold text-slate-900">${user.year_level}</p>
+                        </div>
+                    `;
+                }
+                if (user.course_name) {
+                    infoHTML += `
+                        <div class="bg-slate-50 rounded-xl p-4">
+                            <p class="text-xs uppercase text-slate-400 mb-1">Course</p>
+                            <p class="text-sm font-semibold text-slate-900">${user.course_name}</p>
+                        </div>
+                    `;
+                }
+            } else if (user.role === 'faculty') {
+                if (user.position) {
+                    infoHTML += `
+                        <div class="bg-slate-50 rounded-xl p-4">
+                            <p class="text-xs uppercase text-slate-400 mb-1">Position</p>
+                            <p class="text-sm font-semibold text-slate-900">${user.position}</p>
+                        </div>
+                    `;
+                }
+            }
+            
+            infoGrid.innerHTML = infoHTML;
+            
+            // Populate attendance stats (for students)
+            const statsSection = document.getElementById('attendanceStatsSection');
+            if (user.role === 'student' && user.attendance_stats) {
+                document.getElementById('profileStatTotal').textContent = user.attendance_stats.total || 0;
+                document.getElementById('profileStatPresent').textContent = user.attendance_stats.present || 0;
+                document.getElementById('profileStatLate').textContent = user.attendance_stats.late || 0;
+                document.getElementById('profileStatAbsent').textContent = user.attendance_stats.absent || 0;
+                document.getElementById('profileStatRate').textContent = `${user.attendance_stats.rate || 0}%`;
+                statsSection.classList.remove('hidden');
+            } else {
+                statsSection.classList.add('hidden');
+            }
+            
+            // Populate classes
+            const classesSection = document.getElementById('classesSection');
+            const classList = document.getElementById('profileClassList');
+            if (user.classes && user.classes.length > 0) {
+                if (user.role === 'student') {
+                    document.getElementById('classesSectionTitle').textContent = 'Enrolled Classes';
+                } else if (user.role === 'faculty') {
+                    document.getElementById('classesSectionTitle').textContent = 'Classes Taught';
+                }
+                
+                classList.innerHTML = user.classes.map(cls => {
+                    if (user.role === 'faculty') {
+                        return `
+                            <div class="border border-slate-200 rounded-xl p-3">
+                                <p class="font-semibold text-slate-900">${cls.name} <span class="text-xs text-slate-400">(${cls.code || 'N/A'})</span></p>
+                                <p class="text-xs text-slate-500">${cls.schedule}</p>
+                                <p class="text-xs text-slate-400">Room ${cls.room || 'N/A'} • ${cls.student_count || 0} students</p>
+                            </div>
+                        `;
+                    } else {
+                        return `
+                            <div class="border border-slate-200 rounded-xl p-3">
+                                <p class="font-semibold text-slate-900">${cls.name} <span class="text-xs text-slate-400">(${cls.code || 'N/A'})</span></p>
+                                <p class="text-xs text-slate-500">${cls.schedule}</p>
+                                <p class="text-xs text-slate-400">Room ${cls.room || 'N/A'}</p>
+                            </div>
+                        `;
+                    }
+                }).join('');
+                classesSection.classList.remove('hidden');
+            } else {
+                classesSection.classList.add('hidden');
+            }
+        }
+
+        function closeUserProfileModal() {
+            document.getElementById('userProfileModal').classList.add('hidden');
         }
     </script>
 </body>

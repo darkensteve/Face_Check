@@ -48,6 +48,7 @@ try:
         get_unread_count, 
         mark_notification_read, 
         mark_all_read,
+        auto_mark_absent,
         check_and_notify_absences,
         convert_lates_to_absent,
         create_notification
@@ -692,6 +693,198 @@ def toggle_user_status(user_id):
     
     return redirect(url_for('admin_users'))
 
+@app.route('/admin/users/profile/<int:user_id>')
+def admin_user_profile(user_id):
+    """API endpoint to get user profile information for admin"""
+    try:
+        # Admin should have access to view any user profile
+        if 'user_id' not in session or session.get('role') != 'admin':
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+        
+        conn = get_db_connection()
+        
+        # Get basic user info
+        user_info = conn.execute('''
+            SELECT u.user_id, u.idno, u.firstname, u.lastname, u.role, u.created_at, u.is_active,
+                   d.dept_name
+            FROM user u
+            LEFT JOIN department d ON u.dept_id = d.dept_id
+            WHERE u.user_id = ?
+        ''', (user_id,)).fetchone()
+        
+        if not user_info:
+            conn.close()
+            return jsonify({'success': False, 'message': 'User not found'}), 404
+        
+        role = user_info['role']
+        profile_data = {
+            'user_id': user_info['user_id'],
+            'idno': user_info['idno'],
+            'firstname': user_info['firstname'],
+            'lastname': user_info['lastname'],
+            'full_name': f"{user_info['firstname']} {user_info['lastname']}",
+            'role': role,
+            'dept_name': user_info['dept_name'],
+            'is_active': bool(user_info['is_active']),
+            'created_at': user_info['created_at']
+        }
+        
+        # Get role-specific information
+        if role == 'student':
+            student_info = conn.execute('''
+                SELECT s.student_id, s.year_level, s.attendance_image, s.profile_picture,
+                       c.course_name
+                FROM student s
+                LEFT JOIN course c ON s.course_id = c.course_id
+                WHERE s.user_id = ?
+            ''', (user_id,)).fetchone()
+            
+            if student_info:
+                profile_data['profile_picture'] = student_info['profile_picture']
+                profile_data['attendance_image'] = student_info['attendance_image']
+                profile_data['year_level'] = student_info['year_level']
+                profile_data['course_name'] = student_info['course_name']
+                
+                # Get attendance stats
+                stats = conn.execute('''
+                    SELECT 
+                        COUNT(*) as total_records,
+                        SUM(CASE WHEN a.attendance_status = 'present' THEN 1 ELSE 0 END) as present_count,
+                        SUM(CASE WHEN a.attendance_status = 'late' THEN 1 ELSE 0 END) as late_count,
+                        SUM(CASE WHEN a.attendance_status = 'absent' THEN 1 ELSE 0 END) as absent_count
+                    FROM attendance a
+                    JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+                    WHERE sc.student_id = ?
+                ''', (student_info['student_id'],)).fetchone()
+                
+                total_records = stats['total_records'] or 0
+                present_count = stats['present_count'] or 0
+                late_count = stats['late_count'] or 0
+                absent_count = stats['absent_count'] or 0
+                attendance_rate = round((present_count / total_records * 100), 1) if total_records > 0 else 0
+                
+                profile_data['attendance_stats'] = {
+                    'total': total_records,
+                    'present': present_count,
+                    'late': late_count,
+                    'absent': absent_count,
+                    'rate': attendance_rate
+                }
+                
+                # Get enrolled classes
+                classes = conn.execute('''
+                    SELECT cl.class_name, cl.edpcode, cl.room,
+                           GROUP_CONCAT(DISTINCT d.day_name) as days,
+                           cl.start_time, cl.end_time
+                    FROM student_class sc
+                    JOIN class cl ON sc.class_id = cl.class_id
+                    LEFT JOIN class_days cd ON cl.class_id = cd.class_id
+                    LEFT JOIN days d ON cd.day_id = d.day_id
+                    WHERE sc.student_id = ?
+                    GROUP BY cl.class_name, cl.edpcode, cl.room, cl.start_time, cl.end_time
+                    ORDER BY cl.class_name
+                    LIMIT 10
+                ''', (student_info['student_id'],)).fetchall()
+                
+                def format_time(value):
+                    if not value:
+                        return None
+                    try:
+                        return datetime.strptime(str(value), '%H:%M:%S').strftime('%I:%M %p')
+                    except Exception:
+                        try:
+                            return datetime.strptime(str(value), '%H:%M').strftime('%I:%M %p')
+                        except Exception:
+                            return str(value)
+                
+                classes_list = []
+                for item in classes:
+                    schedule_parts = []
+                    if item['days']:
+                        schedule_parts.append(item['days'])
+                    if item['start_time'] and item['end_time']:
+                        schedule_parts.append(f"{format_time(item['start_time'])} - {format_time(item['end_time'])}")
+                    classes_list.append({
+                        'name': item['class_name'],
+                        'code': item['edpcode'],
+                        'room': item['room'],
+                        'schedule': ' • '.join(schedule_parts) if schedule_parts else 'Schedule not set'
+                    })
+                profile_data['classes'] = classes_list
+            else:
+                # Student user but no student record - still return basic info
+                profile_data['classes'] = []
+            
+        elif role == 'faculty':
+            faculty_info = conn.execute('''
+                SELECT f.faculty_id, f.position
+                FROM faculty f
+                WHERE f.user_id = ?
+            ''', (user_id,)).fetchone()
+            
+            if faculty_info:
+                profile_data['position'] = faculty_info['position']
+                
+                # Get classes taught
+                classes = conn.execute('''
+                    SELECT cl.class_name, cl.edpcode, cl.room,
+                           GROUP_CONCAT(DISTINCT d.day_name) as days,
+                           cl.start_time, cl.end_time,
+                           COUNT(DISTINCT sc.student_id) as student_count
+                    FROM class cl
+                    LEFT JOIN student_class sc ON cl.class_id = sc.class_id
+                    LEFT JOIN class_days cd ON cl.class_id = cd.class_id
+                    LEFT JOIN days d ON cd.day_id = d.day_id
+                    WHERE cl.faculty_id = ?
+                    GROUP BY cl.class_id, cl.class_name, cl.edpcode, cl.room, cl.start_time, cl.end_time
+                    ORDER BY cl.class_name
+                    LIMIT 10
+                ''', (faculty_info['faculty_id'],)).fetchall()
+                
+                def format_time(value):
+                    if not value:
+                        return None
+                    try:
+                        return datetime.strptime(str(value), '%H:%M:%S').strftime('%I:%M %p')
+                    except Exception:
+                        try:
+                            return datetime.strptime(str(value), '%H:%M').strftime('%I:%M %p')
+                        except Exception:
+                            return str(value)
+                
+                classes_list = []
+                for item in classes:
+                    schedule_parts = []
+                    if item['days']:
+                        schedule_parts.append(item['days'])
+                    if item['start_time'] and item['end_time']:
+                        schedule_parts.append(f"{format_time(item['start_time'])} - {format_time(item['end_time'])}")
+                    classes_list.append({
+                        'name': item['class_name'],
+                        'code': item['edpcode'],
+                        'room': item['room'],
+                        'student_count': item['student_count'] or 0,
+                        'schedule': ' • '.join(schedule_parts) if schedule_parts else 'Schedule not set'
+                    })
+                profile_data['classes'] = classes_list
+            else:
+                # Faculty user but no faculty record - still return basic info
+                profile_data['classes'] = []
+        
+        conn.close()
+        return jsonify({
+            'success': True,
+            'user': profile_data
+        })
+    except Exception as e:
+        print(f"Error in admin_user_profile: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': f'Error loading profile: {str(e)}'
+        }), 500
+
 # Class & Event Management Routes
 @app.route('/admin/classes')
 def admin_classes():
@@ -700,15 +893,55 @@ def admin_classes():
     
     conn = get_db_connection()
     
-    # Get all classes with faculty info
-    classes = conn.execute('''
-        SELECT c.*, u.firstname, u.lastname, d.dept_name
+    # Get all classes with faculty info and days
+    classes_raw = conn.execute('''
+        SELECT c.*, u.firstname, u.lastname, d.dept_name,
+               GROUP_CONCAT(DISTINCT day.day_name) as days
         FROM class c
         JOIN faculty f ON c.faculty_id = f.faculty_id
         JOIN user u ON f.user_id = u.user_id
         LEFT JOIN department d ON u.dept_id = d.dept_id
+        LEFT JOIN class_days cd ON c.class_id = cd.class_id
+        LEFT JOIN days day ON cd.day_id = day.day_id
+        GROUP BY c.class_id, c.class_name, c.edpcode, c.start_time, c.end_time, c.room, 
+                 c.faculty_id, u.firstname, u.lastname, d.dept_name
         ORDER BY c.class_name
     ''').fetchall()
+    
+    # Format classes with 12-hour time format
+    classes = []
+    for class_item in classes_raw:
+        # Format time (convert from 24-hour to 12-hour with AM/PM)
+        time_str = ''
+        if class_item['start_time'] and class_item['end_time']:
+            try:
+                start_time = str(class_item['start_time'])
+                end_time = str(class_item['end_time'])
+                
+                # Handle different time formats (HH:MM:SS or HH:MM)
+                time_formats = ['%H:%M:%S', '%H:%M']
+                start_dt = None
+                end_dt = None
+                
+                for fmt in time_formats:
+                    try:
+                        start_dt = datetime.strptime(start_time, fmt)
+                        end_dt = datetime.strptime(end_time, fmt)
+                        break
+                    except ValueError:
+                        continue
+                
+                if start_dt and end_dt:
+                    time_str = f"{start_dt.strftime('%I:%M %p')} - {end_dt.strftime('%I:%M %p')}"
+                else:
+                    time_str = f"{start_time} - {end_time}"
+            except Exception as e:
+                time_str = f"{class_item['start_time']} - {class_item['end_time']}"
+        
+        # Create formatted class dict
+        formatted_class = dict(class_item)
+        formatted_class['formatted_time'] = time_str
+        classes.append(formatted_class)
     
     # Get all faculty for assignment
     faculty = conn.execute('''
@@ -1209,7 +1442,7 @@ def register_face():
     # Get student info for the registration process
     conn = get_db_connection()
     student = conn.execute('''
-        SELECT u.idno, u.firstname, u.lastname
+        SELECT u.*, s.student_id, s.profile_picture
         FROM user u
         JOIN student s ON u.user_id = s.user_id
         WHERE u.user_id = ?
@@ -1223,6 +1456,7 @@ def register_face():
     conn.close()
     
     return render_template('register_face.html', 
+                         student=student,
                          student_name=student['firstname'] + ' ' + student['lastname'],
                          student_id=student['idno'])
 
@@ -1234,14 +1468,15 @@ def faculty_register_face():
     
     # Get faculty info for the registration process
     conn = get_db_connection()
-    faculty = conn.execute('''
-        SELECT u.idno, u.firstname, u.lastname
+    faculty_info = conn.execute('''
+        SELECT u.*, f.faculty_id, f.position, f.attendance_image, d.dept_name
         FROM user u
         JOIN faculty f ON u.user_id = f.user_id
+        LEFT JOIN department d ON u.dept_id = d.dept_id
         WHERE u.user_id = ?
     ''', (session['user_id'],)).fetchone()
     
-    if not faculty:
+    if not faculty_info:
         conn.close()
         flash('Faculty not found', 'error')
         return redirect(url_for('faculty_dashboard'))
@@ -1249,8 +1484,9 @@ def faculty_register_face():
     conn.close()
     
     return render_template('faculty/faculty_register_face.html', 
-                         faculty_name=faculty['firstname'] + ' ' + faculty['lastname'],
-                         faculty_id=faculty['idno'])
+                         faculty_info=faculty_info,
+                         faculty_name=faculty_info['firstname'] + ' ' + faculty_info['lastname'],
+                         faculty_id=faculty_info['idno'])
 
 # Student Dashboard
 @app.route('/student/dashboard')
@@ -1466,22 +1702,28 @@ def my_classes():
     enrolled_classes = []
     faculty_names = set()
     for class_item in enrolled_classes_raw:
-        # Format time (convert from 24-hour to 12-hour if needed)
+        # Format time (convert from 24-hour to 12-hour with AM/PM)
         time_str = ''
         if class_item['start_time'] and class_item['end_time']:
             try:
-                # Try to parse and format times
-                start_time = class_item['start_time']
-                end_time = class_item['end_time']
+                start_time = str(class_item['start_time'])
+                end_time = str(class_item['end_time'])
                 
-                # If times are in HH:MM format, convert to 12-hour
-                if ':' in str(start_time):
+                # Handle different time formats (HH:MM:SS or HH:MM)
+                time_formats = ['%H:%M:%S', '%H:%M']
+                start_dt = None
+                end_dt = None
+                
+                for fmt in time_formats:
                     try:
-                        start_dt = datetime.strptime(str(start_time), '%H:%M')
-                        end_dt = datetime.strptime(str(end_time), '%H:%M')
-                        time_str = f"{start_dt.strftime('%I:%M %p')} - {end_dt.strftime('%I:%M %p')}"
-                    except:
-                        time_str = f"{start_time} - {end_time}"
+                        start_dt = datetime.strptime(start_time, fmt)
+                        end_dt = datetime.strptime(end_time, fmt)
+                        break
+                    except ValueError:
+                        continue
+                
+                if start_dt and end_dt:
+                    time_str = f"{start_dt.strftime('%I:%M %p')} - {end_dt.strftime('%I:%M %p')}"
                 else:
                     time_str = f"{start_time} - {end_time}"
             except Exception as e:
@@ -2724,6 +2966,15 @@ def api_today_attendance():
     if not class_id:
         return jsonify([])
     
+    # Auto-mark absent students if enabled and it's end of day (after 6 PM)
+    # Only run once per request to avoid multiple calls
+    try:
+        current_hour = datetime.now().hour
+        if current_hour >= 18:  # After 6 PM, consider it end of day
+            auto_mark_absent()
+    except Exception as e:
+        print(f"Error in auto-mark absent: {e}")
+    
     conn = get_db_connection()
     
     attendance = conn.execute('''
@@ -2765,6 +3016,25 @@ def api_today_attendance():
     
     conn.close()
     return jsonify(formatted_attendance)
+
+@app.route('/api/attendance/auto-mark-absent', methods=['POST'])
+def api_auto_mark_absent():
+    """API endpoint to manually trigger auto-mark absent"""
+    if 'user_id' not in session or session['role'] not in ['admin', 'faculty']:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    try:
+        count = auto_mark_absent()
+        return jsonify({
+            'success': True,
+            'message': f'Successfully marked {count} students as absent',
+            'count': count
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }), 500
 
 @app.route('/api/attendance/override', methods=['POST'])
 def api_attendance_override():
@@ -3590,6 +3860,14 @@ def delete_event(event_id):
 def admin_attendance():
     if 'user_id' not in session or session['role'] != 'admin':
         return redirect(url_for('login'))
+    
+    # Auto-mark absent students if enabled and it's end of day (after 6 PM)
+    try:
+        current_hour = datetime.now().hour
+        if current_hour >= 18:  # After 6 PM, consider it end of day
+            auto_mark_absent()
+    except Exception as e:
+        print(f"Error in auto-mark absent: {e}")
     
     conn = get_db_connection()
     
@@ -4454,13 +4732,15 @@ def faculty_my_classes():
     conn = get_db_connection()
     
     # Get faculty info
-    faculty = conn.execute('''
-        SELECT f.faculty_id FROM faculty f 
-        JOIN user u ON f.user_id = u.user_id 
+    faculty_info = conn.execute('''
+        SELECT u.*, f.faculty_id, f.position, f.attendance_image, d.dept_name
+        FROM user u
+        JOIN faculty f ON u.user_id = f.user_id
+        LEFT JOIN department d ON u.dept_id = d.dept_id
         WHERE u.user_id = ?
     ''', (session['user_id'],)).fetchone()
     
-    if not faculty:
+    if not faculty_info:
         conn.close()
         flash('Faculty record not found', 'error')
         return redirect(url_for('faculty_dashboard'))
@@ -4477,7 +4757,7 @@ def faculty_my_classes():
         WHERE c.faculty_id = ?
         GROUP BY c.class_id
         ORDER BY c.class_name
-    ''', (faculty['faculty_id'],)).fetchall()
+    ''', (faculty_info['faculty_id'],)).fetchall()
     
     # Get events assigned to this faculty with attendee counts
     events = conn.execute('''
@@ -4488,7 +4768,7 @@ def faculty_my_classes():
         WHERE e.faculty_id = ?
         GROUP BY e.event_id
         ORDER BY e.event_date DESC
-    ''', (faculty['faculty_id'],)).fetchall()
+    ''', (faculty_info['faculty_id'],)).fetchall()
     
     # Calculate total students across all classes
     total_students = conn.execute('''
@@ -4496,10 +4776,11 @@ def faculty_my_classes():
         FROM class c
         JOIN student_class sc ON c.class_id = sc.class_id
         WHERE c.faculty_id = ?
-    ''', (faculty['faculty_id'],)).fetchone()
+    ''', (faculty_info['faculty_id'],)).fetchone()
     
     conn.close()
     return render_template('faculty/faculty_my_classes.html', 
+                         faculty_info=faculty_info,
                          classes=classes, 
                          events=events, 
                          total_students=total_students['total'] if total_students else 0)
@@ -4684,21 +4965,24 @@ def attendance():
     classes = []
     events = []
     
+    faculty_info = None
     if session.get('role') == 'faculty':
-        # Get faculty's classes
-        faculty = conn.execute('''
-            SELECT f.faculty_id FROM faculty f 
-            JOIN user u ON f.user_id = u.user_id 
+        # Get faculty info
+        faculty_info = conn.execute('''
+            SELECT u.*, f.faculty_id, f.position, f.attendance_image, d.dept_name
+            FROM user u
+            JOIN faculty f ON u.user_id = f.user_id
+            LEFT JOIN department d ON u.dept_id = d.dept_id
             WHERE u.user_id = ?
         ''', (session['user_id'],)).fetchone()
         
-        if faculty:
+        if faculty_info:
             classes = conn.execute('''
                 SELECT c.class_id, c.class_name, c.edpcode, c.start_time, c.end_time, c.room
                 FROM class c
                 WHERE c.faculty_id = ?
                 ORDER BY c.class_name
-            ''', (faculty['faculty_id'],)).fetchall()
+            ''', (faculty_info['faculty_id'],)).fetchall()
             
             # Get events where this faculty is the organizer
             events = conn.execute('''
@@ -4707,7 +4991,7 @@ def attendance():
                 FROM event e
                 WHERE e.faculty_id = ?
                 ORDER BY e.event_date DESC
-            ''', (faculty['faculty_id'],)).fetchall()
+            ''', (faculty_info['faculty_id'],)).fetchall()
     elif session.get('role') == 'admin':
         # Admin can see all classes and events
         classes = conn.execute('''
@@ -4725,14 +5009,25 @@ def attendance():
     
     conn.close()
     
-    return render_template('faculty_attendance.html', classes=classes, events=events)
+    return render_template('faculty_attendance.html', faculty_info=faculty_info, classes=classes, events=events)
 
 # Faculty Reports & Analytics
 @app.route('/attendance_reports')
 def faculty_reports():
     if 'user_id' not in session or session['role'] != 'faculty':
         return redirect(url_for('login'))
-    return render_template('faculty/faculty_reports.html')
+    
+    conn = get_db_connection()
+    faculty_info = conn.execute('''
+        SELECT u.*, f.faculty_id, f.position, f.attendance_image, d.dept_name
+        FROM user u
+        JOIN faculty f ON u.user_id = f.user_id
+        LEFT JOIN department d ON u.dept_id = d.dept_id
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    conn.close()
+    
+    return render_template('faculty/faculty_reports.html', faculty_info=faculty_info)
 
 @app.route('/api/faculty/reports/summary')
 def api_faculty_reports_summary():

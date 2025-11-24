@@ -145,8 +145,13 @@
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <div class="text-sm text-gray-900">
-                                            {{ class.start_time }} - {{ class.end_time }}
+                                            {{ class.formatted_time or 'TBA' }}
                                         </div>
+                                        {% if class.days %}
+                                        <div class="text-xs text-gray-500 mt-1">
+                                            {{ class.days }}
+                                        </div>
+                                        {% endif %}
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <div class="text-sm text-gray-900">{{ class.room or 'TBA' }}</div>

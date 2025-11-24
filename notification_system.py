@@ -228,9 +228,13 @@ def auto_mark_absent():
         conn = get_db_connection()
         today = datetime.now().strftime('%Y-%m-%d')
         
-        # Get all active student-class enrollments
+        # Get all active student-class enrollments with class end times
+        # Only mark absent for classes that have already ended today
+        current_datetime = datetime.now()
+        current_time_str = current_datetime.strftime('%H:%M:%S')
+        
         enrollments = conn.execute('''
-            SELECT DISTINCT sc.studentclass_id, sc.student_id, c.class_name
+            SELECT DISTINCT sc.studentclass_id, sc.student_id, c.class_name, c.end_time
             FROM student_class sc
             JOIN student s ON sc.student_id = s.student_id
             JOIN user u ON s.user_id = u.user_id
@@ -243,6 +247,32 @@ def auto_mark_absent():
         for enrollment in enrollments:
             studentclass_id = enrollment['studentclass_id']
             student_id = enrollment['student_id']
+            end_time = enrollment['end_time']
+            
+            # Check if class has ended for today
+            # If end_time is not set, assume class ends at 5 PM (17:00)
+            class_ended = False
+            if end_time:
+                try:
+                    # Parse end time (handle both HH:MM:SS and HH:MM formats)
+                    if ':' in str(end_time):
+                        time_parts = str(end_time).split(':')
+                        end_hour = int(time_parts[0])
+                        end_minute = int(time_parts[1]) if len(time_parts) > 1 else 0
+                        
+                        # Compare with current time
+                        if current_datetime.hour > end_hour or (current_datetime.hour == end_hour and current_datetime.minute >= end_minute):
+                            class_ended = True
+                except:
+                    # If parsing fails, default to checking if it's after 5 PM
+                    class_ended = current_datetime.hour >= 17
+            else:
+                # No end time set, default to 5 PM
+                class_ended = current_datetime.hour >= 17
+            
+            # Only mark absent if class has ended
+            if not class_ended:
+                continue
             
             # Check if attendance is already marked for today
             existing = conn.execute('''
