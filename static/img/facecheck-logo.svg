@@ -1,0 +1,44 @@
+<svg width="160" height="160" viewBox="0 0 160 160" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="FaceCheck logo">
+    <defs>
+        <linearGradient id="faceGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#6CC3FF"/>
+            <stop offset="100%" stop-color="#3A5BFF"/>
+        </linearGradient>
+        <linearGradient id="waveGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#9ED4FF"/>
+            <stop offset="100%" stop-color="#4F80FF"/>
+        </linearGradient>
+        <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#1E3A8A" flood-opacity="0.25"/>
+        </filter>
+    </defs>
+
+    <!-- Hex frame -->
+    <g filter="url(#shadow)">
+        <path d="M80 8 L130 37 L130 93 L80 122 L30 93 L30 37 Z"
+              fill="none" stroke="#4F80FF" stroke-width="6" stroke-linejoin="round"/>
+        <!-- connection nodes -->
+        <circle cx="30" cy="37" r="5" fill="#4F80FF"/>
+        <circle cx="130" cy="37" r="5" fill="#4F80FF"/>
+        <circle cx="130" cy="93" r="5" fill="#4F80FF"/>
+        <circle cx="80" cy="8" r="5" fill="#4F80FF"/>
+        <circle cx="30" cy="93" r="5" fill="#4F80FF"/>
+    </g>
+
+    <!-- Face silhouette -->
+    <path d="M55 38 C70 24 100 26 112 45 C120 58 118 77 110 91 C100 107 78 122 62 120 C58 111 58 103 51 95 C44 87 38 80 40 64 C42 48 48 42 55 38 Z"
+          fill="url(#faceGradient)"/>
+
+    <!-- Waves -->
+    <path d="M40 70 C62 64 78 64 102 76 C94 85 86 91 74 95 C62 99 48 98 36 90 Z"
+          fill="url(#waveGradient)" opacity="0.85"/>
+    <path d="M42 92 C58 86 78 88 100 104 C90 112 78 116 64 116 C52 116 44 110 42 105 Z"
+          fill="url(#waveGradient)" opacity="0.75"/>
+
+    <!-- Digital pixels -->
+    <rect x="110" y="46" width="12" height="12" rx="2" fill="#6CC3FF"/>
+    <rect x="122" y="56" width="12" height="12" rx="2" fill="#8CD3FF"/>
+    <rect x="106" y="60" width="10" height="10" rx="2" fill="#4F80FF"/>
+    <rect x="118" y="70" width="10" height="10" rx="2" fill="#63AFFF"/>
+</svg>
+

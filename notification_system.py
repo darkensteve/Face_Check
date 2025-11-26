@@ -214,8 +214,9 @@ def convert_lates_to_absent(student_id):
 
 def auto_mark_absent():
     """
-    Auto-mark students as absent if they haven't marked attendance for today
-    This should be run at the end of each day
+    Auto-mark students as absent if they haven't marked attendance during their scheduled class time
+    Auto-mark faculty as absent if they haven't marked attendance for events
+    This checks if the class is scheduled TODAY and if the class time has ended
     """
     try:
         # Check if auto-mark is enabled
@@ -227,19 +228,25 @@ def auto_mark_absent():
         
         conn = get_db_connection()
         today = datetime.now().strftime('%Y-%m-%d')
-        
-        # Get all active student-class enrollments with class end times
-        # Only mark absent for classes that have already ended today
         current_datetime = datetime.now()
-        current_time_str = current_datetime.strftime('%H:%M:%S')
+        current_weekday = current_datetime.strftime('%A')  # Monday, Tuesday, etc.
         
+        # ========== PART 1: Auto-mark students absent for classes ==========
+        # Get enrollments with class schedule including days
         enrollments = conn.execute('''
-            SELECT DISTINCT sc.studentclass_id, sc.student_id, c.class_name, c.end_time
+            SELECT DISTINCT sc.studentclass_id, sc.student_id, sc.class_id, s.user_id, 
+                   c.class_name, c.start_time, c.end_time,
+                   u.firstname, u.lastname,
+                   GROUP_CONCAT(DISTINCT d.day_name) as class_days
             FROM student_class sc
             JOIN student s ON sc.student_id = s.student_id
             JOIN user u ON s.user_id = u.user_id
             JOIN class c ON sc.class_id = c.class_id
+            LEFT JOIN class_days cd ON c.class_id = cd.class_id
+            LEFT JOIN days d ON cd.day_id = d.day_id
             WHERE u.is_active = 1
+            GROUP BY sc.studentclass_id, sc.student_id, sc.class_id, s.user_id, 
+                     c.class_name, c.start_time, c.end_time, u.firstname, u.lastname
         ''').fetchall()
         
         marked_count = 0
@@ -247,10 +254,16 @@ def auto_mark_absent():
         for enrollment in enrollments:
             studentclass_id = enrollment['studentclass_id']
             student_id = enrollment['student_id']
+            user_id = enrollment['user_id']
+            class_days = enrollment['class_days']
+            start_time = enrollment['start_time']
             end_time = enrollment['end_time']
             
+            # Check if class is scheduled today
+            if not class_days or current_weekday not in class_days:
+                continue  # Skip if class is not scheduled today
+            
             # Check if class has ended for today
-            # If end_time is not set, assume class ends at 5 PM (17:00)
             class_ended = False
             if end_time:
                 try:
@@ -264,11 +277,7 @@ def auto_mark_absent():
                         if current_datetime.hour > end_hour or (current_datetime.hour == end_hour and current_datetime.minute >= end_minute):
                             class_ended = True
                 except:
-                    # If parsing fails, default to checking if it's after 5 PM
-                    class_ended = current_datetime.hour >= 17
-            else:
-                # No end time set, default to 5 PM
-                class_ended = current_datetime.hour >= 17
+                    pass
             
             # Only mark absent if class has ended
             if not class_ended:
@@ -290,20 +299,102 @@ def auto_mark_absent():
                 marked_count += 1
                 
                 # Create notification for the student
-                student = conn.execute('''
-                    SELECT user_id FROM student WHERE student_id = ?
-                ''', (student_id,)).fetchone()
+                class_name = enrollment['class_name']
+                student_name = f"{enrollment['firstname']} {enrollment['lastname']}"
                 
-                if student:
-                    class_name = enrollment['class_name']
-                    message = f'❌ You were automatically marked absent for {class_name} on {today}. Please ensure you mark attendance on time.'
-                    create_notification(student['user_id'], message, 'auto_absent')
+                # Format time for notification
+                time_str = ''
+                if start_time and end_time:
+                    try:
+                        from datetime import datetime as dt
+                        start_obj = dt.strptime(str(start_time).split()[0] if ' ' in str(start_time) else str(start_time), 
+                                               '%H:%M:%S' if ':' in str(start_time) and len(str(start_time).split(':')) == 3 else '%H:%M')
+                        end_obj = dt.strptime(str(end_time).split()[0] if ' ' in str(end_time) else str(end_time), 
+                                             '%H:%M:%S' if ':' in str(end_time) and len(str(end_time).split(':')) == 3 else '%H:%M')
+                        time_str = f" ({start_obj.strftime('%I:%M %p')} - {end_obj.strftime('%I:%M %p')})"
+                    except:
+                        pass
+                
+                message = f'❌ You were automatically marked absent for {class_name}{time_str} on {today}. You did not mark attendance during the class period.'
+                create_notification(user_id, message, 'auto_absent')
+                print(f"[AUTO-ABSENT] Student {student_name} marked absent for {class_name}{time_str}")
+        
+        # ========== PART 2: Auto-mark faculty absent for events ==========
+        # Get all events that happened today and have ended
+        events_today = conn.execute('''
+            SELECT e.event_id, e.event_name, e.end_time, e.event_date
+            FROM event e
+            WHERE DATE(e.event_date) = ?
+        ''', (today,)).fetchall()
+        
+        faculty_marked = 0
+        
+        for event in events_today:
+            event_id = event['event_id']
+            event_name = event['event_name']
+            end_time = event['end_time']
+            
+            # Check if event has ended
+            event_ended = False
+            if end_time:
+                try:
+                    if ':' in str(end_time):
+                        time_parts = str(end_time).split(':')
+                        end_hour = int(time_parts[0])
+                        end_minute = int(time_parts[1]) if len(time_parts) > 1 else 0
+                        
+                        if current_datetime.hour > end_hour or (current_datetime.hour == end_hour and current_datetime.minute >= end_minute):
+                            event_ended = True
+                except:
+                    event_ended = current_datetime.hour >= 17
+            else:
+                event_ended = current_datetime.hour >= 17
+            
+            if not event_ended:
+                continue
+            
+            # Get all faculty members (all faculty should attend all events)
+            all_faculty = conn.execute('''
+                SELECT f.faculty_id, f.user_id, u.firstname, u.lastname
+                FROM faculty f
+                JOIN user u ON f.user_id = u.user_id
+                WHERE u.is_active = 1
+            ''').fetchall()
+            
+            for faculty in all_faculty:
+                faculty_id = faculty['faculty_id']
+                user_id = faculty['user_id']
+                
+                # Check if attendance is already marked for this event
+                existing = conn.execute('''
+                    SELECT ea_id FROM event_attendance
+                    WHERE event_id = ? AND faculty_id = ? AND DATE(attendance_time) = ?
+                ''', (event_id, faculty_id, today)).fetchone()
+                
+                if not existing:
+                    # Mark as absent
+                    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    conn.execute('''
+                        INSERT INTO event_attendance (event_id, faculty_id, status, attendance_time)
+                        VALUES (?, ?, 'absent', ?)
+                    ''', (event_id, faculty_id, current_time))
+                    faculty_marked += 1
+                    
+                    # Create notification for the faculty
+                    faculty_name = f"{faculty['firstname']} {faculty['lastname']}"
+                    message = f'❌ You were automatically marked absent for event "{event_name}" on {today}. Please ensure you mark attendance for events on time.'
+                    create_notification(user_id, message, 'auto_absent')
+                    print(f"[AUTO-ABSENT] Faculty {faculty_name} marked absent for event {event_name}")
         
         conn.commit()
         conn.close()
-        print(f"[SUCCESS] Auto-marked {marked_count} students as absent")
-        return marked_count
+        
+        total_marked = marked_count + faculty_marked
+        print(f"[SUCCESS] Auto-marked {marked_count} students and {faculty_marked} faculty as absent (Total: {total_marked})")
+        return total_marked
     except Exception as e:
         print(f"[ERROR] Error in auto-mark absent: {e}")
+        import traceback
+        traceback.print_exc()
         return 0
 

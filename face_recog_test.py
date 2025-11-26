@@ -27,8 +27,8 @@ RECOGNIZE_EVERY = 45
 LIVENESS_EVERY = 4
 ROI_EXPAND = 0.30
 
-# Matching (slightly relaxed so known faces match reliably)
-MATCH_TOLERANCE = 0.62  # typical 0.50–0.62
+# Matching (more strict to prevent false positives)
+MATCH_TOLERANCE = 0.5  # Lower value = more strict matching, fewer false positives
 
 # Liveness (blink + small motion)
 REQUIRE_BLINKS = 1

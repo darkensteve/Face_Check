@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import time
 import secrets
@@ -1949,6 +1949,83 @@ def faculty_dashboard():
             'status': record['attendance_status']
         })
     
+    # Build upcoming classes schedule
+    classes = conn.execute('''
+        SELECT c.class_id, c.class_name, c.room, c.start_time, c.end_time,
+               GROUP_CONCAT(DISTINCT d.day_name) as days
+        FROM class c
+        LEFT JOIN class_days cd ON c.class_id = cd.class_id
+        LEFT JOIN days d ON cd.day_id = d.day_id
+        WHERE c.faculty_id = ?
+        GROUP BY c.class_id, c.class_name, c.room, c.start_time, c.end_time
+    ''', (faculty['faculty_id'],)).fetchall()
+    
+    def parse_time_value(value):
+        if not value:
+            return None
+        try:
+            value = str(value)
+            fmt = '%H:%M:%S' if len(value.split(':')) == 3 else '%H:%M'
+            return datetime.strptime(value, fmt).time()
+        except Exception:
+            return None
+    
+    def format_time_range(start_value, end_value):
+        start_time = parse_time_value(start_value)
+        end_time = parse_time_value(end_value)
+        
+        def format_single(time_obj):
+            if not time_obj:
+                return None
+            return time_obj.strftime('%I:%M %p').lstrip('0')
+        
+        start_str = format_single(start_time)
+        end_str = format_single(end_time)
+        
+        if start_str and end_str:
+            return f"{start_str} - {end_str}"
+        return start_str or end_str or 'TBA'
+    
+    weekday_map = {
+        'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3,
+        'Friday': 4, 'Saturday': 5, 'Sunday': 6
+    }
+    
+    now = datetime.now()
+    upcoming_classes = []
+    
+    for class_item in classes:
+        days_list = [day.strip() for day in (class_item['days'] or '').split(',') if day]
+        start_time = parse_time_value(class_item['start_time'])
+        next_occurrence = None
+        next_day_label = None
+        
+        for day in days_list:
+            if day not in weekday_map or not start_time:
+                continue
+            days_ahead = (weekday_map[day] - now.weekday()) % 7
+            candidate_date = now.date() + timedelta(days=days_ahead)
+            candidate_dt = datetime.combine(candidate_date, start_time)
+            if candidate_dt < now:
+                candidate_dt += timedelta(days=7)
+            if not next_occurrence or candidate_dt < next_occurrence:
+                next_occurrence = candidate_dt
+                next_day_label = day
+        
+        upcoming_classes.append({
+            'class_name': class_item['class_name'],
+            'room': class_item['room'] or 'TBA',
+            'days': ', '.join(days_list) if days_list else 'No schedule set',
+            'time_range': format_time_range(class_item['start_time'], class_item['end_time']),
+            'next_occurrence': next_occurrence,
+            'next_label': next_occurrence.strftime('%a, %b %d') if next_occurrence else 'Schedule pending',
+        })
+    
+    upcoming_classes = sorted(
+        upcoming_classes,
+        key=lambda c: c['next_occurrence'] or (now + timedelta(days=30))
+    )
+    
     # Check if faculty has registered their face
     has_face_registered = False
     if faculty['attendance_image']:
@@ -1965,7 +2042,8 @@ def faculty_dashboard():
                          faculty_info=faculty, 
                          stats=stats, 
                          today_attendance=formatted_attendance,
-                         has_face_registered=has_face_registered)
+                         has_face_registered=has_face_registered,
+                         upcoming_classes=upcoming_classes)
 
 # API Routes
 @app.route('/api/register_face', methods=['POST'])
@@ -2512,10 +2590,28 @@ def process_face_recognition(image_path, attendance_type='class'):
                 best_match = person
         
         # Check if match is good enough (tolerance from face_recog_test.py)
-        MATCH_TOLERANCE = 0.62
+        # Lower tolerance = more strict matching = fewer false positives
+        # 0.5 is a good balance between accuracy and false rejections
+        MATCH_TOLERANCE = 0.5
         print(f"Best match: {best_match['firstname'] if best_match else 'None'}")
         print(f"Best distance: {best_distance}")
         print(f"Tolerance: {MATCH_TOLERANCE}")
+        
+        # Additional validation: if no one has been checked or best_distance is still infinity, no match
+        if best_match is None or best_distance == float('inf'):
+            print("No valid faces to compare against")
+            return {
+                'success': False,
+                'message': f'No registered {person_type}s with valid face data found',
+                'student_id': 'Unknown',
+                'student_name': 'Unknown',
+                'face_box': None if not face_locations else {
+                    'x': int(face_locations[0][3]),
+                    'y': int(face_locations[0][0]),
+                    'width': int(face_locations[0][1] - face_locations[0][3]),
+                    'height': int(face_locations[0][2] - face_locations[0][0])
+                }
+            }
         
         # Get face location coordinates for drawing box
         # Use landmarks for more accurate face bounding box (like real-world systems)
@@ -2570,8 +2666,25 @@ def process_face_recognition(image_path, attendance_type='class'):
             }
         
         if best_match and best_distance <= MATCH_TOLERANCE:
-            print("Match found!")
             confidence = int((1 - best_distance) * 100)  # Convert distance to confidence percentage
+            
+            # Require minimum 50% confidence to accept the match
+            MIN_CONFIDENCE = 50
+            if confidence < MIN_CONFIDENCE:
+                print(f"Match rejected: confidence {confidence}% is below minimum {MIN_CONFIDENCE}%")
+                return {
+                    'success': False,
+                    'message': f'Face detected but confidence too low ({confidence}%). Please ensure proper lighting and face the camera directly.',
+                    'student_id': 'Unknown',
+                    'student_name': 'Unknown',
+                    'distance': float(best_distance),
+                    'confidence': confidence,
+                    'face_box': face_box,
+                    'eye_ratio': float(eye_ratio),
+                    'nose_motion': float(nose_motion)
+                }
+            
+            print(f"Match accepted! Confidence: {confidence}%")
             
             # For events, use user_id; for classes, use student_id (keep backward compatibility)
             person_id = int(best_match['user_id']) if attendance_type == 'event' else int(best_match['person_id'])
