@@ -114,7 +114,7 @@ def create_database():
             CREATE TABLE IF NOT EXISTS attendance (
                 attendance_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 attendance_date DATETIME NOT NULL,
-                attendance_status VARCHAR(10) NOT NULL CHECK (attendance_status IN ('present', 'absent', 'late')),
+                attendance_status VARCHAR(10) NOT NULL CHECK (attendance_status IN ('present', 'absent', 'late', 'excuse')),
                 studentclass_id INTEGER NOT NULL,
                 FOREIGN KEY (studentclass_id) REFERENCES student_class(studentclass_id)
             )
@@ -140,7 +140,7 @@ def create_database():
             CREATE TABLE IF NOT EXISTS event_attendance (
                 event_attend_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 attendance_time DATETIME NOT NULL,
-                status VARCHAR(10) NOT NULL CHECK (status IN ('present', 'absent', 'late')),
+                status VARCHAR(10) NOT NULL CHECK (status IN ('present', 'absent', 'late', 'excuse')),
                 event_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
                 FOREIGN KEY (event_id) REFERENCES event(event_id),

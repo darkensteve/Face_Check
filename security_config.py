@@ -38,9 +38,14 @@ def validate_password_strength(password):
     Validate password strength based on admin settings
     Returns: (is_valid, message)
     
-    Note: Passwords are automatically set to user ID numbers,
-    so we only check minimum length requirement.
+    Requirements:
+    - Minimum length (from admin settings or default 6)
+    - At least one letter (character)
+    - At least one number
+    - At least one special character
     """
+    import re
+    
     try:
         from settings_helper import get_password_min_length
         
@@ -52,9 +57,22 @@ def validate_password_strength(password):
         print(f"Warning: Could not load password settings, using default: {e}")
         min_length = 6
     
-    # Check minimum length only (since passwords are ID numbers)
+    # Check minimum length
     if len(password) < min_length:
         return False, f"Password must be at least {min_length} characters long"
+    
+    # Check for at least one letter (character)
+    if not re.search(r'[a-zA-Z]', password):
+        return False, "Password must contain at least one letter (a-z, A-Z)"
+    
+    # Check for at least one number
+    if not re.search(r'[0-9]', password):
+        return False, "Password must contain at least one number (0-9)"
+    
+    # Check for at least one special character (including underscore)
+    # Pattern includes: !@#$%^&*()_+-=[]{}|;:,.<>?
+    if not re.search(r'[!@#$%^&*()_+\-=\[\]{};\':"\\|,.<>/?~`]', password):
+        return False, "Password must contain at least one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)"
     
     return True, "Password meets requirements"
 

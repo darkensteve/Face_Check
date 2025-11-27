@@ -198,6 +198,7 @@
                                 <option value="present">Present</option>
                                 <option value="late">Late</option>
                                 <option value="absent">Absent</option>
+                                <option value="excuse">Excuse</option>
                             </select>
                         </div>
                         <div>
@@ -267,6 +268,7 @@
                                         <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full
                                             {% if record.attendance_status == 'present' %}bg-green-100 text-green-800
                                             {% elif record.attendance_status == 'late' %}bg-yellow-100 text-yellow-800
+                                            {% elif record.attendance_status == 'excuse' %}bg-purple-100 text-purple-800
                                             {% else %}bg-red-100 text-red-800{% endif %}" id="status-{{ record.attendance_id }}">
                                             {{ record.attendance_status.title() }}
                                         </span>
@@ -461,6 +463,8 @@
                         statusBadge.className += 'bg-green-100 text-green-800';
                     } else if (newStatus === 'late') {
                         statusBadge.className += 'bg-yellow-100 text-yellow-800';
+                    } else if (newStatus === 'excuse') {
+                        statusBadge.className += 'bg-purple-100 text-purple-800';
                     } else {
                         statusBadge.className += 'bg-red-100 text-red-800';
                     }
@@ -541,6 +545,7 @@
                             <option value="present">Present</option>
                             <option value="late">Late</option>
                             <option value="absent">Absent</option>
+                            <option value="excuse">Excuse</option>
                         </select>
                     </div>
                     

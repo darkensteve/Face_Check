@@ -195,6 +195,127 @@ def verify_password(stored_hash, password):
         # Fallback for insecure storage or legacy passwords
         return stored_hash == password or stored_hash == f"INSECURE_{password}"
 
+@app.route('/profile/change-password', methods=['GET', 'POST'])
+def change_password():
+    """Allow logged-in users (student/faculty/admin) to change their own password."""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    user_id = session['user_id']
+    
+    if request.method == 'POST':
+        # Check if this is an AJAX request
+        content_type = request.headers.get('Content-Type', '')
+        is_ajax = 'application/json' in content_type or request.is_json
+        
+        try:
+            if is_ajax:
+                data = request.get_json() or {}
+                current_password = data.get('current_password', '')
+                new_password = data.get('new_password', '')
+                confirm_password = data.get('confirm_password', '')
+            else:
+                current_password = request.form.get('current_password', '')
+                new_password = request.form.get('new_password', '')
+                confirm_password = request.form.get('confirm_password', '')
+        except Exception as e:
+            print(f"Error parsing request data: {e}")
+            if is_ajax:
+                return jsonify({'success': False, 'message': 'Invalid request data. Please try again.'}), 400
+            flash('Invalid request data. Please try again.', 'error')
+            return redirect(url_for('change_password'))
+        
+        if not current_password or not new_password or not confirm_password:
+            if is_ajax:
+                return jsonify({'success': False, 'message': 'All password fields are required.'}), 400
+            flash('All password fields are required.', 'error')
+            return redirect(url_for('change_password'))
+        
+        if new_password != confirm_password:
+            if is_ajax:
+                return jsonify({'success': False, 'message': 'New password and confirmation do not match.'}), 400
+            flash('New password and confirmation do not match.', 'error')
+            return redirect(url_for('change_password'))
+        
+        conn = get_db_connection()
+        user = conn.execute('SELECT password, idno FROM user WHERE user_id = ?', (user_id,)).fetchone()
+        if not user:
+            conn.close()
+            if is_ajax:
+                return jsonify({'success': False, 'message': 'User account not found.'}), 404
+            flash('User account not found.', 'error')
+            return redirect(url_for('change_password'))
+        
+        stored_hash = user['password']
+        if not verify_password(stored_hash, current_password):
+            conn.close()
+            if is_ajax:
+                return jsonify({'success': False, 'message': 'Current password is incorrect.'}), 400
+            flash('Current password is incorrect.', 'error')
+            return redirect(url_for('change_password'))
+        
+        # Validate new password strength using admin settings
+        try:
+            from security_config import validate_password_strength
+            is_valid_password, password_message = validate_password_strength(new_password)
+            if not is_valid_password:
+                conn.close()
+                if is_ajax:
+                    return jsonify({'success': False, 'message': password_message}), 400
+                flash(password_message, 'error')
+                return redirect(url_for('change_password'))
+        except Exception as e:
+            print(f"Password strength validation error: {e}")
+            conn.close()
+            error_msg = f"Password validation error: {str(e)}"
+            if is_ajax:
+                return jsonify({'success': False, 'message': error_msg}), 500
+            flash(error_msg, 'error')
+            return redirect(url_for('change_password'))
+        
+        try:
+            new_hash = hash_password(new_password)
+            conn.execute('UPDATE user SET password = ? WHERE user_id = ?', (new_hash, user_id))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            conn.close()
+            print(f"Error updating password: {e}")
+            error_msg = f"Error updating password: {str(e)}"
+            if is_ajax:
+                return jsonify({'success': False, 'message': error_msg}), 500
+            flash(error_msg, 'error')
+            return redirect(url_for('change_password'))
+        
+        if NOTIFICATIONS_AVAILABLE:
+            try:
+                msg = '🔐 Your account password was changed successfully.'
+                create_notification(user_id, msg, 'password_changed')
+            except Exception as notify_err:
+                print(f"Warning: failed to create password changed notification: {notify_err}")
+        
+        success_message = 'Your password has been changed successfully.'
+        
+        # Return JSON for AJAX requests, otherwise redirect
+        if is_ajax:
+            return jsonify({
+                'success': True,
+                'message': success_message
+            })
+        
+        flash(success_message, 'success')
+        # Redirect back to appropriate dashboard
+        role = session.get('role')
+        if role == 'faculty':
+            return redirect(url_for('faculty_profile'))
+        elif role == 'student':
+            return redirect(url_for('my_classes'))
+        else:
+            return redirect(url_for('dashboard'))
+    
+    # GET: render simple change-password form
+    return render_template('change_password.html')
+
 def validate_input(data, field_type='text', min_len=1, max_len=255):
     """Validate and sanitize input data"""
     if not data or not isinstance(data, str):
@@ -638,33 +759,57 @@ def edit_user(user_id):
 @app.route('/admin/users/<int:user_id>/reset-password', methods=['POST'])
 def reset_password(user_id):
     if 'user_id' not in session or session['role'] != 'admin':
+        if request.headers.get('Content-Type') == 'application/json' or request.is_json:
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 401
         return redirect(url_for('login'))
     
     try:
-        new_password = request.form.get('new_password')
-        
-        if not new_password:
-            flash('Password cannot be empty', 'error')
-            return redirect(url_for('admin_users'))
-        
-        # Validate password strength using admin settings
-        from security_config import validate_password_strength
-        is_valid_password, password_message = validate_password_strength(new_password)
-        if not is_valid_password:
-            flash(password_message, 'error')
-            return redirect(url_for('admin_users'))
-        
-        hashed_password = hash_password(new_password)
-        
         conn = get_db_connection()
+        
+        # Get the user's ID number and role, which we use as the default password
+        user = conn.execute('SELECT idno, firstname, lastname FROM user WHERE user_id = ?', (user_id,)).fetchone()
+        if not user or not user['idno']:
+            conn.close()
+            error_msg = 'Unable to reset password: user has no ID number configured.'
+            if request.headers.get('Content-Type') == 'application/json' or request.is_json:
+                return jsonify({'success': False, 'message': error_msg}), 400
+            flash(error_msg, 'error')
+            return redirect(url_for('admin_users'))
+        
+        default_password = str(user['idno']).strip()
+        hashed_password = hash_password(default_password)
+        
         conn.execute('UPDATE user SET password = ? WHERE user_id = ?', (hashed_password, user_id))
         conn.commit()
         conn.close()
         
-        flash('Password reset successfully', 'success')
+        # Notify the user that their password was reset to the default
+        if NOTIFICATIONS_AVAILABLE:
+            try:
+                reset_msg = (
+                    '🔑 Your account password has been reset by the administrator. '
+                    'Please use your ID number as your password and change it after logging in.'
+                )
+                create_notification(user_id, reset_msg, 'password_reset')
+            except Exception as notify_err:
+                print(f"Warning: failed to create password reset notification: {notify_err}")
+        
+        success_msg = f"Password reset successfully for {user['firstname']} {user['lastname']}. The password has been reset to their default ID number."
+        
+        # Return JSON for AJAX requests, otherwise redirect with flash
+        if request.headers.get('Content-Type') == 'application/json' or request.is_json:
+            return jsonify({
+                'success': True,
+                'message': success_msg
+            })
+        
+        flash(success_msg, 'success')
         
     except Exception as e:
-        flash(f'Error resetting password: {str(e)}', 'error')
+        error_msg = f'Error resetting password: {str(e)}'
+        if request.headers.get('Content-Type') == 'application/json' or request.is_json:
+            return jsonify({'success': False, 'message': error_msg}), 500
+        flash(error_msg, 'error')
     
     return redirect(url_for('admin_users'))
 
@@ -3165,14 +3310,14 @@ def api_attendance_override():
         
         student_id = data.get('student_id')
         class_id = data.get('class_id')
-        status = data.get('status', 'present')  # 'present' or 'absent'
+        status = data.get('status', 'present')  # 'present', 'absent', 'late', or 'excuse'
         override_reason = data.get('reason', 'Manual override by faculty')
         
         if not student_id or not class_id:
             return jsonify({'success': False, 'message': 'Missing student or class information'}), 400
         
-        if status not in ['present', 'absent']:
-            return jsonify({'success': False, 'message': 'Invalid status. Must be "present" or "absent"'}), 400
+        if status not in ['present', 'absent', 'late', 'excuse']:
+            return jsonify({'success': False, 'message': 'Invalid status. Must be "present", "absent", "late", or "excuse"'}), 400
         
         conn = get_db_connection()
         
@@ -3252,6 +3397,9 @@ def api_attendance_override():
                 elif status == 'late':
                     notification_msg = f'⚠️ Your attendance was manually marked as LATE for {class_name} at {current_time_str} by faculty.'
                     create_notification(student['user_id'], notification_msg, 'attendance_override_late')
+                elif status == 'excuse':
+                    notification_msg = f'📝 Your attendance was manually marked as EXCUSE for {class_name} at {current_time_str} by faculty.'
+                    create_notification(student['user_id'], notification_msg, 'attendance_override_excuse')
             except Exception as e:
                 print(f"Error creating override notification: {e}")
         
@@ -3284,8 +3432,8 @@ def api_admin_attendance_override():
         if not attendance_id:
             return jsonify({'success': False, 'message': 'Missing attendance ID'}), 400
         
-        if status not in ['present', 'late', 'absent']:
-            return jsonify({'success': False, 'message': 'Invalid status. Must be present, late, or absent'}), 400
+        if status not in ['present', 'late', 'absent', 'excuse']:
+            return jsonify({'success': False, 'message': 'Invalid status. Must be present, late, absent, or excuse'}), 400
         
         conn = get_db_connection()
         
@@ -3330,6 +3478,9 @@ def api_admin_attendance_override():
                 elif status == 'late':
                     notification_msg = f'⚠️ Your attendance was manually updated to LATE for {class_name} at {current_time_str} by admin.'
                     create_notification(attendance['user_id'], notification_msg, 'attendance_override_late')
+                elif status == 'excuse':
+                    notification_msg = f'📝 Your attendance was manually updated to EXCUSE for {class_name} at {current_time_str} by admin.'
+                    create_notification(attendance['user_id'], notification_msg, 'attendance_override_excuse')
             except Exception as e:
                 print(f"Error creating override notification: {e}")
         
@@ -3863,8 +4014,8 @@ def api_event_attendance_override():
         if not user_id or not event_id:
             return jsonify({'success': False, 'message': 'Missing user or event information'}), 400
         
-        if status not in ['present', 'absent']:
-            return jsonify({'success': False, 'message': 'Invalid status'}), 400
+        if status not in ['present', 'absent', 'late', 'excuse']:
+            return jsonify({'success': False, 'message': 'Invalid status. Must be present, absent, late, or excuse'}), 400
         
         conn = get_db_connection()
         

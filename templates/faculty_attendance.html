@@ -1107,6 +1107,16 @@
                     <div class="w-2 h-2 bg-red-500 rounded-full mr-2"></div>
                     Absent
                 </span>`;
+            } else if (status === 'late') {
+                return `<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-gradient-to-r from-yellow-100 to-yellow-200 text-yellow-800 border border-yellow-300">
+                    <div class="w-2 h-2 bg-yellow-500 rounded-full mr-2"></div>
+                    Late
+                </span>`;
+            } else if (status === 'excuse') {
+                return `<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-gradient-to-r from-purple-100 to-purple-200 text-purple-800 border border-purple-300">
+                    <div class="w-2 h-2 bg-purple-500 rounded-full mr-2"></div>
+                    Excuse
+                </span>`;
             } else {
                 return `<span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-gradient-to-r from-gray-100 to-gray-200 text-gray-700 border border-gray-300">
                     <div class="w-2 h-2 bg-gray-400 rounded-full mr-2"></div>
@@ -1119,6 +1129,7 @@
         function getActionButtons(studentId, currentStatus) {
             const presentDisabled = currentStatus === 'present';
             const absentDisabled = currentStatus === 'absent';
+            const excuseDisabled = currentStatus === 'excuse';
             
             return `
                 <div class="flex space-x-1">
@@ -1141,6 +1152,16 @@
                             }"
                             ${absentDisabled ? 'disabled' : ''}>
                         <i class="fas fa-times text-sm"></i>
+                    </button>
+                    <button onclick="overrideAttendance(${studentId}, 'excuse')" 
+                            title="Mark Excuse"
+                            class="inline-flex items-center justify-center w-8 h-8 rounded-lg transition-all duration-200 ${
+                                excuseDisabled 
+                                    ? 'bg-purple-100 text-purple-600 cursor-not-allowed opacity-75' 
+                                    : 'bg-gray-100 text-gray-600 hover:bg-purple-100 hover:text-purple-600 hover:shadow-sm'
+                            }"
+                            ${excuseDisabled ? 'disabled' : ''}>
+                        <i class="fas fa-file-alt text-sm"></i>
                     </button>
                 </div>
             `;

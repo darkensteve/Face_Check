@@ -436,26 +436,38 @@
         </div>
     </div>
 
-    <!-- Reset Password Modal -->
+    <!-- Reset Password Confirmation Modal -->
     <div id="resetModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden z-50">
         <div class="flex items-center justify-center min-h-screen p-4">
             <div class="bg-white rounded-lg shadow-xl max-w-md w-full">
                 <div class="px-6 py-4 border-b border-gray-200">
                     <h3 class="text-lg font-medium text-gray-900">Reset Password</h3>
                 </div>
-                <form id="resetForm" method="POST">
-                    <div class="px-6 py-4">
-                        <p class="text-sm text-gray-600 mb-4">Reset password for <span id="resetUserName" class="font-medium"></span></p>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700">New Password</label>
-                            <input type="password" name="new_password" required class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                        </div>
-                    </div>
-                    <div class="px-6 py-4 bg-gray-50 flex justify-end space-x-3">
-                        <button type="button" onclick="closeResetModal()" class="px-4 py-2 text-gray-700 bg-gray-200 rounded hover:bg-gray-300 transition duration-200">Cancel</button>
-                        <button type="submit" class="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 transition duration-200">Reset Password</button>
-                    </div>
-                </form>
+                <div class="px-6 py-4">
+                    <p class="text-sm text-gray-600 mb-4">
+                        Are you sure you want to reset the password for <span id="resetUserName" class="font-medium"></span>?
+                    </p>
+                    <p class="text-xs text-gray-500 mb-4">
+                        The password will be reset to their default ID number. They will be notified and should change it after logging in.
+                    </p>
+                </div>
+                <div class="px-6 py-4 bg-gray-50 flex justify-end space-x-3">
+                    <button type="button" onclick="closeResetModal()" class="px-4 py-2 text-gray-700 bg-gray-200 rounded hover:bg-gray-300 transition duration-200">Cancel</button>
+                    <button type="button" onclick="confirmResetPassword()" class="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 transition duration-200">
+                        <i class="fas fa-check mr-2"></i>Yes, Reset Password
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Success Message Toast -->
+    <div id="resetSuccessToast" class="fixed top-4 right-4 bg-green-500 text-white px-6 py-4 rounded-lg shadow-lg hidden z-50">
+        <div class="flex items-center">
+            <i class="fas fa-check-circle mr-3 text-xl"></i>
+            <div>
+                <p class="font-semibold">Password Reset Successful!</p>
+                <p class="text-sm text-green-100" id="resetSuccessMessage"></p>
             </div>
         </div>
     </div>
@@ -469,14 +481,61 @@
             document.getElementById('createModal').classList.add('hidden');
         }
 
+        let resetUserId = null;
+        let resetUserName = '';
+        
         function openResetModal(userId, userName) {
+            resetUserId = userId;
+            resetUserName = userName;
             document.getElementById('resetUserName').textContent = userName;
-            document.getElementById('resetForm').action = `/admin/users/${userId}/reset-password`;
             document.getElementById('resetModal').classList.remove('hidden');
         }
 
         function closeResetModal() {
             document.getElementById('resetModal').classList.add('hidden');
+            resetUserId = null;
+            resetUserName = '';
+        }
+        
+        async function confirmResetPassword() {
+            if (!resetUserId) return;
+            
+            try {
+                const response = await fetch(`/admin/users/${resetUserId}/reset-password`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({})
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    closeResetModal();
+                    showResetSuccessToast(data.message || `Password reset successfully for ${resetUserName}. The password has been reset to their default ID number.`);
+                    // Reload page after 3 seconds to show updated flash message
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 3000);
+                } else {
+                    alert(data.message || 'Error resetting password. Please try again.');
+                }
+            } catch (error) {
+                console.error('Error resetting password:', error);
+                alert('Error resetting password. Please try again.');
+            }
+        }
+        
+        function showResetSuccessToast(message) {
+            const toast = document.getElementById('resetSuccessToast');
+            const messageEl = document.getElementById('resetSuccessMessage');
+            messageEl.textContent = message;
+            toast.classList.remove('hidden');
+            
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 5000);
         }
 
         function toggleRoleFields() {
