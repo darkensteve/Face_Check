@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Class Students - FaceCheck</title>
+    <title>Event Faculty - FaceCheck</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
@@ -36,12 +36,12 @@
                     User Management
                 </a>
                 
-                <a href="{{ url_for('admin_classes') }}" class="flex items-center px-6 py-3 bg-gray-700 text-white">
+                <a href="{{ url_for('admin_classes') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-chalkboard-teacher mr-3"></i>
                     Class Management
                 </a>
                 
-                <a href="{{ url_for('admin_events') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                <a href="{{ url_for('admin_events') }}" class="flex items-center px-6 py-3 bg-gray-700 text-white">
                     <i class="fas fa-calendar-alt mr-3"></i>
                     Event Management
                 </a>
@@ -87,17 +87,17 @@
                 <div class="px-6 py-4">
                     <div class="flex items-center justify-between">
                         <div>
-                            <h2 class="text-2xl font-bold text-gray-800">{{ class_info.class_name }}</h2>
-                            <p class="text-gray-600">Manage student enrollments for this class</p>
+                            <h2 class="text-2xl font-bold text-gray-800">{{ event_info.event_name }}</h2>
+                            <p class="text-gray-600">Manage faculty assignments for this event</p>
                             <div class="mt-2 text-sm text-gray-500">
-                                <span class="mr-4"><i class="fas fa-code mr-1"></i>{{ class_info.edpcode }}</span>
-                                <span class="mr-4"><i class="fas fa-clock mr-1"></i>{{ class_info.start_time }} - {{ class_info.end_time }}</span>
-                                <span class="mr-4"><i class="fas fa-door-open mr-1"></i>{{ class_info.room or 'TBA' }}</span>
-                                <span><i class="fas fa-chalkboard-teacher mr-1"></i>{{ class_info.firstname }} {{ class_info.lastname }}</span>
+                                <span class="mr-4"><i class="fas fa-calendar mr-1"></i>{{ event_info.event_date }}</span>
+                                <span class="mr-4"><i class="fas fa-clock mr-1"></i>{{ event_info.start_time }} - {{ event_info.end_time }}</span>
+                                <span class="mr-4"><i class="fas fa-door-open mr-1"></i>{{ event_info.room or 'TBA' }}</span>
+                                <span><i class="fas fa-user-tie mr-1"></i>Organizer: {{ event_info.firstname }} {{ event_info.lastname }}</span>
                             </div>
                         </div>
-                        <a href="{{ url_for('admin_classes') }}" class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition duration-200">
-                            <i class="fas fa-arrow-left mr-2"></i>Back to Classes
+                        <a href="{{ url_for('admin_events') }}" class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition duration-200">
+                            <i class="fas fa-arrow-left mr-2"></i>Back to Events
                         </a>
                     </div>
                 </div>
@@ -124,11 +124,11 @@
                     <div class="bg-white rounded-xl shadow-lg p-6">
                         <div class="flex items-center">
                             <div class="p-3 bg-blue-100 rounded-lg">
-                                <i class="fas fa-users text-blue-600 text-xl"></i>
+                                <i class="fas fa-user-tie text-blue-600 text-xl"></i>
                             </div>
                             <div class="ml-4">
-                                <p class="text-sm font-medium text-gray-600">Total Enrolled</p>
-                                <p class="text-2xl font-bold text-gray-900">{{ enrolled_students|length }}</p>
+                                <p class="text-sm font-medium text-gray-600">Assigned Faculty</p>
+                                <p class="text-2xl font-bold text-gray-900">{{ assigned_faculty|length }}</p>
                             </div>
                         </div>
                     </div>
@@ -139,8 +139,8 @@
                                 <i class="fas fa-user-plus text-green-600 text-xl"></i>
                             </div>
                             <div class="ml-4">
-                                <p class="text-sm font-medium text-gray-600">Available to Enroll</p>
-                                <p class="text-2xl font-bold text-gray-900">{{ available_students|length }}</p>
+                                <p class="text-sm font-medium text-gray-600">Available to Assign</p>
+                                <p class="text-2xl font-bold text-gray-900">{{ available_faculty|length }}</p>
                             </div>
                         </div>
                     </div>
@@ -151,31 +151,58 @@
                                 <i class="fas fa-chart-pie text-purple-600 text-xl"></i>
                             </div>
                             <div class="ml-4">
-                                <p class="text-sm font-medium text-gray-600">Enrollment Rate</p>
-                                <p class="text-2xl font-bold text-gray-900">
-                                    {% if (enrolled_students|length + available_students|length) > 0 %}
-                                        {{ "%.1f"|format((enrolled_students|length / (enrolled_students|length + available_students|length)) * 100) }}%
-                                    {% else %}
-                                        0%
-                                    {% endif %}
-                                </p>
+                                <p class="text-sm font-medium text-gray-600">Assignment Rate</p>
+                                {% if (assigned_faculty|length + available_faculty|length) > 0 %}
+                                <p class="text-2xl font-bold text-gray-900">{{ "%.1f"|format((assigned_faculty|length / (assigned_faculty|length + available_faculty|length)) * 100) }}%</p>
+                                {% else %}
+                                <p class="text-2xl font-bold text-gray-900">0%</p>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
                 </div>
                 
+                <!-- Organizer Section -->
+                <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl shadow-lg p-6 mb-6 border-2 border-blue-200">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            <div class="p-3 bg-blue-600 rounded-lg mr-4">
+                                <i class="fas fa-crown text-white text-xl"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-semibold text-gray-900">Event Organizer</h3>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-4 pl-16">
+                        <div class="flex items-center bg-white rounded-lg p-4 shadow-sm">
+                            <div class="flex-1">
+                                <div class="text-sm font-medium text-gray-900">{{ event_info.firstname }} {{ event_info.lastname }}</div>
+                                <div class="text-xs text-gray-500">
+                                    <span class="mr-3">Organizer</span>
+                                    {% if event_info.dept_name %}<span>{{ event_info.dept_name }}</span>{% endif %}
+                                </div>
+                            </div>
+                            <div class="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-semibold">
+                                <i class="fas fa-crown mr-1"></i>Organizer
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Two Column Layout -->
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <!-- Enrolled Students -->
+                    <!-- Assigned Faculty -->
                     <div class="bg-white rounded-xl shadow-lg">
                         <div class="px-6 py-4 border-b border-gray-200">
                             <div class="flex items-center justify-between">
-                                <h3 class="text-lg font-semibold text-gray-900">Enrolled Students ({{ enrolled_students|length }})</h3>
-                                {% if enrolled_students %}
+                                <h3 class="text-lg font-semibold text-gray-900">Assigned Faculty ({{ assigned_faculty|length }})</h3>
+                                {% if assigned_faculty %}
                                 <div class="flex space-x-2">
-                                    <button onclick="selectAllEnrolled()" class="text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded-lg hover:bg-blue-200 transition duration-200">
+                                    <button onclick="selectAllAssigned()" class="text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded-lg hover:bg-blue-200 transition duration-200">
                                         <i class="fas fa-check-double mr-1"></i>Select All
                                     </button>
-                                    <button onclick="unenrollSelected()" id="bulkUnenrollBtn" class="text-sm bg-red-100 text-red-700 px-3 py-1 rounded-lg hover:bg-red-200 transition duration-200" disabled>
+                                    <button onclick="removeSelected()" id="bulkRemoveBtn" class="text-sm bg-red-100 text-red-700 px-3 py-1 rounded-lg hover:bg-red-200 transition duration-200" disabled>
                                         <i class="fas fa-user-minus mr-1"></i>Remove Selected
                                     </button>
                                 </div>
@@ -183,28 +210,27 @@
                             </div>
                         </div>
                         
-                        {% if enrolled_students %}
-                        <div class="max-h-96 overflow-y-auto" id="enrolledStudentsList">
-                            {% for student in enrolled_students %}
-                            <div class="px-6 py-4 border-b border-gray-100 hover:bg-gray-50 enrolled-student-card">
+                        {% if assigned_faculty %}
+                        <div class="max-h-96 overflow-y-auto" id="assignedFacultyList">
+                            {% for faculty in assigned_faculty %}
+                            <div class="px-6 py-4 border-b border-gray-100 hover:bg-gray-50 assigned-faculty-card">
                                 <div class="flex items-center justify-between">
                                     <div class="flex items-center">
-                                        <input type="checkbox" class="enrolled-student-checkbox mr-3 h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded" 
-                                               value="{{ student.student_id }}" onchange="updateBulkUnenrollButton()">
+                                        <input type="checkbox" class="assigned-faculty-checkbox mr-3 h-4 w-4 text-red-600 focus:ring-red-500 border-gray-300 rounded" 
+                                               value="{{ faculty.faculty_id }}" onchange="updateBulkRemoveButton()">
                                         <div>
-                                            <div class="text-sm font-medium text-gray-900">{{ student.firstname }} {{ student.lastname }}</div>
+                                            <div class="text-sm font-medium text-gray-900">{{ faculty.firstname }} {{ faculty.lastname }}</div>
                                             <div class="text-xs text-gray-500">
-                                                <span class="mr-3">ID: {{ student.idno }}</span>
-                                                <span class="mr-3">Year: {{ student.year_level }}</span>
-                                                {% if student.course_name %}<span class="mr-3">{{ student.course_name }}</span>{% endif %}
-                                                {% if student.dept_name %}<span>{{ student.dept_name }}</span>{% endif %}
+                                                <span class="mr-3">ID: {{ faculty.idno }}</span>
+                                                {% if faculty.position %}<span class="mr-3">{{ faculty.position }}</span>{% endif %}
+                                                {% if faculty.dept_name %}<span>{{ faculty.dept_name }}</span>{% endif %}
                                             </div>
                                         </div>
                                     </div>
                                     <div class="flex space-x-2">
-                                        <form method="POST" action="{{ url_for('unenroll_student_from_class', class_id=class_info.class_id, student_id=student.student_id) }}" class="inline">
-                                            <button type="submit" class="text-red-600 hover:text-red-900 text-sm" 
-                                                    onclick="return confirm('Are you sure you want to unenroll this student?')">
+                                        <form method="POST" action="{{ url_for('remove_faculty_from_event', event_id=event_info.event_id, faculty_id=faculty.faculty_id) }}" class="inline">
+                                            <button type="submit" class="text-red-600 hover:text-red-900 text-sm"
+                                                    onclick="return confirm('Are you sure you want to remove this faculty member?')">
                                                 <i class="fas fa-user-minus mr-1"></i>Remove
                                             </button>
                                         </form>
@@ -214,31 +240,34 @@
                             {% endfor %}
                         </div>
                         {% else %}
-                        <div class="text-center py-8">
-                            <i class="fas fa-users text-gray-400 text-4xl mb-4"></i>
-                            <p class="text-gray-500">No students enrolled yet</p>
+                        <div class="text-center py-12">
+                            <i class="fas fa-user-tie text-gray-400 text-6xl mb-4"></i>
+                            <h3 class="text-lg font-medium text-gray-900 mb-2">No Faculty Assigned</h3>
+                            <p class="text-gray-500">Assign faculty members to this event to track their attendance.</p>
                         </div>
                         {% endif %}
                     </div>
                     
-                    <!-- Available Students -->
+                    <!-- Available Faculty -->
                     <div class="bg-white rounded-xl shadow-lg">
                         <div class="px-6 py-4 border-b border-gray-200">
                             <div class="flex items-center justify-between">
-                                <h3 class="text-lg font-semibold text-gray-900">Available Students ({{ available_students|length }})</h3>
+                                <h3 class="text-lg font-semibold text-gray-900">Available Faculty ({{ available_faculty|length }})</h3>
+                                {% if available_faculty %}
                                 <div class="flex space-x-2">
                                     <button onclick="selectAllAvailable()" class="text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded-lg hover:bg-blue-200 transition duration-200">
                                         <i class="fas fa-check-double mr-1"></i>Select All
                                     </button>
-                                    <button onclick="enrollSelected()" id="bulkEnrollBtn" class="text-sm bg-green-100 text-green-700 px-3 py-1 rounded-lg hover:bg-green-200 transition duration-200" disabled>
-                                        <i class="fas fa-user-plus mr-1"></i>Enroll Selected
+                                    <button onclick="addSelected()" id="bulkAddBtn" class="text-sm bg-green-100 text-green-700 px-3 py-1 rounded-lg hover:bg-green-200 transition duration-200" disabled>
+                                        <i class="fas fa-user-plus mr-1"></i>Add Selected
                                     </button>
                                 </div>
+                                {% endif %}
                             </div>
                             <!-- Search and Filter -->
                             <div class="mt-4 flex space-x-4">
                                 <div class="flex-1">
-                                    <input type="text" id="studentSearch" placeholder="Search students..." 
+                                    <input type="text" id="facultySearch" placeholder="Search faculty..." 
                                            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                                 </div>
                                 <select id="departmentFilter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
@@ -248,33 +277,32 @@
                             </div>
                         </div>
                         
-                        {% if available_students %}
-                        <div class="max-h-96 overflow-y-auto" id="availableStudentsList">
-                            {% for student in available_students %}
-                            <div class="px-6 py-4 border-b border-gray-100 hover:bg-gray-50 student-card" 
-                                 data-name="{{ student.firstname }} {{ student.lastname }}" 
-                                 data-idno="{{ student.idno }}"
-                                 data-department="{{ student.dept_name or '' }}"
-                                 data-course="{{ student.course_name or '' }}">
+                        {% if available_faculty %}
+                        <div class="max-h-96 overflow-y-auto" id="availableFacultyList">
+                            {% for faculty in available_faculty %}
+                            <div class="px-6 py-4 border-b border-gray-100 hover:bg-gray-50 faculty-card" 
+                                 data-name="{{ faculty.firstname }} {{ faculty.lastname }}" 
+                                 data-idno="{{ faculty.idno }}"
+                                 data-department="{{ faculty.dept_name or '' }}"
+                                 data-position="{{ faculty.position or '' }}">
                                 <div class="flex items-center justify-between">
                                     <div class="flex items-center">
-                                        <input type="checkbox" class="student-checkbox mr-3 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" 
-                                               value="{{ student.student_id }}" onchange="updateBulkEnrollButton()">
+                                        <input type="checkbox" class="faculty-checkbox mr-3 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" 
+                                               value="{{ faculty.faculty_id }}" onchange="updateBulkAddButton()">
                                         <div>
-                                            <div class="text-sm font-medium text-gray-900">{{ student.firstname }} {{ student.lastname }}</div>
+                                            <div class="text-sm font-medium text-gray-900">{{ faculty.firstname }} {{ faculty.lastname }}</div>
                                             <div class="text-xs text-gray-500">
-                                                <span class="mr-3">ID: {{ student.idno }}</span>
-                                                <span class="mr-3">Year: {{ student.year_level }}</span>
-                                                {% if student.course_name %}<span class="mr-3">{{ student.course_name }}</span>{% endif %}
-                                                {% if student.dept_name %}<span>{{ student.dept_name }}</span>{% endif %}
+                                                <span class="mr-3">ID: {{ faculty.idno }}</span>
+                                                {% if faculty.position %}<span class="mr-3">{{ faculty.position }}</span>{% endif %}
+                                                {% if faculty.dept_name %}<span>{{ faculty.dept_name }}</span>{% endif %}
                                             </div>
                                         </div>
                                     </div>
                                     <div class="flex space-x-2">
-                                        <form method="POST" action="{{ url_for('enroll_student_to_class', class_id=class_info.class_id) }}" class="inline">
-                                            <input type="hidden" name="student_id" value="{{ student.student_id }}">
+                                        <form method="POST" action="{{ url_for('add_faculty_to_event', event_id=event_info.event_id) }}" class="inline">
+                                            <input type="hidden" name="faculty_id" value="{{ faculty.faculty_id }}">
                                             <button type="submit" class="text-blue-600 hover:text-blue-900 text-sm">
-                                                <i class="fas fa-user-plus mr-1"></i>Enroll
+                                                <i class="fas fa-user-plus mr-1"></i>Add
                                             </button>
                                         </form>
                                     </div>
@@ -285,7 +313,7 @@
                         {% else %}
                         <div class="text-center py-8">
                             <img src="{{ url_for('static', filename='img/FaceCheck_Logo.png') }}" alt="FaceCheck logo" class="w-16 h-16 mx-auto mb-4 opacity-70">
-                            <p class="text-gray-500">All students are already enrolled</p>
+                            <p class="text-gray-500">All faculty are already assigned</p>
                         </div>
                         {% endif %}
                     </div>
@@ -296,34 +324,33 @@
     
     <script>
         // Search functionality
-        document.getElementById('studentSearch').addEventListener('input', function() {
+        document.getElementById('facultySearch').addEventListener('input', function() {
             const searchTerm = this.value.toLowerCase();
-            const studentCards = document.querySelectorAll('.student-card');
+            const facultyCards = document.querySelectorAll('.faculty-card');
             
-            studentCards.forEach(card => {
+            facultyCards.forEach(card => {
                 const name = card.dataset.name.toLowerCase();
                 const idno = card.dataset.idno.toLowerCase();
                 const department = card.dataset.department.toLowerCase();
-                const course = card.dataset.course.toLowerCase();
+                const position = card.dataset.position.toLowerCase();
                 
                 if (name.includes(searchTerm) || idno.includes(searchTerm) || 
-                    department.includes(searchTerm) || course.includes(searchTerm)) {
+                    department.includes(searchTerm) || position.includes(searchTerm)) {
                     card.style.display = 'block';
                 } else {
                     card.style.display = 'none';
                 }
             });
             
-            // Update button state after filtering
-            updateBulkEnrollButton();
+            updateBulkAddButton();
         });
         
         // Department filter
         document.getElementById('departmentFilter').addEventListener('change', function() {
             const selectedDept = this.value;
-            const studentCards = document.querySelectorAll('.student-card');
+            const facultyCards = document.querySelectorAll('.faculty-card');
             
-            studentCards.forEach(card => {
+            facultyCards.forEach(card => {
                 const department = card.dataset.department;
                 
                 if (selectedDept === '' || department === selectedDept) {
@@ -333,16 +360,15 @@
                 }
             });
             
-            // Update button state after filtering
-            updateBulkEnrollButton();
+            updateBulkAddButton();
         });
         
         // Populate department filter
         function populateDepartmentFilter() {
             const departments = new Set();
-            const studentCards = document.querySelectorAll('.student-card');
+            const facultyCards = document.querySelectorAll('.faculty-card');
             
-            studentCards.forEach(card => {
+            facultyCards.forEach(card => {
                 const dept = card.dataset.department;
                 if (dept) departments.add(dept);
             });
@@ -356,86 +382,85 @@
             });
         }
         
-        // Select all functionality (only visible students)
+        // Select all functionality (only visible faculty)
         function selectAllAvailable() {
-            const visibleCards = Array.from(document.querySelectorAll('.student-card')).filter(card => 
+            const visibleCards = Array.from(document.querySelectorAll('.faculty-card')).filter(card => 
                 card.style.display !== 'none' && window.getComputedStyle(card).display !== 'none'
             );
-            const visibleCheckboxes = visibleCards.map(card => card.querySelector('.student-checkbox')).filter(cb => cb);
+            const visibleCheckboxes = visibleCards.map(card => card.querySelector('.faculty-checkbox')).filter(cb => cb);
             const allChecked = visibleCheckboxes.length > 0 && visibleCheckboxes.every(cb => cb.checked);
             
             visibleCheckboxes.forEach(cb => {
                 cb.checked = !allChecked;
             });
             
-            updateBulkEnrollButton();
+            updateBulkAddButton();
         }
         
-        // Update bulk enroll button (only count visible checked checkboxes)
-        function updateBulkEnrollButton() {
-            const visibleCards = Array.from(document.querySelectorAll('.student-card')).filter(card => 
+        // Update bulk add button (only count visible checked checkboxes)
+        function updateBulkAddButton() {
+            const visibleCards = Array.from(document.querySelectorAll('.faculty-card')).filter(card => 
                 card.style.display !== 'none' && window.getComputedStyle(card).display !== 'none'
             );
             const visibleCheckedBoxes = visibleCards
-                .map(card => card.querySelector('.student-checkbox'))
+                .map(card => card.querySelector('.faculty-checkbox'))
                 .filter(cb => cb && cb.checked);
-            const bulkBtn = document.getElementById('bulkEnrollBtn');
+            const bulkBtn = document.getElementById('bulkAddBtn');
             
             if (visibleCheckedBoxes.length > 0) {
                 bulkBtn.disabled = false;
-                bulkBtn.innerHTML = `<i class="fas fa-user-plus mr-1"></i>Enroll Selected (${visibleCheckedBoxes.length})`;
+                bulkBtn.innerHTML = `<i class="fas fa-user-plus mr-1"></i>Add Selected (${visibleCheckedBoxes.length})`;
             } else {
                 bulkBtn.disabled = true;
-                bulkBtn.innerHTML = '<i class="fas fa-user-plus mr-1"></i>Enroll Selected';
+                bulkBtn.innerHTML = '<i class="fas fa-user-plus mr-1"></i>Add Selected';
             }
         }
         
-        // Select all enrolled students
-        function selectAllEnrolled() {
-            const checkboxes = document.querySelectorAll('.enrolled-student-checkbox');
+        // Select all assigned faculty
+        function selectAllAssigned() {
+            const checkboxes = document.querySelectorAll('.assigned-faculty-checkbox');
             const allChecked = Array.from(checkboxes).every(cb => cb.checked);
             
             checkboxes.forEach(cb => {
                 cb.checked = !allChecked;
             });
             
-            updateBulkUnenrollButton();
+            updateBulkRemoveButton();
         }
         
-        // Update bulk unenroll button
-        function updateBulkUnenrollButton() {
-            const checkedBoxes = document.querySelectorAll('.enrolled-student-checkbox:checked');
-            const bulkBtn = document.getElementById('bulkUnenrollBtn');
+        // Update bulk remove button
+        function updateBulkRemoveButton() {
+            const checkedBoxes = document.querySelectorAll('.assigned-faculty-checkbox:checked');
+            const bulkBtn = document.getElementById('bulkRemoveBtn');
             
             if (checkedBoxes.length > 0) {
                 bulkBtn.disabled = false;
-                bulkBtn.textContent = `Remove Selected (${checkedBoxes.length})`;
+                bulkBtn.innerHTML = `<i class="fas fa-user-minus mr-1"></i>Remove Selected (${checkedBoxes.length})`;
             } else {
                 bulkBtn.disabled = true;
-                bulkBtn.textContent = 'Remove Selected';
+                bulkBtn.innerHTML = '<i class="fas fa-user-minus mr-1"></i>Remove Selected';
             }
         }
         
-        // Bulk unenroll functionality
-        function unenrollSelected() {
-            const checkedBoxes = document.querySelectorAll('.enrolled-student-checkbox:checked');
-            const studentIds = Array.from(checkedBoxes).map(cb => cb.value);
+        // Bulk remove functionality
+        function removeSelected() {
+            const checkedBoxes = document.querySelectorAll('.assigned-faculty-checkbox:checked');
+            const facultyIds = Array.from(checkedBoxes).map(cb => cb.value);
             
-            if (studentIds.length === 0) {
-                alert('Please select at least one student to remove.');
+            if (facultyIds.length === 0) {
+                alert('Please select at least one faculty member to remove.');
                 return;
             }
             
-            if (confirm(`Are you sure you want to remove ${studentIds.length} student(s) from this class?`)) {
-                // Create a form to submit multiple student IDs
+            if (confirm(`Are you sure you want to remove ${facultyIds.length} faculty member(s) from this event?`)) {
                 const form = document.createElement('form');
                 form.method = 'POST';
-                form.action = '{{ url_for("bulk_unenroll_students", class_id=class_info.class_id) }}';
+                form.action = '{{ url_for("bulk_remove_faculty_from_event", event_id=event_info.event_id) }}';
                 
-                studentIds.forEach(id => {
+                facultyIds.forEach(id => {
                     const input = document.createElement('input');
                     input.type = 'hidden';
-                    input.name = 'student_ids';
+                    input.name = 'faculty_ids';
                     input.value = id;
                     form.appendChild(input);
                 });
@@ -445,32 +470,30 @@
             }
         }
         
-        // Bulk enroll functionality (only enroll visible checked students)
-        function enrollSelected() {
-            // Only get checkboxes from visible student cards
-            const visibleCards = Array.from(document.querySelectorAll('.student-card')).filter(card => 
+        // Bulk add functionality (only add visible checked faculty)
+        function addSelected() {
+            const visibleCards = Array.from(document.querySelectorAll('.faculty-card')).filter(card => 
                 card.style.display !== 'none' && window.getComputedStyle(card).display !== 'none'
             );
             const checkedBoxes = visibleCards
-                .map(card => card.querySelector('.student-checkbox'))
+                .map(card => card.querySelector('.faculty-checkbox'))
                 .filter(cb => cb && cb.checked);
-            const studentIds = checkedBoxes.map(cb => cb.value);
+            const facultyIds = checkedBoxes.map(cb => cb.value);
             
-            if (studentIds.length === 0) {
-                alert('Please select at least one student to enroll.');
+            if (facultyIds.length === 0) {
+                alert('Please select at least one faculty member to add.');
                 return;
             }
             
-            if (confirm(`Are you sure you want to enroll ${studentIds.length} student(s)?`)) {
-                // Create a form to submit multiple student IDs
+            if (confirm(`Are you sure you want to add ${facultyIds.length} faculty member(s)?`)) {
                 const form = document.createElement('form');
                 form.method = 'POST';
-                form.action = '{{ url_for("bulk_enroll_students", class_id=class_info.class_id) }}';
+                form.action = '{{ url_for("bulk_add_faculty_to_event", event_id=event_info.event_id) }}';
                 
-                studentIds.forEach(id => {
+                facultyIds.forEach(id => {
                     const input = document.createElement('input');
                     input.type = 'hidden';
-                    input.name = 'student_ids';
+                    input.name = 'faculty_ids';
                     input.value = id;
                     form.appendChild(input);
                 });
@@ -483,9 +506,10 @@
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
             populateDepartmentFilter();
-            updateBulkEnrollButton();
-            updateBulkUnenrollButton();
+            updateBulkAddButton();
+            updateBulkRemoveButton();
         });
     </script>
 </body>
 </html>
+

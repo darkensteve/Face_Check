@@ -232,7 +232,7 @@ def auto_mark_absent():
         current_weekday = current_datetime.strftime('%A')  # Monday, Tuesday, etc.
         
         # ========== PART 1: Auto-mark students absent for classes ==========
-        # Get enrollments with class schedule including days
+        # Get enrollments with class schedule including days (only active classes)
         enrollments = conn.execute('''
             SELECT DISTINCT sc.studentclass_id, sc.student_id, sc.class_id, s.user_id, 
                    c.class_name, c.start_time, c.end_time,
@@ -244,7 +244,7 @@ def auto_mark_absent():
             JOIN class c ON sc.class_id = c.class_id
             LEFT JOIN class_days cd ON c.class_id = cd.class_id
             LEFT JOIN days d ON cd.day_id = d.day_id
-            WHERE u.is_active = 1
+            WHERE u.is_active = 1 AND c.is_active = 1
             GROUP BY sc.studentclass_id, sc.student_id, sc.class_id, s.user_id, 
                      c.class_name, c.start_time, c.end_time, u.firstname, u.lastname
         ''').fetchall()
@@ -320,11 +320,11 @@ def auto_mark_absent():
                 print(f"[AUTO-ABSENT] Student {student_name} marked absent for {class_name}{time_str}")
         
         # ========== PART 2: Auto-mark faculty absent for events ==========
-        # Get all events that happened today and have ended
+        # Get all events that happened today and have ended (only active events)
         events_today = conn.execute('''
             SELECT e.event_id, e.event_name, e.end_time, e.event_date
             FROM event e
-            WHERE DATE(e.event_date) = ?
+            WHERE DATE(e.event_date) = ? AND e.is_active = 1
         ''', (today,)).fetchall()
         
         faculty_marked = 0
@@ -353,31 +353,32 @@ def auto_mark_absent():
             if not event_ended:
                 continue
             
-            # Get all faculty members (all faculty should attend all events)
-            all_faculty = conn.execute('''
+            # Get only faculty members assigned to this event (via event_faculty table)
+            assigned_faculty = conn.execute('''
                 SELECT f.faculty_id, f.user_id, u.firstname, u.lastname
-                FROM faculty f
+                FROM event_faculty ef
+                JOIN faculty f ON ef.faculty_id = f.faculty_id
                 JOIN user u ON f.user_id = u.user_id
-                WHERE u.is_active = 1
-            ''').fetchall()
+                WHERE ef.event_id = ? AND u.is_active = 1
+            ''', (event_id,)).fetchall()
             
-            for faculty in all_faculty:
+            for faculty in assigned_faculty:
                 faculty_id = faculty['faculty_id']
                 user_id = faculty['user_id']
                 
                 # Check if attendance is already marked for this event
                 existing = conn.execute('''
-                    SELECT ea_id FROM event_attendance
-                    WHERE event_id = ? AND faculty_id = ? AND DATE(attendance_time) = ?
-                ''', (event_id, faculty_id, today)).fetchone()
+                    SELECT event_attend_id FROM event_attendance
+                    WHERE event_id = ? AND user_id = ? AND DATE(attendance_time) = ?
+                ''', (event_id, user_id, today)).fetchone()
                 
                 if not existing:
                     # Mark as absent
                     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     conn.execute('''
-                        INSERT INTO event_attendance (event_id, faculty_id, status, attendance_time)
+                        INSERT INTO event_attendance (event_id, user_id, status, attendance_time)
                         VALUES (?, ?, 'absent', ?)
-                    ''', (event_id, faculty_id, current_time))
+                    ''', (event_id, user_id, current_time))
                     faculty_marked += 1
                     
                     # Create notification for the faculty

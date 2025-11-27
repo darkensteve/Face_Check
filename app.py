@@ -1038,7 +1038,7 @@ def admin_classes():
     
     conn = get_db_connection()
     
-    # Get all classes with faculty info and days
+    # Get all classes with faculty info and days (including deactivated for admin view)
     classes_raw = conn.execute('''
         SELECT c.*, u.firstname, u.lastname, d.dept_name,
                GROUP_CONCAT(DISTINCT day.day_name) as days
@@ -1049,8 +1049,8 @@ def admin_classes():
         LEFT JOIN class_days cd ON c.class_id = cd.class_id
         LEFT JOIN days day ON cd.day_id = day.day_id
         GROUP BY c.class_id, c.class_name, c.edpcode, c.start_time, c.end_time, c.room, 
-                 c.faculty_id, u.firstname, u.lastname, d.dept_name
-        ORDER BY c.class_name
+                 c.faculty_id, u.firstname, u.lastname, d.dept_name, c.is_active
+        ORDER BY c.is_active DESC, c.class_name
     ''').fetchall()
     
     # Format classes with 12-hour time format
@@ -1229,6 +1229,12 @@ def edit_class(class_id):
         WHERE c.class_id = ?
     ''', (class_id,)).fetchone()
     
+    # Prevent editing deactivated classes
+    if class_info and not class_info.get('is_active', 1):
+        conn.close()
+        flash('Cannot edit a deactivated class. Please reactivate it first.', 'error')
+        return redirect(url_for('admin_classes'))
+    
     # Get class days
     class_days = conn.execute('SELECT day_id FROM class_days WHERE class_id = ?', (class_id,)).fetchall()
     class_day_ids = [day['day_id'] for day in class_days]
@@ -1264,6 +1270,14 @@ def class_students(class_id):
         WHERE c.class_id = ?
     ''', (class_id,)).fetchone()
     
+    if not class_info:
+        conn.close()
+        flash('Class not found', 'error')
+        return redirect(url_for('admin_classes'))
+    
+    # Show read-only message for deactivated classes
+    is_readonly = not class_info.get('is_active', 1)
+    
     # Get enrolled students
     enrolled_students = conn.execute('''
         SELECT u.idno, u.firstname, u.lastname, s.student_id, s.year_level, c.course_name, d.dept_name
@@ -1294,7 +1308,8 @@ def class_students(class_id):
     return render_template('class_students.html', 
                          class_info=class_info, 
                          enrolled_students=enrolled_students, 
-                         available_students=available_students)
+                         available_students=available_students,
+                         is_readonly=is_readonly)
 
 @app.route('/admin/classes/<int:class_id>/enroll', methods=['POST'])
 def enroll_student_to_class(class_id):
@@ -1448,14 +1463,14 @@ def admin_events():
     
     conn = get_db_connection()
     
-    # Get all events with faculty info
+    # Get all events with faculty info (including deactivated for admin view)
     events = conn.execute('''
         SELECT e.*, u.firstname, u.lastname, d.dept_name
         FROM event e
         JOIN faculty f ON e.faculty_id = f.faculty_id
         JOIN user u ON f.user_id = u.user_id
         LEFT JOIN department d ON u.dept_id = d.dept_id
-        ORDER BY e.event_date DESC
+        ORDER BY e.is_active DESC, e.event_date DESC
     ''').fetchall()
     
     # Get all faculty for assignment
@@ -1493,10 +1508,17 @@ def create_event():
             conn = get_db_connection()
             
             # Insert event
-            conn.execute('''
+            cursor = conn.cursor()
+            cursor.execute('''
                 INSERT INTO event (event_name, description, event_date, start_time, end_time, room, faculty_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (event_name, description, event_date, start_time, end_time, room, faculty_id))
+            
+            event_id = cursor.lastrowid
+            
+            # DO NOT add organizer to event_faculty table
+            # Organizer doesn't need to mark attendance - they take attendance for assigned faculty
+            # Only assigned faculty (added via Manage Faculty page) go in event_faculty table
             
             conn.commit()
             conn.close()
@@ -1577,6 +1599,263 @@ def edit_event(event_id):
     
     conn.close()
     return render_template('edit_event.html', event_info=event_info, faculty=faculty)
+
+@app.route('/admin/events/<int:event_id>/faculty')
+def event_faculty(event_id):
+    """View and manage faculty assigned to an event"""
+    if 'user_id' not in session or session['role'] != 'admin':
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    
+    # Get event info
+    event_info = conn.execute('''
+        SELECT e.*, u.firstname, u.lastname, d.dept_name
+        FROM event e
+        JOIN faculty f ON e.faculty_id = f.faculty_id
+        JOIN user u ON f.user_id = u.user_id
+        LEFT JOIN department d ON u.dept_id = d.dept_id
+        WHERE e.event_id = ?
+    ''', (event_id,)).fetchone()
+    
+    if not event_info:
+        conn.close()
+        flash('Event not found', 'error')
+        return redirect(url_for('admin_events'))
+    
+    # Show read-only message for deactivated events
+    is_readonly = not event_info.get('is_active', 1)
+    
+    # Get organizer info separately
+    organizer_id = event_info['faculty_id']
+    
+    # Get assigned faculty (from event_faculty table, EXCLUDING the organizer)
+    assigned_faculty = conn.execute('''
+        SELECT f.faculty_id, u.firstname, u.lastname, u.idno, d.dept_name, f.position
+        FROM event_faculty ef
+        JOIN faculty f ON ef.faculty_id = f.faculty_id
+        JOIN user u ON f.user_id = u.user_id
+        LEFT JOIN department d ON u.dept_id = d.dept_id
+        WHERE ef.event_id = ? AND ef.faculty_id != ?
+        ORDER BY u.firstname, u.lastname
+    ''', (event_id, organizer_id)).fetchall()
+    
+    # Get available faculty (not assigned to this event AND not the organizer)
+    available_faculty = conn.execute('''
+        SELECT f.faculty_id, u.firstname, u.lastname, u.idno, d.dept_name, f.position
+        FROM faculty f
+        JOIN user u ON f.user_id = u.user_id
+        LEFT JOIN department d ON u.dept_id = d.dept_id
+        WHERE u.is_active = 1 AND u.role = 'faculty'
+        AND f.faculty_id != ?
+        AND f.faculty_id NOT IN (
+            SELECT ef.faculty_id FROM event_faculty ef WHERE ef.event_id = ?
+        )
+        ORDER BY u.firstname, u.lastname
+    ''', (organizer_id, event_id)).fetchall()
+    
+    conn.close()
+    return render_template('event_faculty.html', 
+                         event_info=event_info, 
+                         assigned_faculty=assigned_faculty, 
+                         available_faculty=available_faculty,
+                         organizer_id=organizer_id,
+                         is_readonly=is_readonly)
+
+@app.route('/admin/events/<int:event_id>/add-faculty', methods=['POST'])
+def add_faculty_to_event(event_id):
+    """Add a faculty member to an event"""
+    if 'user_id' not in session or session['role'] != 'admin':
+        return redirect(url_for('login'))
+    
+    try:
+        faculty_id = request.form.get('faculty_id')
+        
+        if not faculty_id:
+            flash('Please select a faculty member', 'error')
+            return redirect(url_for('event_faculty', event_id=event_id))
+        
+        conn = get_db_connection()
+        
+        # Get event to check if trying to add the organizer
+        event = conn.execute('SELECT faculty_id FROM event WHERE event_id = ?', (event_id,)).fetchone()
+        if not event:
+            flash('Event not found', 'error')
+            conn.close()
+            return redirect(url_for('admin_events'))
+        
+        # Prevent adding the organizer as assigned faculty
+        if faculty_id == str(event['faculty_id']):
+            flash('The organizer is already part of this event and cannot be added as assigned faculty', 'error')
+            conn.close()
+            return redirect(url_for('event_faculty', event_id=event_id))
+        
+        # Check if faculty is already assigned
+        existing = conn.execute('''
+            SELECT eventfaculty_id FROM event_faculty 
+            WHERE event_id = ? AND faculty_id = ?
+        ''', (event_id, faculty_id)).fetchone()
+        
+        if existing:
+            flash('Faculty member is already assigned to this event', 'error')
+            conn.close()
+            return redirect(url_for('event_faculty', event_id=event_id))
+        
+        # Add faculty to event
+        conn.execute('''
+            INSERT INTO event_faculty (event_id, faculty_id)
+            VALUES (?, ?)
+        ''', (event_id, faculty_id))
+        
+        conn.commit()
+        conn.close()
+        
+        flash('Faculty member added successfully', 'success')
+        
+    except Exception as e:
+        flash(f'Error adding faculty: {str(e)}', 'error')
+    
+    return redirect(url_for('event_faculty', event_id=event_id))
+
+@app.route('/admin/events/<int:event_id>/bulk-add-faculty', methods=['POST'])
+def bulk_add_faculty_to_event(event_id):
+    """Add multiple faculty members to an event"""
+    if 'user_id' not in session or session['role'] != 'admin':
+        return redirect(url_for('login'))
+    
+    try:
+        faculty_ids = request.form.getlist('faculty_ids')
+        
+        if not faculty_ids:
+            flash('Please select at least one faculty member', 'error')
+            return redirect(url_for('event_faculty', event_id=event_id))
+        
+        conn = get_db_connection()
+        
+        # Get event to check organizer
+        event = conn.execute('SELECT faculty_id FROM event WHERE event_id = ?', (event_id,)).fetchone()
+        if not event:
+            flash('Event not found', 'error')
+            conn.close()
+            return redirect(url_for('admin_events'))
+        
+        organizer_id = event['faculty_id']
+        added_count = 0
+        already_assigned = 0
+        skipped_organizer = 0
+        
+        for faculty_id in faculty_ids:
+            # Skip if trying to add the organizer
+            if int(faculty_id) == organizer_id:
+                skipped_organizer += 1
+                continue
+            
+            # Check if faculty is already assigned
+            existing = conn.execute('''
+                SELECT eventfaculty_id FROM event_faculty 
+                WHERE event_id = ? AND faculty_id = ?
+            ''', (event_id, faculty_id)).fetchone()
+            
+            if not existing:
+                # Add faculty to event
+                conn.execute('''
+                    INSERT INTO event_faculty (event_id, faculty_id)
+                    VALUES (?, ?)
+                ''', (event_id, faculty_id))
+                added_count += 1
+            else:
+                already_assigned += 1
+        
+        conn.commit()
+        conn.close()
+        
+        if added_count > 0:
+            flash(f'Successfully added {added_count} faculty member(s)', 'success')
+        if already_assigned > 0:
+            flash(f'{already_assigned} faculty member(s) were already assigned', 'warning')
+        if skipped_organizer > 0:
+            flash(f'{skipped_organizer} selection(s) skipped - organizer cannot be added as assigned faculty', 'info')
+        
+    except Exception as e:
+        flash(f'Error adding faculty: {str(e)}', 'error')
+    
+    return redirect(url_for('event_faculty', event_id=event_id))
+
+@app.route('/admin/events/<int:event_id>/remove-faculty/<int:faculty_id>', methods=['POST'])
+def remove_faculty_from_event(event_id, faculty_id):
+    """Remove a faculty member from an event"""
+    if 'user_id' not in session or session['role'] != 'admin':
+        return redirect(url_for('login'))
+    
+    try:
+        conn = get_db_connection()
+        
+        # Remove faculty from event
+        conn.execute('''
+            DELETE FROM event_faculty
+            WHERE event_id = ? AND faculty_id = ?
+        ''', (event_id, faculty_id))
+        
+        conn.commit()
+        conn.close()
+        
+        flash('Faculty member removed successfully', 'success')
+        
+    except Exception as e:
+        flash(f'Error removing faculty: {str(e)}', 'error')
+    
+    return redirect(url_for('event_faculty', event_id=event_id))
+
+@app.route('/admin/events/<int:event_id>/bulk-remove-faculty', methods=['POST'])
+def bulk_remove_faculty_from_event(event_id):
+    """Remove multiple faculty members from an event"""
+    if 'user_id' not in session or session['role'] != 'admin':
+        return redirect(url_for('login'))
+    
+    try:
+        faculty_ids = request.form.getlist('faculty_ids')
+        
+        if not faculty_ids:
+            flash('Please select at least one faculty member', 'error')
+            return redirect(url_for('event_faculty', event_id=event_id))
+        
+        conn = get_db_connection()
+        
+        # Get event to check organizer
+        event = conn.execute('SELECT faculty_id FROM event WHERE event_id = ?', (event_id,)).fetchone()
+        if not event:
+            flash('Event not found', 'error')
+            conn.close()
+            return redirect(url_for('admin_events'))
+        
+        organizer_id = event['faculty_id']
+        removed_count = 0
+        skipped_organizer = 0
+        
+        for faculty_id in faculty_ids:
+            # Prevent removing the organizer
+            if int(faculty_id) == organizer_id:
+                skipped_organizer += 1
+                continue
+            
+            conn.execute('''
+                DELETE FROM event_faculty
+                WHERE event_id = ? AND faculty_id = ?
+            ''', (event_id, faculty_id))
+            removed_count += 1
+        
+        conn.commit()
+        conn.close()
+        
+        if removed_count > 0:
+            flash(f'Successfully removed {removed_count} faculty member(s) from the event', 'success')
+        if skipped_organizer > 0:
+            flash(f'{skipped_organizer} selection(s) skipped - organizer cannot be removed', 'info')
+        
+    except Exception as e:
+        flash(f'Error removing faculty: {str(e)}', 'error')
+    
+    return redirect(url_for('event_faculty', event_id=event_id))
 
 # Face Registration Route
 @app.route('/register_face')
@@ -2094,14 +2373,14 @@ def faculty_dashboard():
             'status': record['attendance_status']
         })
     
-    # Build upcoming classes schedule
+    # Build upcoming classes schedule (only active classes)
     classes = conn.execute('''
         SELECT c.class_id, c.class_name, c.room, c.start_time, c.end_time,
                GROUP_CONCAT(DISTINCT d.day_name) as days
         FROM class c
         LEFT JOIN class_days cd ON c.class_id = cd.class_id
         LEFT JOIN days d ON cd.day_id = d.day_id
-        WHERE c.faculty_id = ?
+        WHERE c.faculty_id = ? AND c.is_active = 1
         GROUP BY c.class_id, c.class_name, c.room, c.start_time, c.end_time
     ''', (faculty['faculty_id'],)).fetchall()
     
@@ -2552,12 +2831,14 @@ def calculate_ear(eye_landmarks):
     ear = (A + B) / (2.0 * C)
     return ear
 
-def process_face_recognition(image_path, attendance_type='class'):
+def process_face_recognition(image_path, attendance_type='class', class_id=None, event_id=None):
     """
     Process face recognition using the same logic as face_recog_test.py
     Args:
         image_path: Path to the image file
         attendance_type: 'class' for students, 'event' for faculty
+        class_id: Class ID for filtering students (optional)
+        event_id: Event ID for filtering assigned faculty (optional)
     """
     try:
         # Check if face recognition is available
@@ -2580,22 +2861,50 @@ def process_face_recognition(image_path, attendance_type='class'):
         conn = get_db_connection()
         
         if attendance_type == 'event':
-            # For events, load faculty members
-            people = conn.execute('''
-                SELECT f.faculty_id as person_id, u.user_id, u.firstname, u.lastname, f.attendance_image
-                FROM faculty f
-                JOIN user u ON f.user_id = u.user_id
-                WHERE f.attendance_image IS NOT NULL
-            ''').fetchall()
+            # For events, load ONLY assigned faculty (from event_faculty table) - EXCLUDE organizer
+            # Organizer doesn't need to mark attendance, they take attendance for others
+            if event_id:
+                # Get organizer ID to exclude them
+                event_info = conn.execute('SELECT faculty_id FROM event WHERE event_id = ?', (event_id,)).fetchone()
+                organizer_id = event_info['faculty_id'] if event_info else None
+                
+                if organizer_id:
+                    people = conn.execute('''
+                        SELECT DISTINCT f.faculty_id as person_id, u.user_id, u.firstname, u.lastname, f.attendance_image
+                        FROM event_faculty ef
+                        JOIN faculty f ON ef.faculty_id = f.faculty_id
+                        JOIN user u ON f.user_id = u.user_id
+                        WHERE ef.event_id = ? AND ef.faculty_id != ? AND f.attendance_image IS NOT NULL AND u.is_active = 1
+                    ''', (event_id, organizer_id)).fetchall()
+                else:
+                    people = []
+            else:
+                # Fallback: load all faculty if no event_id provided
+                people = conn.execute('''
+                    SELECT f.faculty_id as person_id, u.user_id, u.firstname, u.lastname, f.attendance_image
+                    FROM faculty f
+                    JOIN user u ON f.user_id = u.user_id
+                    WHERE f.attendance_image IS NOT NULL AND u.is_active = 1
+                ''').fetchall()
             person_type = 'faculty'
         else:
-            # For classes, load students (default)
-            people = conn.execute('''
-                SELECT s.student_id as person_id, u.user_id, u.firstname, u.lastname, s.attendance_image
-                FROM student s
-                JOIN user u ON s.user_id = u.user_id
-                WHERE s.attendance_image IS NOT NULL
-            ''').fetchall()
+            # For classes, load students enrolled in the class
+            if class_id:
+                people = conn.execute('''
+                    SELECT s.student_id as person_id, u.user_id, u.firstname, u.lastname, s.attendance_image
+                    FROM student_class sc
+                    JOIN student s ON sc.student_id = s.student_id
+                    JOIN user u ON s.user_id = u.user_id
+                    WHERE sc.class_id = ? AND s.attendance_image IS NOT NULL AND u.is_active = 1
+                ''', (class_id,)).fetchall()
+            else:
+                # Fallback: load all students if no class_id provided
+                people = conn.execute('''
+                    SELECT s.student_id as person_id, u.user_id, u.firstname, u.lastname, s.attendance_image
+                    FROM student s
+                    JOIN user u ON s.user_id = u.user_id
+                    WHERE s.attendance_image IS NOT NULL AND u.is_active = 1
+                ''').fetchall()
             person_type = 'student'
         
         conn.close()
@@ -2924,7 +3233,9 @@ def api_attendance_detect():
         
         # Get attendance type from form data (class or event)
         attendance_type = request.form.get('attendance_type', 'class')
-        print(f"Attendance type: {attendance_type}")
+        class_id = request.form.get('class_id')
+        event_id = request.form.get('event_id')
+        print(f"Attendance type: {attendance_type}, class_id: {class_id}, event_id: {event_id}")
         
         # Save the image temporarily with secure filename
         import uuid
@@ -2953,7 +3264,7 @@ def api_attendance_detect():
         
         # Process the image for face recognition with attendance type
         print(f"Processing face recognition for image: {filepath}, type: {attendance_type}")
-        result = process_face_recognition(filepath, attendance_type=attendance_type)
+        result = process_face_recognition(filepath, attendance_type=attendance_type, class_id=class_id, event_id=event_id)
         print(f"Recognition result: {result}")
         
         return jsonify(result)
@@ -3825,11 +4136,11 @@ def api_faculty_classes():
         conn.close()
         return jsonify([])
     
-    # Then get classes assigned to this faculty
+    # Then get classes assigned to this faculty (only active classes)
     classes = conn.execute('''
         SELECT c.class_id, c.class_name, c.edpcode, c.start_time, c.end_time, c.room, c.faculty_id
         FROM class c
-        WHERE c.faculty_id = ?
+        WHERE c.faculty_id = ? AND c.is_active = 1
         ORDER BY c.class_name
     ''', (faculty['faculty_id'],)).fetchall()
     
@@ -3838,7 +4149,7 @@ def api_faculty_classes():
 
 @app.route('/api/faculty/events')
 def api_faculty_events():
-    """Get events assigned to the current faculty member (as organizer)"""
+    """Get events assigned to the current faculty member (via event_faculty table)"""
     if 'user_id' not in session or session['role'] != 'faculty':
         return jsonify({'error': 'Unauthorized'}), 401
     
@@ -3854,12 +4165,13 @@ def api_faculty_events():
         conn.close()
         return jsonify([])
     
-    # Then get events where this faculty is the organizer
+    # Get events where this faculty is the ORGANIZER (only organizers can take attendance, only active events)
+    # Assigned faculty will see events in their "My Classes/Events" but cannot take attendance
     events = conn.execute('''
         SELECT e.event_id, e.event_name, e.description, e.event_date, 
                e.start_time, e.end_time, e.room
         FROM event e
-        WHERE e.faculty_id = ?
+        WHERE e.faculty_id = ? AND e.is_active = 1
         ORDER BY e.event_date DESC
     ''', (faculty['faculty_id'],)).fetchall()
     
@@ -3886,9 +4198,54 @@ def api_faculty_all():
     conn.close()
     return jsonify([dict(record) for record in faculty_list])
 
+@app.route('/api/event/<int:event_id>/faculty')
+def api_event_faculty(event_id):
+    """Get assigned faculty for an event (for organizer's attendance page)"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    conn = get_db_connection()
+    
+    # Check if current user is the organizer
+    event = conn.execute('SELECT faculty_id FROM event WHERE event_id = ?', (event_id,)).fetchone()
+    if not event:
+        conn.close()
+        return jsonify({'error': 'Event not found'}), 404
+    
+    # Get current user's faculty_id
+    current_faculty = conn.execute('''
+        SELECT f.faculty_id FROM faculty f WHERE f.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    
+    if not current_faculty:
+        conn.close()
+        return jsonify({'error': 'Faculty record not found'}), 404
+    
+    # Only organizer can see the list
+    if event['faculty_id'] != current_faculty['faculty_id'] and session.get('role') != 'admin':
+        conn.close()
+        return jsonify({'error': 'Only the event organizer can view assigned faculty'}), 403
+    
+    # Get assigned faculty ONLY (from event_faculty table) - EXCLUDE organizer
+    # Organizer doesn't need to mark attendance, they take attendance for others
+    organizer_id = event['faculty_id']
+    faculty_list = conn.execute('''
+        SELECT DISTINCT u.user_id, u.firstname, u.lastname, u.idno,
+               (u.firstname || ' ' || u.lastname) as faculty_name,
+               f.attendance_image
+        FROM event_faculty ef
+        JOIN faculty f ON ef.faculty_id = f.faculty_id
+        JOIN user u ON f.user_id = u.user_id
+        WHERE ef.event_id = ? AND ef.faculty_id != ? AND u.is_active = 1
+        ORDER BY u.firstname, u.lastname
+    ''', (event_id, organizer_id)).fetchall()
+    
+    conn.close()
+    return jsonify([dict(record) for record in faculty_list])
+
 @app.route('/api/event/attendance/mark', methods=['POST'])
 def api_event_attendance_mark():
-    """Mark attendance for a faculty member at an event"""
+    """Mark attendance for a faculty member at an event - Only organizer can mark for others"""
     if 'user_id' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
     
@@ -3899,16 +4256,64 @@ def api_event_attendance_mark():
         person_id = data.get('person_id')
         event_id = data.get('event_id')
         
-        if not person_id or not event_id:
-            return jsonify({'success': False, 'message': 'Missing person or event information'}), 400
+        if not event_id:
+            return jsonify({'success': False, 'message': 'Event ID required'}), 400
         
         conn = get_db_connection()
         
-        # Check if event exists
-        event = conn.execute('SELECT * FROM event WHERE event_id = ?', (event_id,)).fetchone()
+        # Get event and check if current user is the organizer
+        event = conn.execute('SELECT faculty_id FROM event WHERE event_id = ?', (event_id,)).fetchone()
         if not event:
             conn.close()
             return jsonify({'success': False, 'message': 'Event not found'}), 404
+        
+        # Get current user's faculty_id
+        current_faculty = conn.execute('''
+            SELECT f.faculty_id FROM faculty f WHERE f.user_id = ?
+        ''', (session['user_id'],)).fetchone()
+        
+        if not current_faculty:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Faculty record not found'}), 404
+        
+        is_organizer = event['faculty_id'] == current_faculty['faculty_id']
+        
+        # Get the person's user_id
+        person_user = conn.execute('SELECT user_id FROM user WHERE user_id = ?', (person_id,)).fetchone()
+        if not person_user:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Person not found'}), 404
+        
+        # Only organizer can mark attendance (no self-check-in for assigned faculty)
+        if not is_organizer:
+            conn.close()
+            return jsonify({
+                'success': False, 
+                'message': 'Only the event organizer can mark attendance. Please have the organizer mark your attendance.'
+            }), 403
+        
+        # Verify the person being marked is assigned to this event (or is the organizer)
+        if person_user['user_id'] != session['user_id']:
+            # Check if they're assigned to this event
+            person_faculty = conn.execute('''
+                SELECT f.faculty_id FROM faculty f WHERE f.user_id = ?
+            ''', (person_user['user_id'],)).fetchone()
+            
+            if person_faculty:
+                # Check if they're the organizer
+                if person_faculty['faculty_id'] != event['faculty_id']:
+                    # Check if they're assigned to the event
+                    assigned = conn.execute('''
+                        SELECT eventfaculty_id FROM event_faculty 
+                        WHERE event_id = ? AND faculty_id = ?
+                    ''', (event_id, person_faculty['faculty_id'])).fetchone()
+                    
+                    if not assigned:
+                        conn.close()
+                        return jsonify({
+                            'success': False, 
+                            'message': 'This faculty member is not assigned to this event'
+                        }), 403
         
         # Check if user exists
         user = conn.execute('SELECT * FROM user WHERE user_id = ?', (person_id,)).fetchone()
@@ -3948,7 +4353,7 @@ def api_event_attendance_mark():
 
 @app.route('/api/event/attendance/today')
 def api_event_attendance_today():
-    """Get today's attendance for a specific event"""
+    """Get today's attendance for a specific event - Only organizer can see full list"""
     if 'user_id' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
     
@@ -3957,15 +4362,39 @@ def api_event_attendance_today():
         return jsonify([])
     
     conn = get_db_connection()
+    
+    # Check if user is organizer or admin
+    is_admin = session.get('role') == 'admin'
+    is_organizer = False
+    
+    if not is_admin:
+        event = conn.execute('SELECT faculty_id FROM event WHERE event_id = ?', (event_id,)).fetchone()
+        if event:
+            current_faculty = conn.execute('''
+                SELECT f.faculty_id FROM faculty f WHERE f.user_id = ?
+            ''', (session['user_id'],)).fetchone()
+            if current_faculty:
+                is_organizer = event['faculty_id'] == current_faculty['faculty_id']
+    
+    # Only organizer or admin can see full attendance list
+    if not is_admin and not is_organizer:
+        conn.close()
+        return jsonify({'error': 'Only the event organizer can view attendance'}), 403
+    
     today = datetime.now().strftime('%Y-%m-%d')
     
+    # Get attendance records for assigned faculty ONLY (exclude organizer)
+    # Organizer doesn't need to mark attendance, they take attendance for others
     attendance = conn.execute('''
         SELECT ea.user_id, u.firstname, u.lastname,
                (u.firstname || ' ' || u.lastname) as faculty_name,
                ea.status, ea.attendance_time
         FROM event_attendance ea
         JOIN user u ON ea.user_id = u.user_id
+        JOIN faculty f ON u.user_id = f.user_id
+        JOIN event e ON ea.event_id = e.event_id
         WHERE DATE(ea.attendance_time) = ? AND ea.event_id = ?
+        AND f.faculty_id != e.faculty_id  -- Exclude organizer
         ORDER BY ea.attendance_time DESC
     ''', (today, event_id)).fetchall()
     
@@ -4073,27 +4502,35 @@ def delete_class(class_id):
     conn = get_db_connection()
     
     try:
-        # Check if class has enrolled students
-        enrolled_students = conn.execute('''
-            SELECT COUNT(*) as count FROM class_student WHERE class_id = ?
-        ''', (class_id,)).fetchone()
-        
-        if enrolled_students['count'] > 0:
-            flash('Cannot delete class with enrolled students. Please unenroll all students first.', 'error')
-            conn.close()
-            return redirect(url_for('admin_classes'))
-        
-        # Delete class days first
-        conn.execute('DELETE FROM class_day WHERE class_id = ?', (class_id,))
-        
-        # Delete the class
-        conn.execute('DELETE FROM class WHERE class_id = ?', (class_id,))
+        # Deactivate the class instead of deleting
+        conn.execute('UPDATE class SET is_active = 0 WHERE class_id = ?', (class_id,))
         
         conn.commit()
-        flash('Class deleted successfully', 'success')
+        flash('Class deactivated successfully', 'success')
         
     except Exception as e:
-        flash(f'Error deleting class: {str(e)}', 'error')
+        flash(f'Error deactivating class: {str(e)}', 'error')
+    finally:
+        conn.close()
+    
+    return redirect(url_for('admin_classes'))
+
+@app.route('/admin/classes/<int:class_id>/reactivate', methods=['POST'])
+def reactivate_class(class_id):
+    if 'user_id' not in session or session['role'] != 'admin':
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    
+    try:
+        # Reactivate the class
+        conn.execute('UPDATE class SET is_active = 1 WHERE class_id = ?', (class_id,))
+        
+        conn.commit()
+        flash('Class reactivated successfully', 'success')
+        
+    except Exception as e:
+        flash(f'Error reactivating class: {str(e)}', 'error')
     finally:
         conn.close()
     
@@ -4107,14 +4544,35 @@ def delete_event(event_id):
     conn = get_db_connection()
     
     try:
-        # Delete the event
-        conn.execute('DELETE FROM event WHERE event_id = ?', (event_id,))
+        # Deactivate the event instead of deleting
+        conn.execute('UPDATE event SET is_active = 0 WHERE event_id = ?', (event_id,))
         
         conn.commit()
-        flash('Event deleted successfully', 'success')
+        flash('Event deactivated successfully', 'success')
         
     except Exception as e:
-        flash(f'Error deleting event: {str(e)}', 'error')
+        flash(f'Error deactivating event: {str(e)}', 'error')
+    finally:
+        conn.close()
+    
+    return redirect(url_for('admin_events'))
+
+@app.route('/admin/events/<int:event_id>/reactivate', methods=['POST'])
+def reactivate_event(event_id):
+    if 'user_id' not in session or session['role'] != 'admin':
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    
+    try:
+        # Reactivate the event
+        conn.execute('UPDATE event SET is_active = 1 WHERE event_id = ?', (event_id,))
+        
+        conn.commit()
+        flash('Event reactivated successfully', 'success')
+        
+    except Exception as e:
+        flash(f'Error reactivating event: {str(e)}', 'error')
     finally:
         conn.close()
     
@@ -5009,7 +5467,7 @@ def faculty_my_classes():
         flash('Faculty record not found', 'error')
         return redirect(url_for('faculty_dashboard'))
     
-    # Get classes assigned to this faculty with student counts
+    # Get classes assigned to this faculty with student counts (only active classes)
     classes = conn.execute('''
         SELECT c.*, 
                COUNT(DISTINCT sc.student_id) as student_count,
@@ -5018,28 +5476,28 @@ def faculty_my_classes():
         LEFT JOIN student_class sc ON c.class_id = sc.class_id
         LEFT JOIN class_days cd ON c.class_id = cd.class_id
         LEFT JOIN days d ON cd.day_id = d.day_id
-        WHERE c.faculty_id = ?
+        WHERE c.faculty_id = ? AND c.is_active = 1
         GROUP BY c.class_id
         ORDER BY c.class_name
     ''', (faculty_info['faculty_id'],)).fetchall()
     
-    # Get events assigned to this faculty with attendee counts
+    # Get events assigned to this faculty with attendee counts (only active events)
     events = conn.execute('''
         SELECT e.*, 
                COUNT(DISTINCT ea.user_id) as attendee_count
         FROM event e
         LEFT JOIN event_attendance ea ON e.event_id = ea.event_id
-        WHERE e.faculty_id = ?
+        WHERE e.faculty_id = ? AND e.is_active = 1
         GROUP BY e.event_id
         ORDER BY e.event_date DESC
     ''', (faculty_info['faculty_id'],)).fetchall()
     
-    # Calculate total students across all classes
+    # Calculate total students across all classes (only active classes)
     total_students = conn.execute('''
         SELECT COUNT(DISTINCT sc.student_id) as total
         FROM class c
         JOIN student_class sc ON c.class_id = sc.class_id
-        WHERE c.faculty_id = ?
+        WHERE c.faculty_id = ? AND c.is_active = 1
     ''', (faculty_info['faculty_id'],)).fetchone()
     
     conn.close()
@@ -5070,14 +5528,14 @@ def faculty_class_view(class_id):
         flash('Faculty record not found', 'error')
         return redirect(url_for('faculty_dashboard'))
     
-    # Get class details
+    # Get class details (only active classes)
     class_info = conn.execute('''
         SELECT c.*, 
                GROUP_CONCAT(DISTINCT d.day_name) as days
         FROM class c
         LEFT JOIN class_days cd ON c.class_id = cd.class_id
         LEFT JOIN days d ON cd.day_id = d.day_id
-        WHERE c.class_id = ? AND c.faculty_id = ?
+        WHERE c.class_id = ? AND c.faculty_id = ? AND c.is_active = 1
         GROUP BY c.class_id
     ''', (class_id, faculty['faculty_id'])).fetchone()
     
@@ -5148,25 +5606,37 @@ def faculty_event_view(event_id):
         flash('Faculty record not found', 'error')
         return redirect(url_for('faculty_dashboard'))
     
-    # Get event details
+    # Get event details - check if faculty is organizer OR assigned to this event (only active events)
     event_info = conn.execute('''
-        SELECT * FROM event 
-        WHERE event_id = ? AND faculty_id = ?
-    ''', (event_id, faculty['faculty_id'])).fetchone()
+        SELECT e.* FROM event e
+        WHERE e.event_id = ? AND e.is_active = 1
+        AND (e.faculty_id = ? OR e.event_id IN (
+            SELECT ef.event_id FROM event_faculty ef WHERE ef.faculty_id = ?
+        ))
+    ''', (event_id, faculty['faculty_id'], faculty['faculty_id'])).fetchone()
     
     if not event_info:
         conn.close()
         flash('Event not found or access denied', 'error')
         return redirect(url_for('faculty_my_classes'))
     
-    # Get all faculty (all faculty members are considered part of events)
+    # Check if current faculty is the organizer
+    is_organizer = event_info['faculty_id'] == faculty['faculty_id']
+    
+    # Get all faculty members: organizer + assigned faculty
+    # Organizer is always included, plus assigned faculty from event_faculty
     faculty_members = conn.execute('''
-        SELECT u.idno, u.firstname, u.lastname, d.dept_name, f.position, f.attendance_image
-        FROM faculty f
+        SELECT u.idno, u.firstname, u.lastname, d.dept_name, f.position, f.attendance_image,
+               CASE WHEN e.faculty_id = f.faculty_id THEN 1 ELSE 0 END as is_organizer
+        FROM event e
+        LEFT JOIN event_faculty ef ON e.event_id = ef.event_id
+        JOIN faculty f ON (e.faculty_id = f.faculty_id OR ef.faculty_id = f.faculty_id)
         JOIN user u ON f.user_id = u.user_id
         LEFT JOIN department d ON u.dept_id = d.dept_id
-        ORDER BY u.firstname, u.lastname
-    ''').fetchall()
+        WHERE e.event_id = ?
+        GROUP BY f.faculty_id
+        ORDER BY is_organizer DESC, u.firstname, u.lastname
+    ''', (event_id,)).fetchall()
     
     # Format time (convert from 24-hour to 12-hour with AM/PM)
     def format_time(value):
@@ -5194,7 +5664,8 @@ def faculty_event_view(event_id):
                          faculty=faculty,
                          faculty_members=faculty_members,
                          start_time=start_time,
-                         end_time=end_time)
+                         end_time=end_time,
+                         is_organizer=is_organizer)
 
 @app.route('/faculty/class-details/<type>/<int:id>')
 def faculty_class_details(type, id):
@@ -5215,14 +5686,14 @@ def faculty_class_details(type, id):
         return jsonify({'error': 'Faculty record not found'}), 404
     
     if type == 'class':
-        # Get class details
+        # Get class details (only active classes)
         class_info = conn.execute('''
             SELECT c.*, 
                    GROUP_CONCAT(DISTINCT d.day_name) as days
             FROM class c
             LEFT JOIN class_days cd ON c.class_id = cd.class_id
             LEFT JOIN days d ON cd.day_id = d.day_id
-            WHERE c.class_id = ? AND c.faculty_id = ?
+            WHERE c.class_id = ? AND c.faculty_id = ? AND c.is_active = 1
             GROUP BY c.class_id
         ''', (id, faculty['faculty_id'])).fetchone()
         
@@ -5253,10 +5724,10 @@ def faculty_class_details(type, id):
         })
         
     elif type == 'event':
-        # Get event details
+        # Get event details (only active events)
         event_info = conn.execute('''
             SELECT * FROM event 
-            WHERE event_id = ? AND faculty_id = ?
+            WHERE event_id = ? AND faculty_id = ? AND is_active = 1
         ''', (id, faculty['faculty_id'])).fetchone()
         
         if not event_info:
@@ -5321,23 +5792,24 @@ def attendance():
             classes = conn.execute('''
                 SELECT c.class_id, c.class_name, c.edpcode, c.start_time, c.end_time, c.room
                 FROM class c
-                WHERE c.faculty_id = ?
+                WHERE c.faculty_id = ? AND c.is_active = 1
                 ORDER BY c.class_name
             ''', (faculty_info['faculty_id'],)).fetchall()
             
-            # Get events where this faculty is the organizer
+            # Get events where this faculty is the ORGANIZER (only organizers can take attendance, only active events)
             events = conn.execute('''
                 SELECT e.event_id, e.event_name, e.description, e.event_date, 
                        e.start_time, e.end_time, e.room
                 FROM event e
-                WHERE e.faculty_id = ?
+                WHERE e.faculty_id = ? AND e.is_active = 1
                 ORDER BY e.event_date DESC
             ''', (faculty_info['faculty_id'],)).fetchall()
     elif session.get('role') == 'admin':
-        # Admin can see all classes and events
+        # Admin can see all classes and events (only active)
         classes = conn.execute('''
             SELECT c.class_id, c.class_name, c.edpcode, c.start_time, c.end_time, c.room
             FROM class c
+            WHERE c.is_active = 1
             ORDER BY c.class_name
         ''').fetchall()
         
@@ -5345,6 +5817,7 @@ def attendance():
             SELECT e.event_id, e.event_name, e.description, e.event_date,
                    e.start_time, e.end_time, e.room
             FROM event e
+            WHERE e.is_active = 1
             ORDER BY e.event_date DESC
         ''').fetchall()
     

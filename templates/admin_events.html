@@ -133,34 +133,62 @@
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
                                 {% for event in events %}
-                                <tr class="hover:bg-gray-50">
+                                <tr class="hover:bg-gray-50 {% if not event.is_active %}opacity-60 bg-gray-50{% endif %}">
                                     <td class="px-6 py-4 whitespace-nowrap">
-                                        <div class="text-sm font-medium text-gray-900">{{ event.event_name }}</div>
+                                        <div class="flex items-center space-x-2">
+                                            <div class="text-sm font-medium {% if event.is_active %}text-gray-900{% else %}text-gray-500{% endif %}">{{ event.event_name }}</div>
+                                            {% if not event.is_active %}
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-200 text-gray-700">
+                                                <i class="fas fa-ban mr-1 text-xs"></i>Deactivated
+                                            </span>
+                                            {% else %}
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                                                <i class="fas fa-check-circle mr-1 text-xs"></i>Active
+                                            </span>
+                                            {% endif %}
+                                        </div>
                                         {% if event.description %}
                                         <div class="text-xs text-gray-500 mt-1">{{ event.description[:50] }}{% if event.description|length > 50 %}...{% endif %}</div>
                                         {% endif %}
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
-                                        <div class="text-sm text-gray-900">{{ event.event_date }}</div>
+                                        <div class="text-sm {% if event.is_active %}text-gray-900{% else %}text-gray-500{% endif %}">{{ event.event_date }}</div>
                                         <div class="text-xs text-gray-500">{{ event.start_time }} - {{ event.end_time }}</div>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
-                                        <div class="text-sm text-gray-900">{{ event.room or 'TBA' }}</div>
+                                        <div class="text-sm {% if event.is_active %}text-gray-900{% else %}text-gray-500{% endif %}">{{ event.room or 'TBA' }}</div>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
-                                        <div class="text-sm text-gray-900">{{ event.firstname }} {{ event.lastname }}</div>
+                                        <div class="text-sm {% if event.is_active %}text-gray-900{% else %}text-gray-500{% endif %}">{{ event.firstname }} {{ event.lastname }}</div>
                                         <div class="text-xs text-gray-500">{{ event.dept_name or 'No Department' }}</div>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                        <div class="flex space-x-2">
-                                            <a href="{{ url_for('edit_event', event_id=event.event_id) }}" class="text-indigo-600 hover:text-indigo-900">
-                                                <i class="fas fa-edit mr-1"></i>Edit
+                                        <div class="flex space-x-3">
+                                            {% if event.is_active %}
+                                            <a href="{{ url_for('event_faculty', event_id=event.event_id) }}" class="text-blue-600 hover:text-blue-900 transition-colors" title="Manage Faculty">
+                                                <i class="fas fa-user-tie text-lg"></i>
                                             </a>
-                                            <form method="POST" action="{{ url_for('delete_event', event_id=event.event_id) }}" class="inline" onsubmit="return confirm('Are you sure you want to delete this event? This action cannot be undone.')">
-                                                <button type="submit" class="text-red-600 hover:text-red-900">
-                                                    <i class="fas fa-trash mr-1"></i>Delete
+                                            <a href="{{ url_for('edit_event', event_id=event.event_id) }}" class="text-indigo-600 hover:text-indigo-900 transition-colors" title="Edit Event">
+                                                <i class="fas fa-edit text-lg"></i>
+                                            </a>
+                                            <form method="POST" action="{{ url_for('delete_event', event_id=event.event_id) }}" class="inline" onsubmit="return confirm('Are you sure you want to deactivate this event? It will no longer be displayed to faculty and students.')">
+                                                <button type="submit" class="text-orange-600 hover:text-orange-900 transition-colors" title="Deactivate Event">
+                                                    <i class="fas fa-ban text-lg"></i>
                                                 </button>
                                             </form>
+                                            {% else %}
+                                            <span class="text-gray-400 cursor-not-allowed" title="View Faculty (Read-only)">
+                                                <i class="fas fa-user-tie text-lg"></i>
+                                            </span>
+                                            <span class="text-gray-400 cursor-not-allowed" title="Edit (Read-only - Reactivate to edit)">
+                                                <i class="fas fa-edit text-lg"></i>
+                                            </span>
+                                            <form method="POST" action="{{ url_for('reactivate_event', event_id=event.event_id) }}" class="inline" onsubmit="return confirm('Are you sure you want to reactivate this event?')">
+                                                <button type="submit" class="text-green-600 hover:text-green-900 transition-colors" title="Reactivate Event">
+                                                    <i class="fas fa-check-circle text-lg"></i>
+                                                </button>
+                                            </form>
+                                            {% endif %}
                                         </div>
                                     </td>
                                 </tr>

@@ -156,7 +156,7 @@
                         <h3 class="text-lg font-semibold text-gray-900 mb-4">
                             <i class="fas fa-calendar-alt mr-2 text-purple-600"></i>Select Event for Attendance
                         </h3>
-                        <p class="text-gray-600 mb-4">Choose the event you're organizing to take faculty attendance:</p>
+                        <p class="text-gray-600 mb-4">Choose an event you're organizing to take faculty attendance (only organizers can take attendance):</p>
                         
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="eventsList">
                             <!-- Events will be loaded here -->
@@ -701,6 +701,14 @@
                     // Add attendance type based on selection (class or event)
                     const attendanceType = selectedEvent ? 'event' : 'class';
                     formData.append('attendance_type', attendanceType);
+                    
+                    // Add class_id or event_id for filtering
+                    if (selectedClass) {
+                        formData.append('class_id', selectedClass.class_id);
+                    }
+                    if (selectedEvent) {
+                        formData.append('event_id', selectedEvent.event_id);
+                    }
                     
                     console.log('Sending frame for detection...', attendanceType);
                     
@@ -1403,7 +1411,7 @@
             
             // Update UI labels for faculty attendance
             document.getElementById('selectionType').textContent = 'Event';
-            document.getElementById('cameraInstructions').textContent = 'Position faculty members in front of the camera for face recognition';
+            document.getElementById('cameraInstructions').textContent = 'Position assigned faculty members in front of the camera for face recognition';
             document.getElementById('totalLabel').textContent = 'Total Faculty';
             document.getElementById('personLabel').textContent = 'Faculty';
             document.getElementById('personIcon').className = 'fas fa-chalkboard-teacher mr-2 text-gray-500';
@@ -1424,9 +1432,43 @@
                 </div>
             `;
             
-            // Load event attendance data
+            // Load assigned faculty for this event (like loading students for a class)
+            loadEventFaculty();
             loadEventAttendanceData();
             loadTodayMarkedEvent();
+        }
+        
+        // Load assigned faculty for an event (similar to loading students for a class)
+        async function loadEventFaculty() {
+            if (!selectedEvent) {
+                console.log('No event selected, cannot load assigned faculty');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/event/${selectedEvent.event_id}/faculty`);
+                if (response.ok) {
+                    const assignedFaculty = await response.json();
+                    console.log('Loaded assigned faculty:', assignedFaculty);
+                    
+                    // Update total count
+                    document.getElementById('totalStudents').textContent = assignedFaculty.length;
+                    
+                    // Store faculty list for face recognition
+                    // The face recognition API will use this to match faces
+                    // Similar to how students are loaded for classes
+                } else {
+                    const errorData = await response.json().catch(() => ({}));
+                    if (response.status === 403) {
+                        showNotification(errorData.error || 'Only the event organizer can view assigned faculty', 'error');
+                        backToClassSelection();
+                    } else {
+                        console.error('Error loading assigned faculty:', errorData);
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading assigned faculty:', error);
+            }
         }
         
         // Back to class selection
@@ -1453,8 +1495,21 @@
             }
             
             try {
+                // Load today's attendance records
                 const attendanceResponse = await fetch(`/api/event/attendance/today?event_id=${selectedEvent.event_id}`);
                 const attendanceRecords = await attendanceResponse.json();
+                
+                // Load all assigned faculty for this event (like loading students for a class)
+                let allFaculty = [];
+                try {
+                    const facultyResponse = await fetch(`/api/event/${selectedEvent.event_id}/faculty`);
+                    if (facultyResponse.ok) {
+                        allFaculty = await facultyResponse.json();
+                        console.log('Loaded all assigned faculty:', allFaculty);
+                    }
+                } catch (error) {
+                    console.warn('Could not load assigned faculty, showing attendance records only:', error);
+                }
                 
                 // Clear existing table
                 const tbody = document.getElementById('attendanceTableBody');
@@ -1462,10 +1517,29 @@
                 
                 console.log('Loaded event attendance records:', attendanceRecords);
                 
-                // For events, only show faculty who have marked attendance (like students)
-                if (attendanceRecords.length > 0) {
+                // Create a map of attendance records by user_id
+                const attendanceMap = new Map();
+                attendanceRecords.forEach(record => {
+                    attendanceMap.set(record.user_id, record);
+                });
+                
+                // Show all assigned faculty with their attendance status (like students in classes)
+                if (allFaculty.length > 0) {
                     document.getElementById('noAttendanceMessage').style.display = 'none';
                     
+                    allFaculty.forEach(faculty => {
+                        const attendance = attendanceMap.get(faculty.user_id);
+                        if (attendance) {
+                            // Faculty has marked attendance
+                            addAttendanceRecord(faculty.faculty_name, faculty.user_id, attendance.time, attendance.status);
+                        } else {
+                            // Faculty hasn't marked attendance yet
+                            addAttendanceRecord(faculty.faculty_name, faculty.user_id, '-', 'absent');
+                        }
+                    });
+                } else if (attendanceRecords.length > 0) {
+                    // Fallback: show only those who marked attendance
+                    document.getElementById('noAttendanceMessage').style.display = 'none';
                     attendanceRecords.forEach(record => {
                         addAttendanceRecord(record.faculty_name, record.user_id, record.time, record.status);
                     });
