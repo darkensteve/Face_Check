@@ -99,7 +99,7 @@
                 </div>
             </header>
 
-            <main class="flex-1 overflow-y-auto p-6 space-y-6">
+            <main class="flex-1 overflow-y-auto p-4 space-y-4 text-sm">
                 <!-- Export Row -->
                 <div class="bg-white rounded-xl shadow p-4 flex items-center justify-between">
                     <div class="text-gray-700 font-semibold">Export Reports</div>
@@ -111,52 +111,107 @@
                 </div>
 
                 <!-- Summaries -->
-                <div class="bg-white rounded-xl shadow p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-xl font-semibold text-gray-900">Class Attendance Summaries</h3>
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    <div class="bg-white rounded-xl shadow p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-lg font-semibold text-gray-900">Class Attendance Summaries</h3>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200 text-xs">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Class</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">EDP</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Presents</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Unique</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="summaryBody" class="bg-white divide-y divide-gray-100"></tbody>
+                            </table>
+                        </div>
                     </div>
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">EDP Code</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Presents</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unique Students</th>
-                                </tr>
-                            </thead>
-                            <tbody id="summaryBody" class="bg-white divide-y divide-gray-200"></tbody>
-                        </table>
+
+                    <div class="bg-white rounded-xl shadow p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-lg font-semibold text-gray-900">Event Attendance Summaries</h3>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200 text-xs">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Event</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Presents</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Unique</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="eventSummaryBody" class="bg-white divide-y divide-gray-100"></tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 
                 <!-- Absence Patterns -->
-                <div class="bg-white rounded-xl shadow p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-xl font-semibold text-gray-900">Absence Patterns Analytics</h3>
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    <div class="bg-white rounded-xl shadow p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-lg font-semibold text-gray-900">Class Absence Patterns</h3>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200 text-xs">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Student</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Class</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Presents</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Absents</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="absenceBody" class="bg-white divide-y divide-gray-100"></tbody>
+                            </table>
+                        </div>
                     </div>
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Presents (period)</th>
-                                </tr>
-                            </thead>
-                            <tbody id="absenceBody" class="bg-white divide-y divide-gray-200"></tbody>
-                        </table>
+
+                    <div class="bg-white rounded-xl shadow p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-lg font-semibold text-gray-900">Event Absence Patterns</h3>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200 text-xs">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Attendee</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Event</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Presents</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Absents</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="eventAbsenceBody" class="bg-white divide-y divide-gray-100"></tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 
                 <!-- Monthly Graphs -->
-                <div class="bg-white rounded-xl shadow p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-xl font-semibold text-gray-900">Monthly Attendance</h3>
-                        <select id="yearSelect" class="border rounded px-3 py-2 text-sm"></select>
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    <div class="bg-white rounded-xl shadow p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-lg font-semibold text-gray-900">Class Monthly Attendance</h3>
+                            <select id="yearSelect" class="border rounded px-3 py-2 text-xs"></select>
+                        </div>
+                        <div>
+                            <canvas id="monthlyChart" height="110"></canvas>
+                        </div>
                     </div>
-                    <div class="grid grid-cols-1 gap-6">
-                        <canvas id="monthlyChart" height="120"></canvas>
+
+                    <div class="bg-white rounded-xl shadow p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-lg font-semibold text-gray-900">Event Monthly Attendance</h3>
+                            <select id="eventYearSelect" class="border rounded px-3 py-2 text-xs"></select>
+                        </div>
+                        <div>
+                            <canvas id="eventMonthlyChart" height="110"></canvas>
+                        </div>
                     </div>
                 </div>
             </main>
@@ -209,6 +264,45 @@
                     <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${row.student_name}</td>
                     <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${row.class_name}</td>
                     <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${row.present_count}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${row.absent_count}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function loadEventSummaries() {
+            const start = document.getElementById('startDate').value;
+            const end = document.getElementById('endDate').value;
+            const res = await fetch(`/api/faculty/reports/events/summary?start=${start}&end=${end}`);
+            const data = await res.json();
+            const tbody = document.getElementById('eventSummaryBody');
+            tbody.innerHTML = '';
+            data.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.event_name}</td>
+                    <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.event_date}</td>
+                    <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.present_count}</td>
+                    <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.unique_attendees}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function loadEventAbsencePatterns() {
+            const start = document.getElementById('startDate').value;
+            const end = document.getElementById('endDate').value;
+            const res = await fetch(`/api/faculty/reports/events/absence-patterns?start=${start}&end=${end}`);
+            const data = await res.json();
+            const tbody = document.getElementById('eventAbsenceBody');
+            tbody.innerHTML = '';
+            data.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.attendee_name}</td>
+                    <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.event_name}</td>
+                    <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.present_count}</td>
+                    <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.absent_count}</td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -241,6 +335,33 @@
             });
         }
 
+        let eventMonthlyChart;
+        async function loadEventMonthly(year) {
+            const res = await fetch(`/api/faculty/reports/events/monthly?year=${year}`);
+            const data = await res.json();
+            const ctx = document.getElementById('eventMonthlyChart');
+            const labels = data.map(d => d.month);
+            const values = data.map(d => d.present_count);
+            if (eventMonthlyChart) eventMonthlyChart.destroy();
+            eventMonthlyChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: 'Event Presents',
+                        data: values,
+                        backgroundColor: 'rgba(16,185,129,0.5)',
+                        borderColor: 'rgba(16,185,129,1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        }
+
         function populateYears() {
             const sel = document.getElementById('yearSelect');
             sel.innerHTML = '';
@@ -252,6 +373,19 @@
             }
             sel.value = now;
             sel.addEventListener('change', () => loadMonthly(sel.value));
+        }
+
+        function populateEventYears() {
+            const sel = document.getElementById('eventYearSelect');
+            sel.innerHTML = '';
+            const now = new Date().getFullYear();
+            for (let y = now; y >= now - 5; y--) {
+                const opt = document.createElement('option');
+                opt.value = y; opt.textContent = y;
+                sel.appendChild(opt);
+            }
+            sel.value = now;
+            sel.addEventListener('change', () => loadEventMonthly(sel.value));
         }
 
         async function exportReports(fmt) {
@@ -289,8 +423,12 @@
         }
 
         document.getElementById('applyFilters').addEventListener('click', async () => {
-            await loadSummaries();
-            await loadAbsencePatterns();
+            await Promise.all([
+                loadSummaries(),
+                loadAbsencePatterns(),
+                loadEventSummaries(),
+                loadEventAbsencePatterns()
+            ]);
         });
 
         // Show notification
@@ -321,9 +459,13 @@
         // Init
         currentRangeDefaults();
         populateYears();
+        populateEventYears();
         loadSummaries();
         loadAbsencePatterns();
+        loadEventSummaries();
+        loadEventAbsencePatterns();
         loadMonthly(new Date().getFullYear());
+        loadEventMonthly(new Date().getFullYear());
     </script>
 </body>
 </html>

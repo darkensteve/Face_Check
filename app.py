@@ -5278,7 +5278,8 @@ def api_faculty_reports_absence_patterns():
     rows = conn.execute('''
         SELECT (u.firstname || ' ' || u.lastname) AS student_name,
                c.class_name,
-               COUNT(a.attendance_id) AS present_count
+               SUM(CASE WHEN a.attendance_status = 'present' THEN 1 ELSE 0 END) AS present_count,
+               SUM(CASE WHEN a.attendance_status = 'absent' THEN 1 ELSE 0 END) AS absent_count
         FROM class c
         JOIN student_class sc ON sc.class_id = c.class_id
         JOIN student s ON sc.student_id = s.student_id
@@ -5288,14 +5289,15 @@ def api_faculty_reports_absence_patterns():
         WHERE c.faculty_id = ?
         GROUP BY sc.student_id, c.class_id
         HAVING present_count >= 0
-        ORDER BY present_count ASC, student_name
+        ORDER BY absent_count DESC, student_name
         LIMIT 200
     ''', (start, end, faculty['faculty_id'])).fetchall()
     conn.close()
     return jsonify([{
         'student_name': r['student_name'],
         'class_name': r['class_name'],
-        'present_count': r['present_count'] or 0
+        'present_count': r['present_count'] or 0,
+        'absent_count': r['absent_count'] or 0
     } for r in rows])
 
 @app.route('/api/faculty/reports/monthly')
@@ -5326,6 +5328,114 @@ def api_faculty_reports_monthly():
     for r in rows:
         month_counts[r['month']] = r['present_count'] or 0
     # Map months to labels
+    month_names = {
+        '01': 'Jan','02': 'Feb','03': 'Mar','04': 'Apr','05': 'May','06': 'Jun',
+        '07': 'Jul','08': 'Aug','09': 'Sep','10': 'Oct','11': 'Nov','12': 'Dec'
+    }
+    return jsonify([{ 'month': month_names[m], 'present_count': month_counts[m] } for m in sorted(month_counts.keys())])
+
+@app.route('/api/faculty/reports/events/summary')
+def api_faculty_reports_events_summary():
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return jsonify([]), 401
+    start = request.args.get('start')
+    end = request.args.get('end')
+    if not start or not end:
+        today = datetime.now().strftime('%Y-%m-%d')
+        start = today
+        end = today
+    conn = get_db_connection()
+    faculty = conn.execute('''
+        SELECT f.faculty_id FROM faculty f JOIN user u ON f.user_id = u.user_id
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    if not faculty:
+        conn.close()
+        return jsonify([])
+    rows = conn.execute('''
+        SELECT e.event_name,
+               DATE(e.event_date) AS event_date,
+               COUNT(CASE WHEN ea.status = 'present' THEN 1 END) AS present_count,
+               COUNT(DISTINCT ea.user_id) AS unique_attendees
+        FROM event e
+        LEFT JOIN event_attendance ea ON e.event_id = ea.event_id
+        WHERE e.faculty_id = ? AND DATE(e.event_date) BETWEEN ? AND ?
+        GROUP BY e.event_id
+        ORDER BY e.event_date DESC
+    ''', (faculty['faculty_id'], start, end)).fetchall()
+    conn.close()
+    return jsonify([{
+        'event_name': r['event_name'],
+        'event_date': r['event_date'],
+        'present_count': r['present_count'] or 0,
+        'unique_attendees': r['unique_attendees'] or 0
+    } for r in rows])
+
+@app.route('/api/faculty/reports/events/absence-patterns')
+def api_faculty_reports_events_absence():
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return jsonify([]), 401
+    start = request.args.get('start')
+    end = request.args.get('end')
+    if not start or not end:
+        today = datetime.now().strftime('%Y-%m-%d')
+        start = today
+        end = today
+    conn = get_db_connection()
+    faculty = conn.execute('''
+        SELECT f.faculty_id FROM faculty f JOIN user u ON f.user_id = u.user_id
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    if not faculty:
+        conn.close()
+        return jsonify([])
+    rows = conn.execute('''
+        SELECT (u.firstname || ' ' || u.lastname) AS attendee_name,
+               e.event_name,
+               SUM(CASE WHEN ea.status = 'present' THEN 1 ELSE 0 END) AS present_count,
+               SUM(CASE WHEN ea.status = 'absent' THEN 1 ELSE 0 END) AS absent_count
+        FROM event_attendance ea
+        JOIN event e ON ea.event_id = e.event_id
+        JOIN user u ON ea.user_id = u.user_id
+        WHERE e.faculty_id = ? AND DATE(e.event_date) BETWEEN ? AND ?
+        GROUP BY ea.user_id, e.event_id
+        HAVING present_count >= 0 OR absent_count > 0
+        ORDER BY absent_count DESC, attendee_name
+        LIMIT 200
+    ''', (faculty['faculty_id'], start, end)).fetchall()
+    conn.close()
+    return jsonify([{
+        'attendee_name': r['attendee_name'],
+        'event_name': r['event_name'],
+        'present_count': r['present_count'] or 0,
+        'absent_count': r['absent_count'] or 0
+    } for r in rows])
+
+@app.route('/api/faculty/reports/events/monthly')
+def api_faculty_reports_events_monthly():
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return jsonify([]), 401
+    year = request.args.get('year', datetime.now().strftime('%Y'))
+    conn = get_db_connection()
+    faculty = conn.execute('''
+        SELECT f.faculty_id FROM faculty f JOIN user u ON f.user_id = u.user_id
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    if not faculty:
+        conn.close()
+        return jsonify([])
+    month_counts = {str(m).zfill(2): 0 for m in range(1, 13)}
+    rows = conn.execute('''
+        SELECT strftime('%m', e.event_date) AS month,
+               SUM(CASE WHEN ea.status = 'present' THEN 1 ELSE 0 END) AS present_count
+        FROM event e
+        LEFT JOIN event_attendance ea ON e.event_id = ea.event_id
+        WHERE e.faculty_id = ? AND strftime('%Y', e.event_date) = ?
+        GROUP BY strftime('%m', e.event_date)
+    ''', (faculty['faculty_id'], str(year))).fetchall()
+    conn.close()
+    for r in rows:
+        month_counts[r['month']] = r['present_count'] or 0
     month_names = {
         '01': 'Jan','02': 'Feb','03': 'Mar','04': 'Apr','05': 'May','06': 'Jun',
         '07': 'Jul','08': 'Aug','09': 'Sep','10': 'Oct','11': 'Nov','12': 'Dec'
