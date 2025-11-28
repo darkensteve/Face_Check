@@ -171,6 +171,18 @@ def safe_strftime(value, fmt):
     # Unknown type: convert to str
     return str(value)
 
+
+def row_get(row, key, default=None):
+    """Safely access fields from sqlite3.Row objects."""
+    if row is None:
+        return default
+    try:
+        if key in row.keys():
+            return row[key]
+    except AttributeError:
+        return getattr(row, key, default)
+    return default
+
 # Authentication functions
 def hash_password(password):
     """Hash password using bcrypt for secure storage"""
@@ -1230,7 +1242,7 @@ def edit_class(class_id):
     ''', (class_id,)).fetchone()
     
     # Prevent editing deactivated classes
-    if class_info and not class_info.get('is_active', 1):
+    if class_info and not row_get(class_info, 'is_active', 1):
         conn.close()
         flash('Cannot edit a deactivated class. Please reactivate it first.', 'error')
         return redirect(url_for('admin_classes'))
@@ -1276,7 +1288,7 @@ def class_students(class_id):
         return redirect(url_for('admin_classes'))
     
     # Show read-only message for deactivated classes
-    is_readonly = not class_info.get('is_active', 1)
+    is_readonly = not row_get(class_info, 'is_active', 1)
     
     # Get enrolled students
     enrolled_students = conn.execute('''
@@ -1517,8 +1529,8 @@ def create_event():
             event_id = cursor.lastrowid
             
             # DO NOT add organizer to event_faculty table
-            # Organizer doesn't need to mark attendance - they take attendance for assigned faculty
-            # Only assigned faculty (added via Manage Faculty page) go in event_faculty table
+            # Organizer doesn't need to mark attendance - they take attendance for faculty participants
+            # Only faculty participants (added via Manage Faculty page) go in event_faculty table
             
             conn.commit()
             conn.close()
@@ -1624,12 +1636,12 @@ def event_faculty(event_id):
         return redirect(url_for('admin_events'))
     
     # Show read-only message for deactivated events
-    is_readonly = not event_info.get('is_active', 1)
+    is_readonly = not row_get(event_info, 'is_active', 1)
     
     # Get organizer info separately
     organizer_id = event_info['faculty_id']
     
-    # Get assigned faculty (from event_faculty table, EXCLUDING the organizer)
+    # Get faculty participants (from event_faculty table, EXCLUDING the organizer)
     assigned_faculty = conn.execute('''
         SELECT f.faculty_id, u.firstname, u.lastname, u.idno, d.dept_name, f.position
         FROM event_faculty ef
@@ -1684,13 +1696,13 @@ def add_faculty_to_event(event_id):
             conn.close()
             return redirect(url_for('admin_events'))
         
-        # Prevent adding the organizer as assigned faculty
+        # Prevent adding the organizer as faculty participant
         if faculty_id == str(event['faculty_id']):
-            flash('The organizer is already part of this event and cannot be added as assigned faculty', 'error')
+            flash('The organizer is already part of this event and cannot be added as a faculty participant', 'error')
             conn.close()
             return redirect(url_for('event_faculty', event_id=event_id))
         
-        # Check if faculty is already assigned
+        # Check if faculty is already a participant
         existing = conn.execute('''
             SELECT eventfaculty_id FROM event_faculty 
             WHERE event_id = ? AND faculty_id = ?
@@ -1774,7 +1786,7 @@ def bulk_add_faculty_to_event(event_id):
         if already_assigned > 0:
             flash(f'{already_assigned} faculty member(s) were already assigned', 'warning')
         if skipped_organizer > 0:
-            flash(f'{skipped_organizer} selection(s) skipped - organizer cannot be added as assigned faculty', 'info')
+            flash(f'{skipped_organizer} selection(s) skipped - organizer cannot be added as a faculty participant', 'info')
         
     except Exception as e:
         flash(f'Error adding faculty: {str(e)}', 'error')
@@ -2838,7 +2850,7 @@ def process_face_recognition(image_path, attendance_type='class', class_id=None,
         image_path: Path to the image file
         attendance_type: 'class' for students, 'event' for faculty
         class_id: Class ID for filtering students (optional)
-        event_id: Event ID for filtering assigned faculty (optional)
+        event_id: Event ID for filtering faculty participants (optional)
     """
     try:
         # Check if face recognition is available
@@ -2861,7 +2873,7 @@ def process_face_recognition(image_path, attendance_type='class', class_id=None,
         conn = get_db_connection()
         
         if attendance_type == 'event':
-            # For events, load ONLY assigned faculty (from event_faculty table) - EXCLUDE organizer
+            # For events, load ONLY faculty participants (from event_faculty table) - EXCLUDE organizer
             # Organizer doesn't need to mark attendance, they take attendance for others
             if event_id:
                 # Get organizer ID to exclude them
@@ -4166,7 +4178,7 @@ def api_faculty_events():
         return jsonify([])
     
     # Get events where this faculty is the ORGANIZER (only organizers can take attendance, only active events)
-    # Assigned faculty will see events in their "My Classes/Events" but cannot take attendance
+    # Faculty participants will see events in their "My Classes/Events" but cannot take attendance
     events = conn.execute('''
         SELECT e.event_id, e.event_name, e.description, e.event_date, 
                e.start_time, e.end_time, e.room
@@ -4200,7 +4212,7 @@ def api_faculty_all():
 
 @app.route('/api/event/<int:event_id>/faculty')
 def api_event_faculty(event_id):
-    """Get assigned faculty for an event (for organizer's attendance page)"""
+    """Get faculty participants for an event (for organizer's attendance page)"""
     if 'user_id' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
     
@@ -4224,9 +4236,9 @@ def api_event_faculty(event_id):
     # Only organizer can see the list
     if event['faculty_id'] != current_faculty['faculty_id'] and session.get('role') != 'admin':
         conn.close()
-        return jsonify({'error': 'Only the event organizer can view assigned faculty'}), 403
+        return jsonify({'error': 'Only the event organizer can view faculty participants'}), 403
     
-    # Get assigned faculty ONLY (from event_faculty table) - EXCLUDE organizer
+    # Get faculty participants ONLY (from event_faculty table) - EXCLUDE organizer
     # Organizer doesn't need to mark attendance, they take attendance for others
     organizer_id = event['faculty_id']
     faculty_list = conn.execute('''
@@ -4284,7 +4296,7 @@ def api_event_attendance_mark():
             conn.close()
             return jsonify({'success': False, 'message': 'Person not found'}), 404
         
-        # Only organizer can mark attendance (no self-check-in for assigned faculty)
+        # Only organizer can mark attendance (no self-check-in for faculty participants)
         if not is_organizer:
             conn.close()
             return jsonify({
@@ -4383,7 +4395,7 @@ def api_event_attendance_today():
     
     today = datetime.now().strftime('%Y-%m-%d')
     
-    # Get attendance records for assigned faculty ONLY (exclude organizer)
+    # Get attendance records for faculty participants ONLY (exclude organizer)
     # Organizer doesn't need to mark attendance, they take attendance for others
     attendance = conn.execute('''
         SELECT ea.user_id, u.firstname, u.lastname,
@@ -5623,8 +5635,8 @@ def faculty_event_view(event_id):
     # Check if current faculty is the organizer
     is_organizer = event_info['faculty_id'] == faculty['faculty_id']
     
-    # Get all faculty members: organizer + assigned faculty
-    # Organizer is always included, plus assigned faculty from event_faculty
+    # Get all faculty members: organizer + faculty participants
+    # Organizer is always included, plus faculty participants from event_faculty
     faculty_members = conn.execute('''
         SELECT u.idno, u.firstname, u.lastname, d.dept_name, f.position, f.attendance_image,
                CASE WHEN e.faculty_id = f.faculty_id THEN 1 ELSE 0 END as is_organizer

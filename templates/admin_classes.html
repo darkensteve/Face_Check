@@ -6,6 +6,7 @@
     <title>Class Management - FaceCheck</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/global.css') }}">
 </head>
 <body class="bg-gray-100">
     <!-- Sidebar -->
@@ -125,6 +126,7 @@
                             <thead class="bg-gray-50">
                                 <tr>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">EDP Code</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Schedule</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Room</th>
@@ -136,18 +138,18 @@
                                 {% for class in classes %}
                                 <tr class="hover:bg-gray-50 {% if not class.is_active %}opacity-60 bg-gray-50{% endif %}">
                                     <td class="px-6 py-4 whitespace-nowrap">
-                                        <div class="flex items-center space-x-2">
-                                            <div class="text-sm font-medium {% if class.is_active %}text-gray-900{% else %}text-gray-500{% endif %}">{{ class.class_name }}</div>
-                                            {% if not class.is_active %}
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-200 text-gray-700">
-                                                <i class="fas fa-ban mr-1 text-xs"></i>Deactivated
-                                            </span>
-                                            {% else %}
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
-                                                <i class="fas fa-check-circle mr-1 text-xs"></i>Active
-                                            </span>
-                                            {% endif %}
-                                        </div>
+                                        <div class="text-sm font-medium {% if class.is_active %}text-gray-900{% else %}text-gray-500{% endif %}">{{ class.class_name }}</div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        {% if not class.is_active %}
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-200 text-gray-700">
+                                            <i class="fas fa-ban mr-1 text-xs"></i>Deactivated
+                                        </span>
+                                        {% else %}
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                                            <i class="fas fa-check-circle mr-1 text-xs"></i>Active
+                                        </span>
+                                        {% endif %}
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <div class="text-sm {% if class.is_active %}text-gray-900{% else %}text-gray-500{% endif %}">{{ class.edpcode }}</div>

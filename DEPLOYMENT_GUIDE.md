@@ -322,7 +322,7 @@ MAX_UPLOAD_SIZE=16777216
 
 # Face Recognition Settings
 FACE_RECOGNITION_TOLERANCE=0.6
-FACE_DETECTION_MODEL=hog
+# CNN model for high-accuracy face detection
 
 # Logging
 LOG_LEVEL=INFO

@@ -81,11 +81,9 @@ def load_known_faces(folder="known_faces"):
         bgr = cv2.cvtColor(cv2.merge([y, cr, cb]), cv2.COLOR_YCrCb2BGR)
 
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-        locs = face_recognition.face_locations(rgb, number_of_times_to_upsample=1, model="hog")
+        locs = face_recognition.face_locations(rgb, number_of_times_to_upsample=1, model="cnn")
         if not locs:
-            locs = face_recognition.face_locations(rgb, number_of_times_to_upsample=2, model="hog")
-        if not locs:
-            locs = face_recognition.face_locations(rgb, number_of_times_to_upsample=3, model="hog")
+            locs = face_recognition.face_locations(rgb, number_of_times_to_upsample=2, model="cnn")
 
         e = face_recognition.face_encodings(rgb, locs) if locs else face_recognition.face_encodings(rgb)
         if not e:

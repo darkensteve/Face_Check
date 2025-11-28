@@ -6,6 +6,7 @@
     <title>Take Attendance - FaceCheck</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/global.css') }}">
     <link href="{{ url_for('static', filename='css/anti-spoofing.css') }}" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
@@ -1411,7 +1412,7 @@
             
             // Update UI labels for faculty attendance
             document.getElementById('selectionType').textContent = 'Event';
-            document.getElementById('cameraInstructions').textContent = 'Position assigned faculty members in front of the camera for face recognition';
+            document.getElementById('cameraInstructions').textContent = 'Position faculty participants in front of the camera for face recognition';
             document.getElementById('totalLabel').textContent = 'Total Faculty';
             document.getElementById('personLabel').textContent = 'Faculty';
             document.getElementById('personIcon').className = 'fas fa-chalkboard-teacher mr-2 text-gray-500';
@@ -1432,16 +1433,16 @@
                 </div>
             `;
             
-            // Load assigned faculty for this event (like loading students for a class)
+            // Load faculty participants for this event (like loading students for a class)
             loadEventFaculty();
             loadEventAttendanceData();
             loadTodayMarkedEvent();
         }
         
-        // Load assigned faculty for an event (similar to loading students for a class)
+        // Load faculty participants for an event (similar to loading students for a class)
         async function loadEventFaculty() {
             if (!selectedEvent) {
-                console.log('No event selected, cannot load assigned faculty');
+                console.log('No event selected, cannot load faculty participants');
                 return;
             }
             
@@ -1449,7 +1450,7 @@
                 const response = await fetch(`/api/event/${selectedEvent.event_id}/faculty`);
                 if (response.ok) {
                     const assignedFaculty = await response.json();
-                    console.log('Loaded assigned faculty:', assignedFaculty);
+                    console.log('Loaded faculty participants:', assignedFaculty);
                     
                     // Update total count
                     document.getElementById('totalStudents').textContent = assignedFaculty.length;
@@ -1460,14 +1461,14 @@
                 } else {
                     const errorData = await response.json().catch(() => ({}));
                     if (response.status === 403) {
-                        showNotification(errorData.error || 'Only the event organizer can view assigned faculty', 'error');
+                        showNotification(errorData.error || 'Only the event organizer can view faculty participants', 'error');
                         backToClassSelection();
                     } else {
-                        console.error('Error loading assigned faculty:', errorData);
+                        console.error('Error loading faculty participants:', errorData);
                     }
                 }
             } catch (error) {
-                console.error('Error loading assigned faculty:', error);
+                console.error('Error loading faculty participants:', error);
             }
         }
         
@@ -1499,16 +1500,16 @@
                 const attendanceResponse = await fetch(`/api/event/attendance/today?event_id=${selectedEvent.event_id}`);
                 const attendanceRecords = await attendanceResponse.json();
                 
-                // Load all assigned faculty for this event (like loading students for a class)
+                // Load all faculty participants for this event (like loading students for a class)
                 let allFaculty = [];
                 try {
                     const facultyResponse = await fetch(`/api/event/${selectedEvent.event_id}/faculty`);
                     if (facultyResponse.ok) {
                         allFaculty = await facultyResponse.json();
-                        console.log('Loaded all assigned faculty:', allFaculty);
+                        console.log('Loaded all faculty participants:', allFaculty);
                     }
                 } catch (error) {
-                    console.warn('Could not load assigned faculty, showing attendance records only:', error);
+                    console.warn('Could not load faculty participants, showing attendance records only:', error);
                 }
                 
                 // Clear existing table
@@ -1523,7 +1524,7 @@
                     attendanceMap.set(record.user_id, record);
                 });
                 
-                // Show all assigned faculty with their attendance status (like students in classes)
+                // Show all faculty participants with their attendance status (like students in classes)
                 if (allFaculty.length > 0) {
                     document.getElementById('noAttendanceMessage').style.display = 'none';
                     

@@ -1,0 +1,12 @@
+/* Global font overrides for FaceCheck */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+
+html,
+body,
+button,
+input,
+textarea,
+select {
+    font-family: 'Poppins', 'Segoe UI', sans-serif !important;
+}
+
