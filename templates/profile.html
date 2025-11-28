@@ -61,7 +61,7 @@
                 
                 <a href="{{ url_for('my_classes') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-book mr-3"></i>
-                    My Classes
+                    Attendance & Classes
                 </a>
             </nav>
             
@@ -262,6 +262,18 @@
                             <div class="mt-4">
                                 <a href="{{ url_for('my_attendance') }}" class="block text-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium">
                                     <i class="fas fa-calendar-check mr-2"></i>View All Records
+                                </a>
+                            </div>
+                        </div>
+
+                        <!-- Account Settings -->
+                        <div class="bg-white rounded-xl shadow-lg p-6">
+                            <h3 class="text-lg font-semibold text-gray-900 mb-4">
+                                <i class="fas fa-cog mr-2 text-blue-600"></i>Account Settings
+                            </h3>
+                            <div class="space-y-4">
+                                <a href="{{ url_for('change_password') }}" class="block w-full text-center px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition text-sm font-medium">
+                                    <i class="fas fa-key mr-2"></i>Change Password
                                 </a>
                             </div>
                         </div>

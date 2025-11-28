@@ -55,6 +55,12 @@
                             <i id="password_eye" class="fas fa-eye"></i>
                         </button>
                     </div>
+                    <div class="mt-2 text-right">
+                        <a href="#" onclick="showForgotPasswordModal(); return false;" 
+                           class="text-sm text-indigo-600 hover:text-indigo-800 transition duration-200">
+                            Forgot Password?
+                        </a>
+                    </div>
                 </div>
 
                 <button type="submit"
@@ -68,6 +74,25 @@
         <!-- Footer -->
         <div class="text-center mt-8 text-gray-600">
             <p>&copy; 2024 FaceCheck. All rights reserved.</p>
+        </div>
+    </div>
+
+    <!-- Forgot Password Modal -->
+    <div id="forgotPasswordModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full mx-4">
+            <div class="text-center">
+                <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-indigo-100 mb-4">
+                    <i class="fas fa-info-circle text-indigo-600 text-2xl"></i>
+                </div>
+                <h3 class="text-2xl font-bold text-gray-900 mb-4">Forgot Password?</h3>
+                <p class="text-gray-600 mb-6">
+                    Go to the Administrator Office (524) and present your student/faculty ID to reset your password.
+                </p>
+                <button onclick="closeForgotPasswordModal()" 
+                        class="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg hover:bg-indigo-700 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-200 font-medium">
+                    <i class="fas fa-check mr-2"></i>Got it
+                </button>
+            </div>
         </div>
     </div>
     
@@ -86,6 +111,28 @@
                 icon.classList.add('fa-eye');
             }
         }
+
+        function showForgotPasswordModal() {
+            document.getElementById('forgotPasswordModal').classList.remove('hidden');
+        }
+
+        function closeForgotPasswordModal() {
+            document.getElementById('forgotPasswordModal').classList.add('hidden');
+        }
+
+        // Close modal when clicking outside
+        document.getElementById('forgotPasswordModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeForgotPasswordModal();
+            }
+        });
+
+        // Close modal with Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeForgotPasswordModal();
+            }
+        });
     </script>
 </body>
 </html>

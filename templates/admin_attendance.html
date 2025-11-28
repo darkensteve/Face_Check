@@ -7,6 +7,28 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/global.css') }}">
+    <style>
+        .pagination-btn {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.4rem 1rem;
+            border-radius: 9999px;
+            border: 1px solid #d1d5db;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #374151;
+            transition: all 0.2s ease;
+            background-color: #fff;
+        }
+        .pagination-btn:hover:not(.opacity-40) {
+            border-color: #2563eb;
+            color: #1d4ed8;
+        }
+        .pagination-btn.opacity-40 {
+            pointer-events: none;
+            cursor: not-allowed;
+        }
+    </style>
 </head>
 <body class="bg-gray-100">
     <!-- Sidebar -->
@@ -240,7 +262,10 @@
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
                                 {% for record in attendance_records %}
-                                <tr class="hover:bg-gray-50">
+                                <tr class="hover:bg-gray-50 attendance-row" 
+                                    data-date="{{ record.attendance_date }}"
+                                    data-status="{{ record.attendance_status }}"
+                                    data-class="{{ record.class_name }}">
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <div class="flex items-center">
                                             <div class="flex-shrink-0 h-10 w-10">
@@ -278,12 +303,113 @@
                             </tbody>
                         </table>
                     </div>
+                    <div class="px-6 py-4 border-t border-gray-200 flex flex-col md:flex-row items-center justify-between gap-4">
+                        <p id="attendancePaginationInfo" class="text-sm text-gray-500"></p>
+                        <div class="flex items-center gap-2">
+                            <button type="button" id="attendancePrevPage" class="pagination-btn">
+                                <i class="fas fa-chevron-left mr-1 text-xs"></i>Prev
+                            </button>
+                            <span id="attendancePaginationPage" class="text-sm font-semibold text-gray-600"></span>
+                            <button type="button" id="attendanceNextPage" class="pagination-btn">
+                                Next<i class="fas fa-chevron-right ml-1 text-xs"></i>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </main>
         </div>
     </div>
 
     <script>
+        // Pagination variables
+        const attendanceRows = Array.from(document.querySelectorAll('.attendance-row'));
+        const rowsPerPageAttendance = 10;
+        let attendanceCurrentPage = 1;
+
+        function getFilteredAttendanceRows() {
+            const dateFrom = document.getElementById('dateFrom').value;
+            const dateTo = document.getElementById('dateTo').value;
+            const status = document.getElementById('statusFilter').value;
+            const classFilter = document.getElementById('classFilter').value;
+            
+            return attendanceRows.filter(row => {
+                let show = true;
+                
+                // Date filter
+                if (dateFrom || dateTo) {
+                    const recordDate = new Date(row.getAttribute('data-date'));
+                    if (dateFrom && recordDate < new Date(dateFrom)) show = false;
+                    if (dateTo && recordDate > new Date(dateTo + 'T23:59:59')) show = false;
+                }
+                
+                // Status filter
+                if (status) {
+                    const rowStatus = row.getAttribute('data-status').toLowerCase();
+                    if (rowStatus !== status.toLowerCase()) show = false;
+                }
+                
+                // Class filter
+                if (classFilter) {
+                    const rowClass = row.getAttribute('data-class');
+                    if (!rowClass.includes(classFilter)) show = false;
+                }
+                
+                return show;
+            });
+        }
+
+        function renderAttendancePage() {
+            const paginationInfo = document.getElementById('attendancePaginationInfo');
+            const paginationPage = document.getElementById('attendancePaginationPage');
+            const prevBtn = document.getElementById('attendancePrevPage');
+            const nextBtn = document.getElementById('attendanceNextPage');
+            
+            const filteredRows = getFilteredAttendanceRows();
+            const total = filteredRows.length;
+            const totalPages = Math.max(Math.ceil(total / rowsPerPageAttendance), 1);
+            
+            if (attendanceCurrentPage > totalPages) attendanceCurrentPage = totalPages;
+            if (attendanceCurrentPage < 1) attendanceCurrentPage = 1;
+            
+            const startIndex = (attendanceCurrentPage - 1) * rowsPerPageAttendance;
+            const endIndex = Math.min(startIndex + rowsPerPageAttendance, total);
+            
+            // Hide all rows first
+            attendanceRows.forEach(row => row.style.display = 'none');
+            
+            // Show only rows for current page
+            filteredRows.forEach((row, index) => {
+                if (index >= startIndex && index < endIndex) {
+                    row.style.display = '';
+                }
+            });
+            
+            if (paginationInfo) {
+                if (total === 0) {
+                    paginationInfo.textContent = 'No records found.';
+                } else {
+                    paginationInfo.textContent = `Showing ${startIndex + 1}-${endIndex} of ${total} entries`;
+                }
+            }
+            if (paginationPage) {
+                paginationPage.textContent = `Page ${attendanceCurrentPage} of ${totalPages}`;
+            }
+            if (prevBtn) {
+                if (attendanceCurrentPage <= 1 || total === 0) {
+                    prevBtn.classList.add('opacity-40');
+                } else {
+                    prevBtn.classList.remove('opacity-40');
+                }
+            }
+            if (nextBtn) {
+                if (attendanceCurrentPage >= totalPages || total === 0) {
+                    nextBtn.classList.add('opacity-40');
+                } else {
+                    nextBtn.classList.remove('opacity-40');
+                }
+            }
+        }
+
         function applyFilters() {
             const dateFrom = document.getElementById('dateFrom').value;
             const dateTo = document.getElementById('dateTo').value;
@@ -297,36 +423,13 @@
             const clearBtn = document.getElementById('clearFiltersBtn');
             if (hasFilters) {
                 clearBtn.classList.remove('hidden');
-            }
-            
-            const rows = document.querySelectorAll('#attendanceTable tbody tr');
-            
-            rows.forEach(row => {
-                let show = true;
-                
-                // Date filter
-                if (dateFrom || dateTo) {
-                    const dateCell = row.cells[3].textContent.trim();
-                    const recordDate = new Date(dateCell);
-                    
-                    if (dateFrom && recordDate < new Date(dateFrom)) show = false;
-                    if (dateTo && recordDate > new Date(dateTo)) show = false;
+            } else {
+                clearBtn.classList.add('hidden');
                 }
                 
-                // Status filter
-                if (status) {
-                    const statusCell = row.cells[4].textContent.trim().toLowerCase();
-                    if (statusCell !== status.toLowerCase()) show = false;
-                }
-                
-                // Class filter
-                if (classFilter) {
-                    const classCell = row.cells[1].textContent.trim();
-                    if (!classCell.includes(classFilter)) show = false;
-                }
-                
-                row.style.display = show ? '' : 'none';
-            });
+            // Reset to first page when filters change
+            attendanceCurrentPage = 1;
+            renderAttendancePage();
         }
         
         function clearFilters() {
@@ -339,10 +442,9 @@
             const clearBtn = document.getElementById('clearFiltersBtn');
             clearBtn.classList.add('hidden');
             
-            const rows = document.querySelectorAll('#attendanceTable tbody tr');
-            rows.forEach(row => {
-                row.style.display = '';
-            });
+            // Reset to first page and render
+            attendanceCurrentPage = 1;
+            renderAttendancePage();
         }
         
         function exportAttendance(format) {
@@ -404,6 +506,27 @@
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
             populateClassFilter();
+            renderAttendancePage();
+            
+            // Setup pagination event listeners
+            const prevBtn = document.getElementById('attendancePrevPage');
+            const nextBtn = document.getElementById('attendanceNextPage');
+            
+            prevBtn?.addEventListener('click', () => {
+                if (attendanceCurrentPage > 1) {
+                    attendanceCurrentPage--;
+                    renderAttendancePage();
+                }
+            });
+            
+            nextBtn?.addEventListener('click', () => {
+                const filteredRows = getFilteredAttendanceRows();
+                const totalPages = Math.max(Math.ceil(filteredRows.length / rowsPerPageAttendance), 1);
+                if (attendanceCurrentPage < totalPages) {
+                    attendanceCurrentPage++;
+                    renderAttendancePage();
+                }
+            });
         });
     </script>
 </body>

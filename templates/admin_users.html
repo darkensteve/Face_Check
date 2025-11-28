@@ -7,6 +7,28 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/global.css') }}">
+    <style>
+        .pagination-btn {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.4rem 1rem;
+            border-radius: 9999px;
+            border: 1px solid #d1d5db;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #374151;
+            transition: all 0.2s ease;
+            background-color: #fff;
+        }
+        .pagination-btn:hover:not(.opacity-40) {
+            border-color: #2563eb;
+            color: #1d4ed8;
+        }
+        .pagination-btn.disabled, .pagination-btn.opacity-40 {
+            pointer-events: none;
+            cursor: not-allowed;
+        }
+    </style>
 </head>
 <body class="bg-gray-100 overflow-hidden h-screen">
     <!-- Sidebar -->
@@ -187,7 +209,7 @@
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <button type="button" onclick="showUserProfile({{ user.user_id }})" class="flex items-center w-full text-left hover:opacity-80 transition">
                                             <div class="flex-shrink-0 h-10 w-10">
-                                                {% if user.role == 'student' and user.profile_picture %}
+                                                {% if user.profile_picture %}
                                                 <img src="{{ url_for('static', filename='profile_pictures/' + user.profile_picture) }}" 
                                                      alt="{{ user.firstname }} {{ user.lastname }}" 
                                                      class="h-10 w-10 rounded-full object-cover border-2 border-blue-500"
@@ -259,6 +281,18 @@
                                 {% endfor %}
                             </tbody>
                         </table>
+                    </div>
+                    <div class="px-6 py-4 border-t border-gray-200 flex flex-col md:flex-row items-center justify-between gap-4">
+                        <p id="userPaginationInfo" class="text-sm text-gray-500"></p>
+                        <div class="flex items-center gap-2">
+                            <button type="button" id="userPrevPage" class="pagination-btn">
+                                <i class="fas fa-chevron-left mr-1 text-xs"></i>Prev
+                            </button>
+                            <span id="userPaginationPage" class="text-sm font-semibold text-gray-600"></span>
+                            <button type="button" id="userNextPage" class="pagination-btn">
+                                Next<i class="fas fa-chevron-right ml-1 text-xs"></i>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </main>
@@ -484,6 +518,10 @@
 
         let resetUserId = null;
         let resetUserName = '';
+        const userRows = Array.from(document.querySelectorAll('.user-row'));
+        userRows.forEach(row => row.dataset.matches = 'true');
+        const rowsPerPageUsers = 10;
+        let userCurrentPage = 1;
         
         function openResetModal(userId, userName) {
             resetUserId = userId;
@@ -595,6 +633,7 @@
         // Initialize course filtering on page load
         document.addEventListener('DOMContentLoaded', function() {
             filterCourses();
+            applyFilters();
             
             // Setup profile modal close handlers
             document.getElementById('closeProfileModal').addEventListener('click', closeUserProfileModal);
@@ -610,35 +649,78 @@
         let currentSearch = '';
 
         function applyFilters() {
-            const allRows = document.querySelectorAll('.user-row');
             const searchQuery = currentSearch.toLowerCase().trim();
             let visibleCount = 0;
             
-            allRows.forEach(row => {
+            userRows.forEach(row => {
                 const userRole = row.getAttribute('data-role');
                 const userName = row.getAttribute('data-name') || '';
                 const userIdno = row.getAttribute('data-idno') || '';
                 const userDept = row.getAttribute('data-department') || '';
                 
-                // Check role filter
                 const matchesRole = currentFilter === 'all' || userRole === currentFilter;
-                
-                // Check search query
                 const matchesSearch = !searchQuery || 
                     userName.includes(searchQuery) || 
                     userIdno.includes(searchQuery) || 
                     userDept.includes(searchQuery);
                 
-                if (matchesRole && matchesSearch) {
-                    row.style.display = '';
-                    visibleCount++;
-                } else {
-                    row.style.display = 'none';
-                }
+                const matches = matchesRole && matchesSearch;
+                row.dataset.matches = matches ? 'true' : 'false';
+                if (matches) visibleCount++;
             });
             
-            // Update count
             document.getElementById('userCount').textContent = visibleCount;
+            userCurrentPage = 1;
+            renderUserPage();
+        }
+
+        function getFilteredUserRows() {
+            return userRows.filter(row => row.dataset.matches !== 'false');
+        }
+
+        function renderUserPage() {
+            const paginationInfo = document.getElementById('userPaginationInfo');
+            const paginationPage = document.getElementById('userPaginationPage');
+            if (!paginationInfo || !paginationPage) return;
+            
+            const filteredRows = getFilteredUserRows();
+            const total = filteredRows.length;
+            const totalPages = Math.max(Math.ceil(total / rowsPerPageUsers), 1);
+            
+            if (total === 0) {
+                userRows.forEach(row => row.style.display = 'none');
+                paginationInfo.textContent = 'No users found.';
+                paginationPage.textContent = 'Page 0 of 0';
+                } else {
+                if (userCurrentPage > totalPages) userCurrentPage = totalPages;
+                const startIndex = (userCurrentPage - 1) * rowsPerPageUsers;
+                const endIndex = Math.min(startIndex + rowsPerPageUsers, total);
+                userRows.forEach(row => row.style.display = 'none');
+                filteredRows.forEach((row, index) => {
+                    if (index >= startIndex && index < endIndex) {
+                        row.style.display = '';
+                }
+            });
+                paginationInfo.textContent = `Showing ${startIndex + 1}-${endIndex} of ${total} users`;
+                paginationPage.textContent = `Page ${userCurrentPage} of ${totalPages}`;
+            }
+            
+            const prevBtn = document.getElementById('userPrevPage');
+            const nextBtn = document.getElementById('userNextPage');
+            if (prevBtn) {
+                if (userCurrentPage <= 1 || total === 0) {
+                    prevBtn.classList.add('opacity-40');
+                } else {
+                    prevBtn.classList.remove('opacity-40');
+                }
+            }
+            if (nextBtn) {
+                if (total === 0 || userCurrentPage >= Math.max(Math.ceil(total / rowsPerPageUsers), 1)) {
+                    nextBtn.classList.add('opacity-40');
+                } else {
+                    nextBtn.classList.remove('opacity-40');
+                }
+            }
         }
 
         // Filter users by role/type
@@ -662,6 +744,24 @@
         // Search functionality
         const searchInput = document.getElementById('userSearch');
         const clearSearchBtn = document.getElementById('clearSearch');
+        
+        const userPrevBtn = document.getElementById('userPrevPage');
+        const userNextBtn = document.getElementById('userNextPage');
+
+        userPrevBtn?.addEventListener('click', () => {
+            if (userCurrentPage > 1) {
+                userCurrentPage--;
+                renderUserPage();
+            }
+        });
+
+        userNextBtn?.addEventListener('click', () => {
+            const totalPages = Math.max(Math.ceil(getFilteredUserRows().length / rowsPerPageUsers), 1);
+            if (userCurrentPage < totalPages) {
+                userCurrentPage++;
+                renderUserPage();
+            }
+        });
         
         if (searchInput) {
             searchInput.addEventListener('input', function() {

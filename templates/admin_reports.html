@@ -8,6 +8,28 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/global.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .pagination-btn {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.4rem 1rem;
+            border-radius: 9999px;
+            border: 1px solid #d1d5db;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #374151;
+            transition: all 0.2s ease;
+            background-color: #fff;
+        }
+        .pagination-btn:hover:not(.opacity-40) {
+            border-color: #2563eb;
+            color: #1d4ed8;
+        }
+        .pagination-btn.opacity-40 {
+            pointer-events: none;
+            cursor: not-allowed;
+        }
+    </style>
 </head>
 <body class="bg-gray-100">
     <div class="flex h-screen">
@@ -230,6 +252,18 @@
                                 </tbody>
                             </table>
                         </div>
+                        <div class="px-6 py-4 border-t border-gray-200 flex flex-col md:flex-row items-center justify-between gap-4">
+                            <p id="reportPaginationInfo" class="text-sm text-gray-500"></p>
+                            <div class="flex items-center gap-2">
+                                <button type="button" id="reportPrevPage" class="pagination-btn">
+                                    <i class="fas fa-chevron-left mr-1 text-xs"></i>Prev
+                                </button>
+                                <span id="reportPaginationPage" class="text-sm font-semibold text-gray-600"></span>
+                                <button type="button" id="reportNextPage" class="pagination-btn">
+                                    Next<i class="fas fa-chevron-right ml-1 text-xs"></i>
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </main>
@@ -239,11 +273,15 @@
     <script>
         let trendChart = null;
         let distributionChart = null;
+        let allReportData = [];
+        let reportCurrentPage = 1;
+        const reportRowsPerPage = 10;
 
         // Initialize charts
         document.addEventListener('DOMContentLoaded', function() {
             initializeCharts();
             loadDefaultData();
+            setupReportPagination();
         });
 
         function initializeCharts() {
@@ -371,10 +409,21 @@
         }
 
         function updateTable(data) {
+            allReportData = data.details || [];
+            reportCurrentPage = 1;
+            renderReportPage();
+        }
+
+        function renderReportPage() {
             const tbody = document.getElementById('reportTableBody');
+            const paginationInfo = document.getElementById('reportPaginationInfo');
+            const paginationPage = document.getElementById('reportPaginationPage');
+            const prevBtn = document.getElementById('reportPrevPage');
+            const nextBtn = document.getElementById('reportNextPage');
+            
             tbody.innerHTML = '';
 
-            if (!data.details || data.details.length === 0) {
+            if (!allReportData || allReportData.length === 0) {
                 tbody.innerHTML = `
                     <tr>
                         <td colspan="6" class="px-6 py-4 text-center text-gray-500">
@@ -382,10 +431,23 @@
                         </td>
                     </tr>
                 `;
+                if (paginationInfo) paginationInfo.textContent = 'No records found.';
+                if (paginationPage) paginationPage.textContent = 'Page 0 of 0';
+                if (prevBtn) prevBtn.classList.add('opacity-40');
+                if (nextBtn) nextBtn.classList.add('opacity-40');
                 return;
             }
 
-            data.details.forEach(row => {
+            const total = allReportData.length;
+            const totalPages = Math.max(Math.ceil(total / reportRowsPerPage), 1);
+            if (reportCurrentPage > totalPages) reportCurrentPage = totalPages;
+            if (reportCurrentPage < 1) reportCurrentPage = 1;
+
+            const startIndex = (reportCurrentPage - 1) * reportRowsPerPage;
+            const endIndex = Math.min(startIndex + reportRowsPerPage, total);
+
+            for (let i = startIndex; i < endIndex; i++) {
+                const row = allReportData[i];
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.date}</td>
@@ -396,6 +458,47 @@
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.rate}%</td>
                 `;
                 tbody.appendChild(tr);
+            }
+
+            if (paginationInfo) {
+                paginationInfo.textContent = `Showing ${startIndex + 1}-${endIndex} of ${total} entries`;
+            }
+            if (paginationPage) {
+                paginationPage.textContent = `Page ${reportCurrentPage} of ${totalPages}`;
+            }
+            if (prevBtn) {
+                if (reportCurrentPage <= 1) {
+                    prevBtn.classList.add('opacity-40');
+                } else {
+                    prevBtn.classList.remove('opacity-40');
+                }
+            }
+            if (nextBtn) {
+                if (reportCurrentPage >= totalPages) {
+                    nextBtn.classList.add('opacity-40');
+                } else {
+                    nextBtn.classList.remove('opacity-40');
+                }
+            }
+        }
+
+        function setupReportPagination() {
+            const prevBtn = document.getElementById('reportPrevPage');
+            const nextBtn = document.getElementById('reportNextPage');
+
+            prevBtn?.addEventListener('click', () => {
+                if (reportCurrentPage > 1) {
+                    reportCurrentPage--;
+                    renderReportPage();
+                }
+            });
+
+            nextBtn?.addEventListener('click', () => {
+                const totalPages = Math.max(Math.ceil(allReportData.length / reportRowsPerPage), 1);
+                if (reportCurrentPage < totalPages) {
+                    reportCurrentPage++;
+                    renderReportPage();
+                }
             });
         }
 

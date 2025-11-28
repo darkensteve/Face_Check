@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Classes - FaceCheck</title>
+    <title>Attendance & Classes - FaceCheck</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/global.css') }}">
@@ -44,7 +44,7 @@
                 
                 <a href="{{ url_for('my_classes') }}" class="flex items-center px-6 py-3 bg-gray-700 text-white">
                     <i class="fas fa-book mr-3"></i>
-                    My Classes
+                    Attendance & Classes
                 </a>
             </nav>
             
@@ -83,7 +83,7 @@
                 <div class="px-6 py-4">
                     <div class="flex items-center justify-between">
                         <div>
-                            <h2 class="text-2xl font-bold text-gray-800">My Classes</h2>
+                            <h2 class="text-2xl font-bold text-gray-800">Attendance & Classes</h2>
                             <p class="text-gray-600">View your enrolled classes and schedules</p>
                         </div>
                     </div>
@@ -186,9 +186,16 @@
                                     </div>
                                 </div>
 
-                                <div class="pt-4 border-t border-slate-100">
+                                <div class="pt-4 border-t border-slate-100 flex items-center justify-between">
+                                    <div>
                                     <p class="text-xs uppercase tracking-wide text-slate-400 mb-1">Instructor</p>
                                     <p class="text-sm font-medium text-slate-900">{{ class_item.faculty_firstname }} {{ class_item.faculty_lastname }}</p>
+                                    </div>
+                                    <a href="{{ url_for('view_class_attendance', class_id=class_item.class_id) }}" 
+                                       class="text-blue-600 hover:text-blue-800 transition duration-200"
+                                       title="View Attendance">
+                                        <i class="fas fa-eye text-lg"></i>
+                                    </a>
                                 </div>
                             </div>
                         </div>

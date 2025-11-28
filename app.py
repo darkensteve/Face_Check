@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import os
 import time
 import secrets
@@ -389,7 +389,176 @@ def get_user_info(user_id):
     conn.close()
     return user
 
-def get_dashboard_stats():
+def _start_of_week(value: date) -> date:
+    """Return Monday of the week for the provided date."""
+    return value - timedelta(days=value.weekday())
+
+def _subtract_months(value: date, months_back: int) -> date:
+    """Return the first day of the month `months_back` months before `value`."""
+    total_months = value.year * 12 + (value.month - 1) - months_back
+    new_year = total_months // 12
+    new_month = total_months % 12 + 1
+    return date(new_year, new_month, 1)
+
+def _build_date_filters(start_date=None, end_date=None):
+    clauses = []
+    params = []
+    if start_date:
+        clauses.append("DATE(attendance_date) >= ?")
+        params.append(start_date)
+    if end_date:
+        clauses.append("DATE(attendance_date) <= ?")
+        params.append(end_date)
+    if clauses:
+        return "WHERE " + " AND ".join(clauses), params
+    return "", params
+
+def build_attendance_series(conn):
+    """Generate daily/weekly/monthly/yearly attendance aggregates for charts."""
+    today = datetime.now().date()
+
+    # Daily (last 7 days)
+    daily_start = today - timedelta(days=6)
+    daily_rows = conn.execute("""
+        SELECT DATE(attendance_date) AS bucket, COUNT(*) AS total
+        FROM attendance
+        WHERE DATE(attendance_date) BETWEEN ? AND ?
+        GROUP BY DATE(attendance_date)
+    """, (daily_start.isoformat(), today.isoformat())).fetchall()
+    daily_map = {row['bucket']: row['total'] for row in daily_rows}
+    daily_series = []
+    for offset in range(6, -1, -1):
+        current_day = today - timedelta(days=offset)
+        key = current_day.strftime('%Y-%m-%d')
+        daily_series.append({
+            'label': current_day.strftime('%b %d'),
+            'value': daily_map.get(key, 0)
+        })
+
+    # Weekly (last 8 weeks)
+    current_week_start = _start_of_week(today)
+    weekly_start = current_week_start - timedelta(weeks=7)
+    weekly_rows = conn.execute("""
+        SELECT strftime('%Y', attendance_date) || '-W' || strftime('%W', attendance_date) AS bucket,
+               COUNT(*) AS total
+        FROM attendance
+        WHERE DATE(attendance_date) >= ?
+        GROUP BY bucket
+    """, (weekly_start.isoformat(),)).fetchall()
+    weekly_map = {row['bucket']: row['total'] for row in weekly_rows}
+    weekly_series = []
+    for offset in range(7, -1, -1):
+        week_start = current_week_start - timedelta(weeks=offset)
+        bucket_key = f"{week_start.strftime('%Y')}-W{week_start.strftime('%W')}"
+        week_number = week_start.isocalendar()[1]
+        weekly_series.append({
+            'label': f"Week {week_number}",
+            'value': weekly_map.get(bucket_key, 0)
+        })
+
+    # Monthly (last 6 months)
+    current_month_start = today.replace(day=1)
+    monthly_rows = conn.execute("""
+        SELECT strftime('%Y-%m', attendance_date) AS bucket,
+               COUNT(*) AS total
+        FROM attendance
+        WHERE DATE(attendance_date) >= ?
+        GROUP BY bucket
+    """, (_subtract_months(current_month_start, 5).isoformat(),)).fetchall()
+    monthly_map = {row['bucket']: row['total'] for row in monthly_rows}
+    monthly_series = []
+    for months_back in range(5, -1, -1):
+        month_start = _subtract_months(current_month_start, months_back)
+        key = month_start.strftime('%Y-%m')
+        monthly_series.append({
+            'label': month_start.strftime('%b %Y'),
+            'value': monthly_map.get(key, 0)
+        })
+
+    # Yearly (last 5 years)
+    start_year = today.year - 4
+    yearly_rows = conn.execute("""
+        SELECT strftime('%Y', attendance_date) AS bucket,
+               COUNT(*) AS total
+        FROM attendance
+        WHERE DATE(attendance_date) >= ?
+        GROUP BY bucket
+    """, (date(start_year, 1, 1).isoformat(),)).fetchall()
+    yearly_map = {row['bucket']: row['total'] for row in yearly_rows}
+    yearly_series = []
+    for year_value in range(start_year, today.year + 1):
+        key = str(year_value)
+        yearly_series.append({
+            'label': key,
+            'value': yearly_map.get(key, 0)
+        })
+
+    return {
+        'daily': daily_series,
+        'weekly': weekly_series,
+        'monthly': monthly_series,
+        'yearly': yearly_series
+    }
+
+def build_recent_chart_series(conn, start_date=None, end_date=None):
+    where_clause, params = _build_date_filters(start_date, end_date)
+
+    def fetch_series(query, extra_params=None, limit=None, order_desc=True):
+        combined_params = list(params)
+        if extra_params:
+            combined_params.extend(extra_params)
+        sql = query
+        if limit:
+            sql += f" LIMIT {limit}"
+        rows = conn.execute(sql, combined_params).fetchall()
+        data = [{'label': row['label'], 'value': row['total']} for row in rows]
+        if order_desc:
+            data.reverse()
+        return data
+
+    daily = fetch_series(f'''
+        SELECT DATE(attendance_date) AS label, COUNT(*) AS total
+        FROM attendance
+        {where_clause}
+        GROUP BY DATE(attendance_date)
+        ORDER BY DATE(attendance_date) DESC
+    ''', limit=14)
+
+    weekly = fetch_series(f'''
+        SELECT strftime('%Y', attendance_date) || '-W' || strftime('%W', attendance_date) AS label,
+               COUNT(*) AS total
+        FROM attendance
+        {where_clause}
+        GROUP BY label
+        ORDER BY label DESC
+    ''', limit=10)
+
+    monthly = fetch_series(f'''
+        SELECT strftime('%Y-%m', attendance_date) AS label,
+               COUNT(*) AS total
+        FROM attendance
+        {where_clause}
+        GROUP BY label
+        ORDER BY label DESC
+    ''', limit=12)
+
+    yearly = fetch_series(f'''
+        SELECT strftime('%Y', attendance_date) AS label,
+               COUNT(*) AS total
+        FROM attendance
+        {where_clause}
+        GROUP BY label
+        ORDER BY label DESC
+    ''', limit=5)
+
+    return {
+        'daily': daily,
+        'weekly': weekly,
+        'monthly': monthly,
+        'yearly': yearly
+    }
+
+def get_dashboard_stats(start_date=None, end_date=None):
     conn = get_db_connection()
     
     # Get total students
@@ -405,43 +574,21 @@ def get_dashboard_stats():
     # Get attendance rate
     attendance_rate = (today_attendance / total_students * 100) if total_students > 0 else 0
     
-    # Get recent attendance - format datetime at SQL level to remove microseconds
-    recent_records = conn.execute('''
-        SELECT strftime('%Y-%m-%d %H:%M:%S', a.attendance_date) as attendance_date,
-               u.firstname, u.lastname, a.attendance_status
-        FROM attendance a
-        JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
-        JOIN student s ON sc.student_id = s.student_id
-        JOIN user u ON s.user_id = u.user_id
-        ORDER BY a.attendance_date DESC
-        LIMIT 5
-    ''').fetchall()
-    
-    # Format the attendance data for the template
-    recent_attendance = []
-    for record in recent_records:
-        # Format date from datetime to readable format
-        # datetime is already formatted without microseconds from SQL
-        date_str = str(record['attendance_date'])
-        try:
-            date_obj = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
-            formatted_date = date_obj.strftime('%B %d, %Y %I:%M %p')
-        except ValueError:
-            # Fallback if parsing fails
-            formatted_date = date_str
-        
-        recent_attendance.append({
-            'date': formatted_date,
-            'name': f"{record['firstname']} {record['lastname']}",
-            'status': record['attendance_status']
-        })
+    # Build aggregated series for charts
+    attendance_series = build_attendance_series(conn)
+    recent_series = build_recent_chart_series(conn, start_date, end_date)
     
     conn.close()
+    recent_attendance_chart = recent_series.get('daily', [])
+    if len(recent_attendance_chart) > 8:
+        recent_attendance_chart = recent_attendance_chart[-8:]
     return {
         'total_students': total_students,
         'today_attendance': today_attendance,
         'attendance_rate': round(attendance_rate, 1),
-        'recent_attendance': recent_attendance
+        'attendance_series': attendance_series,
+        'recent_attendance_chart': recent_attendance_chart,
+        'recent_chart_series': recent_series
     }
 
 # Routes
@@ -504,12 +651,18 @@ def dashboard():
     if 'user_id' not in session or session['role'] != 'admin':
         return redirect(url_for('login'))
     
-    stats = get_dashboard_stats()
+    start_date = request.args.get('start_date') or None
+    end_date = request.args.get('end_date') or None
+    stats = get_dashboard_stats(start_date, end_date)
     return render_template('dashboard.html', 
                          total_students=stats['total_students'],
                          today_attendance=stats['today_attendance'],
                          attendance_rate=stats['attendance_rate'],
-                         recent_attendance=stats['recent_attendance'])
+                         attendance_series=stats['attendance_series'],
+                         recent_attendance_chart=stats['recent_attendance_chart'],
+                         recent_chart_series=stats['recent_chart_series'],
+                         start_date=start_date,
+                         end_date=end_date)
 
 # User Management Routes
 @app.route('/admin/users')
@@ -518,10 +671,20 @@ def admin_users():
         return redirect(url_for('login'))
     
     conn = get_db_connection()
+    
+    # Add profile_picture column to faculty table if it doesn't exist
+    try:
+        conn.execute('ALTER TABLE faculty ADD COLUMN profile_picture VARCHAR(255)')
+        conn.commit()
+    except:
+        pass  # Column already exists
+    
     users = conn.execute('''
         SELECT u.*, 
                d.dept_name, 
-               s.profile_picture,
+               s.profile_picture AS student_profile_picture,
+               f.profile_picture AS faculty_profile_picture,
+               COALESCE(s.profile_picture, f.profile_picture) AS profile_picture,
                s.attendance_image AS student_attendance_image,
                f.attendance_image AS faculty_attendance_image,
                CASE WHEN s.student_id IS NOT NULL THEN 'Student' 
@@ -562,9 +725,11 @@ def create_user():
         position = request.form.get('position')
         
         
-        # Set default password if none provided (use ID number)
+        # Set default password if none provided (use ID number as-is, no validation)
+        is_default_password = False
         if not password:
             password = idno  # Use ID number as default password
+            is_default_password = True  # Flag to skip validation for default passwords
         
         # Validate required fields
         if not all([idno, firstname, lastname, role]):
@@ -592,12 +757,14 @@ def create_user():
             flash(f'Invalid role: {validated_role}', 'error')
             return redirect(url_for('admin_users'))
         
-        # Validate password strength using admin settings
-        from security_config import validate_password_strength
-        is_valid_password, password_message = validate_password_strength(password)
-        if not is_valid_password:
-            flash(password_message, 'error')
-            return redirect(url_for('admin_users'))
+        # Validate password strength only if NOT using default password
+        # Default passwords (ID numbers) are allowed without validation
+        if not is_default_password:
+            from security_config import validate_password_strength
+            is_valid_password, password_message = validate_password_strength(password)
+            if not is_valid_password:
+                flash(password_message, 'error')
+                return redirect(url_for('admin_users'))
         
         # Validate department ID if provided
         if dept_id:
@@ -788,6 +955,7 @@ def reset_password(user_id):
             flash(error_msg, 'error')
             return redirect(url_for('admin_users'))
         
+        # Reset to ID number (no validation for password resets to default)
         default_password = str(user['idno']).strip()
         hashed_password = hash_password(default_password)
         
@@ -1904,8 +2072,16 @@ def faculty_register_face():
     
     # Get faculty info for the registration process
     conn = get_db_connection()
+    
+    # Add profile_picture column to faculty table if it doesn't exist
+    try:
+        conn.execute('ALTER TABLE faculty ADD COLUMN profile_picture VARCHAR(255)')
+        conn.commit()
+    except:
+        pass  # Column already exists
+    
     faculty_info = conn.execute('''
-        SELECT u.*, f.faculty_id, f.position, f.attendance_image, d.dept_name
+        SELECT u.*, f.faculty_id, f.position, f.attendance_image, f.profile_picture, d.dept_name
         FROM user u
         JOIN faculty f ON u.user_id = f.user_id
         LEFT JOIN department d ON u.dept_id = d.dept_id
@@ -2190,6 +2366,132 @@ def my_classes():
                          weekly_hours_estimate=weekly_hours_estimate,
                          faculty_count=faculty_count)
 
+@app.route('/my_classes/<int:class_id>/attendance')
+def view_class_attendance(class_id):
+    """View attendance records for a specific class"""
+    if 'user_id' not in session or session['role'] != 'student':
+        return redirect(url_for('login'))
+    
+    conn = get_db_connection()
+    
+    # Get student info
+    student = conn.execute('''
+        SELECT u.*, s.student_id, s.year_level, s.profile_picture, c.course_name, d.dept_name
+        FROM user u
+        JOIN student s ON u.user_id = s.user_id
+        LEFT JOIN course c ON s.course_id = c.course_id
+        LEFT JOIN department d ON u.dept_id = d.dept_id
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+    
+    # Verify student is enrolled in this class
+    enrollment = conn.execute('''
+        SELECT sc.studentclass_id
+        FROM student_class sc
+        WHERE sc.student_id = ? AND sc.class_id = ?
+    ''', (student['student_id'], class_id)).fetchone()
+    
+    if not enrollment:
+        conn.close()
+        flash('You are not enrolled in this class', 'error')
+        return redirect(url_for('my_classes'))
+    
+    # Get class information
+    class_info = conn.execute('''
+        SELECT cl.class_id, cl.class_name, cl.edpcode, cl.room, cl.start_time, cl.end_time,
+               u_f.firstname as faculty_firstname, u_f.lastname as faculty_lastname,
+               GROUP_CONCAT(DISTINCT d.day_name) as days
+        FROM class cl
+        JOIN faculty f ON cl.faculty_id = f.faculty_id
+        JOIN user u_f ON f.user_id = u_f.user_id
+        LEFT JOIN class_days cd ON cl.class_id = cd.class_id
+        LEFT JOIN days d ON cd.day_id = d.day_id
+        WHERE cl.class_id = ?
+        GROUP BY cl.class_id, cl.class_name, cl.edpcode, cl.room, cl.start_time, cl.end_time,
+                 u_f.firstname, u_f.lastname
+    ''', (class_id,)).fetchone()
+    
+    if not class_info:
+        conn.close()
+        flash('Class not found', 'error')
+        return redirect(url_for('my_classes'))
+    
+    # Get attendance records for this student in this class
+    attendance_records = conn.execute('''
+        SELECT strftime('%Y-%m-%d %H:%M:%S', a.attendance_date) as attendance_date,
+               a.attendance_status
+        FROM attendance a
+        JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+        WHERE sc.student_id = ? AND sc.class_id = ?
+        ORDER BY a.attendance_date DESC
+    ''', (student['student_id'], class_id)).fetchall()
+    
+    # Format attendance records
+    formatted_records = []
+    for record in attendance_records:
+        date_str = ''
+        time_str = ''
+        if record['attendance_date']:
+            try:
+                from datetime import datetime
+                dt = datetime.strptime(record['attendance_date'], '%Y-%m-%d %H:%M:%S')
+                date_str = dt.strftime('%B %d, %Y')
+                time_str = dt.strftime('%I:%M %p')
+            except:
+                date_str = str(record['attendance_date']).split(' ')[0]
+                time_str = str(record['attendance_date']).split(' ')[1] if ' ' in str(record['attendance_date']) else ''
+        
+        formatted_records.append({
+            'date': date_str,
+            'time': time_str,
+            'status': record['attendance_status']
+        })
+    
+    # Calculate statistics
+    total_records = len(formatted_records)
+    present_count = sum(1 for r in formatted_records if r['status'] == 'present')
+    late_count = sum(1 for r in formatted_records if r['status'] == 'late')
+    absent_count = sum(1 for r in formatted_records if r['status'] == 'absent')
+    attendance_rate = round((present_count / total_records * 100), 1) if total_records > 0 else 0
+    
+    # Format class schedule
+    time_str = ''
+    if class_info['start_time'] and class_info['end_time']:
+        try:
+            from datetime import datetime
+            start_time = str(class_info['start_time'])
+            end_time = str(class_info['end_time'])
+            
+            time_formats = ['%H:%M:%S', '%H:%M']
+            start_dt = None
+            end_dt = None
+            
+            for fmt in time_formats:
+                try:
+                    start_dt = datetime.strptime(start_time, fmt)
+                    end_dt = datetime.strptime(end_time, fmt)
+                    break
+                except:
+                    continue
+            
+            if start_dt and end_dt:
+                time_str = f"{start_dt.strftime('%I:%M %p')} - {end_dt.strftime('%I:%M %p')}"
+        except:
+            time_str = f"{class_info['start_time']} - {class_info['end_time']}"
+    
+    conn.close()
+    
+    return render_template('student_class_attendance.html',
+                         student=student,
+                         class_info=class_info,
+                         attendance_records=formatted_records,
+                         total_records=total_records,
+                         present_count=present_count,
+                         late_count=late_count,
+                         absent_count=absent_count,
+                         attendance_rate=attendance_rate,
+                         time_str=time_str)
+
 # Student Profile Route
 @app.route('/profile')
 def student_profile():
@@ -2325,9 +2627,16 @@ def faculty_dashboard():
     
     conn = get_db_connection()
     
+    # Add profile_picture column to faculty table if it doesn't exist
+    try:
+        conn.execute('ALTER TABLE faculty ADD COLUMN profile_picture VARCHAR(255)')
+        conn.commit()
+    except:
+        pass  # Column already exists
+    
     # Get faculty info
     faculty = conn.execute('''
-        SELECT u.*, f.faculty_id, f.position, f.attendance_image, d.dept_name
+        SELECT u.*, f.faculty_id, f.position, f.attendance_image, f.profile_picture, d.dept_name
         FROM user u
         JOIN faculty f ON u.user_id = f.user_id
         LEFT JOIN department d ON u.dept_id = d.dept_id
@@ -2827,6 +3136,89 @@ def api_upload_profile_picture():
         print(f"Error uploading profile picture: {e}")
         return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
+@app.route('/api/faculty/upload-profile-picture', methods=['POST'])
+def api_faculty_upload_profile_picture():
+    """Handle profile picture uploads for faculty"""
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    if 'profile_picture' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['profile_picture']
+    
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    # Validate file type
+    allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+    file_ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
+    
+    if file_ext not in allowed_extensions:
+        return jsonify({'error': 'Invalid file type. Allowed: PNG, JPG, JPEG, GIF, WEBP'}), 400
+    
+    try:
+        # Get faculty info
+        conn = get_db_connection()
+        
+        # Add profile_picture column to faculty table if it doesn't exist
+        try:
+            conn.execute('ALTER TABLE faculty ADD COLUMN profile_picture VARCHAR(255)')
+            conn.commit()
+        except:
+            pass  # Column already exists
+        
+        faculty = conn.execute('''
+            SELECT f.faculty_id, f.profile_picture, u.idno
+            FROM faculty f
+            JOIN user u ON f.user_id = u.user_id
+            WHERE u.user_id = ?
+        ''', (session['user_id'],)).fetchone()
+        
+        if not faculty:
+            conn.close()
+            return jsonify({'error': 'Faculty not found'}), 404
+        
+        # Create profile_pictures directory inside static if it doesn't exist
+        profile_pics_dir = Path('static/profile_pictures')
+        profile_pics_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate unique filename using faculty ID and timestamp
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        filename = f"faculty_{faculty['idno']}_{timestamp}.{file_ext}"
+        filepath = profile_pics_dir / filename
+        
+        # Delete old profile picture if it exists
+        if faculty['profile_picture']:
+            old_filepath = profile_pics_dir / faculty['profile_picture']
+            if old_filepath.exists():
+                try:
+                    old_filepath.unlink()
+                except Exception as e:
+                    print(f"Warning: Could not delete old profile picture: {e}")
+        
+        # Save the new file
+        file.save(str(filepath))
+        
+        # Update database with new filename
+        conn.execute('''
+            UPDATE faculty
+            SET profile_picture = ?
+            WHERE faculty_id = ?
+        ''', (filename, faculty['faculty_id']))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Profile picture uploaded successfully',
+            'filename': filename
+        }), 200
+        
+    except Exception as e:
+        print(f"Error uploading faculty profile picture: {e}")
+        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
+
 def calculate_ear(eye_landmarks):
     """Calculate Eye Aspect Ratio (EAR) for blink detection"""
     import numpy as np 
@@ -3288,6 +3680,105 @@ def api_attendance_detect():
         return jsonify({'success': False, 'message': f'Server error: {str(e)}'}), 500
     finally:
         # Always clean up temp file
+        if filepath and os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+            except Exception as e:
+                print(f"Warning: Failed to clean up temp file {filepath}: {e}")
+
+@app.route('/api/register/detect', methods=['POST'])
+def api_register_detect():
+    """Simple face detection endpoint for registration (just detects face, doesn't recognize)"""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    filepath = None
+    try:
+        # Get the uploaded image
+        if 'image' not in request.files:
+            return jsonify({'success': False, 'message': 'No image provided'}), 400
+        
+        file = request.files['image']
+        if file.filename == '':
+            return jsonify({'success': False, 'message': 'No image selected'}), 400
+        
+        # Save the image temporarily
+        import uuid
+        safe_filename = f"register_detect_{session['user_id']}_{uuid.uuid4().hex[:8]}.jpg"
+        filepath = os.path.join('temp', safe_filename)
+        os.makedirs('temp', mode=0o755, exist_ok=True)
+        
+        # Validate file size
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+        
+        if file_size > 10 * 1024 * 1024:  # 10MB limit
+            return jsonify({'success': False, 'message': 'File too large'}), 400
+        
+        file.save(filepath)
+        
+        # Check if face recognition is available
+        if not FACE_RECOGNITION_AVAILABLE:
+            return jsonify({
+                'success': False, 
+                'message': 'Face detection not available',
+                'face_detected': False
+            }), 503
+        
+        # Load and process the image
+        import cv2
+        import numpy as np
+        image = cv2.imread(filepath)
+        if image is None:
+            return jsonify({'success': False, 'message': 'Could not load image', 'face_detected': False}), 400
+        
+        # Convert to RGB
+        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # Detect faces
+        face_locations = face_recognition.face_locations(rgb_image, number_of_times_to_upsample=1, model="hog")
+        
+        if not face_locations:
+            return jsonify({
+                'success': True,
+                'face_detected': False,
+                'message': 'No face detected'
+            })
+        
+        if len(face_locations) > 1:
+            return jsonify({
+                'success': True,
+                'face_detected': True,
+                'multiple_faces': True,
+                'message': 'Multiple faces detected. Please ensure only your face is visible.'
+            })
+        
+        # Get face location
+        top, right, bottom, left = face_locations[0]
+        
+        # Return face box coordinates
+        face_box = {
+            'x': int(left),
+            'y': int(top),
+            'width': int(right - left),
+            'height': int(bottom - top)
+        }
+        
+        return jsonify({
+            'success': True,
+            'face_detected': True,
+            'face_box': face_box,
+            'message': 'Face detected - Ready to capture!'
+        })
+        
+    except Exception as e:
+        print(f"Error in api_register_detect: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'Detection error: {str(e)}', 'face_detected': False}), 500
+    finally:
+        # Clean up temp file
         if filepath and os.path.exists(filepath):
             try:
                 os.remove(filepath)
@@ -4605,7 +5096,21 @@ def admin_attendance():
     
     conn = get_db_connection()
     
-    # Get all attendance records with student and class information - format datetime at SQL level
+    total_records = conn.execute('SELECT COUNT(*) AS total FROM attendance').fetchone()['total']
+    
+    stats = conn.execute('''
+        SELECT
+            SUM(CASE WHEN attendance_status = 'present' THEN 1 ELSE 0 END) AS present_count,
+            SUM(CASE WHEN attendance_status = 'late' THEN 1 ELSE 0 END) AS late_count,
+            SUM(CASE WHEN attendance_status = 'absent' THEN 1 ELSE 0 END) AS absent_count
+        FROM attendance
+    ''').fetchone()
+    
+    present_count = stats['present_count'] or 0
+    late_count = stats['late_count'] or 0
+    absent_count = stats['absent_count'] or 0
+    
+    # Load all attendance records for client-side pagination
     attendance_records = conn.execute('''
         SELECT 
             a.attendance_id,
@@ -4628,11 +5133,6 @@ def admin_attendance():
         ORDER BY a.attendance_date DESC, u.lastname, u.firstname
     ''').fetchall()
     
-    # Get attendance statistics
-    total_records = len(attendance_records)
-    present_count = len([r for r in attendance_records if r['attendance_status'] == 'present'])
-    late_count = len([r for r in attendance_records if r['attendance_status'] == 'late'])
-    absent_count = len([r for r in attendance_records if r['attendance_status'] == 'absent'])
     attendance_rate = ((present_count + late_count) / total_records * 100) if total_records > 0 else 0
     
     conn.close()
@@ -5001,9 +5501,16 @@ def faculty_manage_students():
     
     conn = get_db_connection()
     
+    # Add profile_picture column to faculty table if it doesn't exist
+    try:
+        conn.execute('ALTER TABLE faculty ADD COLUMN profile_picture VARCHAR(255)')
+        conn.commit()
+    except:
+        pass  # Column already exists
+    
     # Get faculty info
     faculty = conn.execute('''
-        SELECT f.faculty_id, u.firstname, u.lastname, u.idno FROM faculty f 
+        SELECT f.faculty_id, u.firstname, u.lastname, u.idno, f.profile_picture FROM faculty f 
         JOIN user u ON f.user_id = u.user_id 
         WHERE u.user_id = ?
     ''', (session['user_id'],)).fetchone()
@@ -5367,9 +5874,16 @@ def faculty_profile():
     
     conn = get_db_connection()
     
+    # Add profile_picture column to faculty table if it doesn't exist
+    try:
+        conn.execute('ALTER TABLE faculty ADD COLUMN profile_picture VARCHAR(255)')
+        conn.commit()
+    except:
+        pass  # Column already exists
+    
     # Get comprehensive faculty info
     faculty = conn.execute('''
-        SELECT u.*, f.faculty_id, f.position, f.attendance_image, d.dept_name
+        SELECT u.*, f.faculty_id, f.position, f.attendance_image, f.profile_picture, d.dept_name
         FROM user u
         JOIN faculty f ON u.user_id = f.user_id
         LEFT JOIN department d ON u.dept_id = d.dept_id
@@ -5465,9 +5979,16 @@ def faculty_my_classes():
     
     conn = get_db_connection()
     
+    # Add profile_picture column to faculty table if it doesn't exist
+    try:
+        conn.execute('ALTER TABLE faculty ADD COLUMN profile_picture VARCHAR(255)')
+        conn.commit()
+    except:
+        pass  # Column already exists
+    
     # Get faculty info
     faculty_info = conn.execute('''
-        SELECT u.*, f.faculty_id, f.position, f.attendance_image, d.dept_name
+        SELECT u.*, f.faculty_id, f.position, f.attendance_image, f.profile_picture, d.dept_name
         FROM user u
         JOIN faculty f ON u.user_id = f.user_id
         LEFT JOIN department d ON u.dept_id = d.dept_id
@@ -5527,9 +6048,16 @@ def faculty_class_view(class_id):
     
     conn = get_db_connection()
     
+    # Add profile_picture column to faculty table if it doesn't exist
+    try:
+        conn.execute('ALTER TABLE faculty ADD COLUMN profile_picture VARCHAR(255)')
+        conn.commit()
+    except:
+        pass  # Column already exists
+    
     # Get faculty info
     faculty = conn.execute('''
-        SELECT f.faculty_id, u.firstname, u.lastname, u.idno, f.attendance_image
+        SELECT f.faculty_id, u.firstname, u.lastname, u.idno, f.attendance_image, f.profile_picture
         FROM faculty f 
         JOIN user u ON f.user_id = u.user_id 
         WHERE u.user_id = ?
@@ -5605,9 +6133,16 @@ def faculty_event_view(event_id):
     
     conn = get_db_connection()
     
+    # Add profile_picture column to faculty table if it doesn't exist
+    try:
+        conn.execute('ALTER TABLE faculty ADD COLUMN profile_picture VARCHAR(255)')
+        conn.commit()
+    except:
+        pass  # Column already exists
+    
     # Get faculty info
     faculty = conn.execute('''
-        SELECT f.faculty_id, u.firstname, u.lastname, u.idno, f.attendance_image
+        SELECT f.faculty_id, u.firstname, u.lastname, u.idno, f.attendance_image, f.profile_picture
         FROM faculty f 
         JOIN user u ON f.user_id = u.user_id 
         WHERE u.user_id = ?
@@ -5789,11 +6324,18 @@ def attendance():
     classes = []
     events = []
     
+    # Add profile_picture column to faculty table if it doesn't exist
+    try:
+        conn.execute('ALTER TABLE faculty ADD COLUMN profile_picture VARCHAR(255)')
+        conn.commit()
+    except:
+        pass  # Column already exists
+    
     faculty_info = None
     if session.get('role') == 'faculty':
         # Get faculty info
         faculty_info = conn.execute('''
-            SELECT u.*, f.faculty_id, f.position, f.attendance_image, d.dept_name
+            SELECT u.*, f.faculty_id, f.position, f.attendance_image, f.profile_picture, d.dept_name
             FROM user u
             JOIN faculty f ON u.user_id = f.user_id
             LEFT JOIN department d ON u.dept_id = d.dept_id
@@ -5844,8 +6386,16 @@ def faculty_reports():
         return redirect(url_for('login'))
     
     conn = get_db_connection()
+    
+    # Add profile_picture column to faculty table if it doesn't exist
+    try:
+        conn.execute('ALTER TABLE faculty ADD COLUMN profile_picture VARCHAR(255)')
+        conn.commit()
+    except:
+        pass  # Column already exists
+    
     faculty_info = conn.execute('''
-        SELECT u.*, f.faculty_id, f.position, f.attendance_image, d.dept_name
+        SELECT u.*, f.faculty_id, f.position, f.attendance_image, f.profile_picture, d.dept_name
         FROM user u
         JOIN faculty f ON u.user_id = f.user_id
         LEFT JOIN department d ON u.dept_id = d.dept_id

@@ -61,8 +61,8 @@
             <!-- User Info (Clickable to Profile) -->
             <div class="absolute bottom-0 w-64 border-t border-gray-700">
                 <a href="{{ url_for('faculty_profile') }}" class="flex items-center px-6 py-3 hover:bg-gray-700 transition duration-200">
-                    {% if faculty.attendance_image %}
-                    <img src="{{ url_for('static', filename='attendance_images/' + faculty.attendance_image) }}" 
+                    {% if faculty.profile_picture %}
+                    <img src="{{ url_for('static', filename='profile_pictures/' + faculty.profile_picture) }}" 
                          alt="{{ faculty.firstname }} {{ faculty.lastname }}" 
                          class="w-8 h-8 rounded-full object-cover border-2 border-blue-600 mr-3"
                          onerror="this.onerror=null; this.style.display='none'; this.nextElementSibling.style.display='flex';">

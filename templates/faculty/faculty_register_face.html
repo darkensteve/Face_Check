@@ -61,8 +61,8 @@
             <!-- User Info (Clickable to Profile) -->
             <div class="absolute bottom-0 w-64 border-t border-gray-700">
                 <a href="{{ url_for('faculty_profile') }}" class="flex items-center px-6 py-3 hover:bg-gray-700 transition duration-200">
-                    {% if faculty_info.attendance_image %}
-                    <img src="{{ url_for('static', filename='attendance_images/' + faculty_info.attendance_image) }}" 
+                    {% if faculty_info.profile_picture %}
+                    <img src="{{ url_for('static', filename='profile_pictures/' + faculty_info.profile_picture) }}" 
                          alt="{{ faculty_info.firstname }} {{ faculty_info.lastname }}" 
                          class="w-8 h-8 rounded-full object-cover border-2 border-blue-600 mr-3"
                          onerror="this.onerror=null; this.style.display='none'; this.nextElementSibling.style.display='flex';">
@@ -90,85 +90,47 @@
         <div class="flex-1 flex flex-col overflow-hidden">
             <!-- Top Header -->
             <header class="bg-white shadow-sm border-b border-gray-200">
-                <div class="px-6 py-4">
-                    <div class="flex items-center justify-between">
+                <div class="px-4 py-3">
                         <div>
                             <h2 class="text-2xl font-bold text-gray-800">Faculty Face Registration</h2>
                             <p class="text-gray-600">Register your face for attendance system</p>
-                        </div>
-                        <a href="{{ url_for('faculty_dashboard') }}" class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition duration-200">
-                            <i class="fas fa-arrow-left mr-2"></i>Back to Dashboard
-                        </a>
                     </div>
                 </div>
             </header>
             
             <!-- Main Content Area -->
-            <main class="flex-1 overflow-y-auto p-6">
-                <div class="max-w-4xl mx-auto">
-                    <!-- Faculty Info -->
-                    <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
-                        <h3 class="text-lg font-semibold text-gray-900 mb-4">
-                            <i class="fas fa-chalkboard-teacher mr-2"></i>Faculty Information
-                        </h3>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700">Faculty Name</label>
-                                <p class="mt-1 text-lg text-gray-900">{{ faculty_name }}</p>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700">Faculty ID</label>
-                                <p class="mt-1 text-lg text-gray-900">{{ faculty_id }}</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Instructions -->
-                    <div class="bg-blue-50 border border-blue-200 rounded-xl shadow-lg p-6 mb-8">
-                        <h3 class="text-lg font-semibold text-blue-900 mb-4">
-                            <i class="fas fa-info-circle mr-2"></i>Face Registration Instructions
-                        </h3>
-                        <ol class="list-decimal list-inside space-y-2 text-blue-800">
-                            <li>Click "Start Camera" to begin face registration</li>
-                            <li>Position your face in the center of the camera view</li>
-                            <li>Ensure good lighting and clear visibility of your face</li>
-                            <li>Look directly at the camera with a neutral expression</li>
-                            <li>Click "Capture Face" when you're ready</li>
-                            <li>Wait for confirmation that your face has been registered</li>
-                        </ol>
-                        <div class="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                            <p class="text-yellow-800 text-sm">
-                                <i class="fas fa-exclamation-triangle mr-2"></i>
-                                <strong>Important:</strong> Make sure only your face is visible in the camera. 
-                                The system will detect and validate your face before saving.
-                            </p>
-                        </div>
-                    </div>
-
+            <main class="flex-1 overflow-y-auto p-4">
+                <div class="max-w-6xl mx-auto">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                        <!-- Left Column: Camera Section (2/3 width) -->
+                        <div class="lg:col-span-2">
                     <!-- Camera Section -->
-                    <div class="bg-white rounded-xl shadow-lg p-8">
-                        <h3 class="text-xl font-semibold text-gray-900 mb-6 text-center">Face Registration</h3>
+                            <div class="bg-white rounded-xl shadow-lg p-4">
+                                <h3 class="text-lg font-semibold text-gray-900 mb-3">Face Registration</h3>
                         
                         <!-- Camera Controls -->
-                        <div class="text-center mb-6">
-                            <button id="startCamera" class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition duration-200 text-lg font-medium mr-4">
+                                <div class="text-center mb-3">
+                                    <button id="startCamera" class="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 transition duration-200 font-medium mr-3">
                                 <i class="fas fa-camera mr-2"></i>Start Camera
                             </button>
-                            <button id="stopCamera" class="bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 transition duration-200 text-lg font-medium" style="display: none;">
+                                    <button id="stopCamera" class="bg-red-600 text-white px-5 py-2 rounded-lg hover:bg-red-700 transition duration-200 font-medium" style="display: none;">
                                 <i class="fas fa-stop mr-2"></i>Stop Camera
                             </button>
                         </div>
 
                         <!-- Camera Feed -->
-                        <div id="cameraContainer" class="text-center mb-6" style="display: none;">
-                            <div class="bg-gray-900 rounded-lg p-4 inline-block">
-                                <video id="video" width="640" height="480" autoplay muted class="rounded-lg"></video>
+                                <div id="cameraContainer" class="text-center mb-3" style="display: none;">
+                                    <div class="bg-gray-900 rounded-lg p-1 inline-block relative">
+                                        <video id="video" width="480" height="360" autoplay muted class="rounded-lg" style="max-width: 100%; height: auto; max-height: 360px;"></video>
+                                        <!-- Overlay canvas for face detection box -->
+                                        <canvas id="overlayCanvas" class="absolute top-0 left-0 rounded-lg pointer-events-none" style="max-width: 100%; height: auto; max-height: 360px;"></canvas>
                             </div>
-                            <div id="status" class="mt-4 text-lg font-medium text-gray-700"></div>
+                                    <div id="status" class="mt-2 text-xs font-medium text-gray-700"></div>
+                                    <div id="faceStatus" class="mt-1 text-xs font-semibold"></div>
                             
                             <!-- Capture Button -->
-                            <div class="mt-4">
-                                <button id="captureFace" class="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition duration-200 text-lg font-medium">
+                                    <div class="mt-2">
+                                        <button id="captureFace" class="bg-green-600 text-white px-5 py-2 rounded-lg hover:bg-green-700 transition duration-200 font-medium">
                                     <i class="fas fa-camera mr-2"></i>Capture Face
                                 </button>
                             </div>
@@ -192,6 +154,46 @@
                                 <div>
                                     <p class="text-red-800 font-medium">Registration Failed</p>
                                     <p class="text-red-600 text-sm">Please try again. Make sure your face is clearly visible.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Column: Info & Instructions (1/3 width) -->
+                        <div class="lg:col-span-1 space-y-4">
+                            <!-- Faculty Info -->
+                            <div class="bg-white rounded-xl shadow-lg p-3">
+                                <h3 class="text-xs font-semibold text-gray-900 mb-2">
+                                    <i class="fas fa-chalkboard-teacher mr-1 text-blue-600 text-xs"></i>Faculty Information
+                                </h3>
+                                <div class="space-y-1.5">
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-500">Name</label>
+                                        <p class="text-xs text-gray-900 font-medium">{{ faculty_name }}</p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-500">ID</label>
+                                        <p class="text-xs text-gray-900 font-medium">{{ faculty_id }}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Instructions -->
+                            <div class="bg-blue-50 border border-blue-200 rounded-xl shadow-lg p-3">
+                                <h3 class="text-xs font-semibold text-blue-900 mb-2">
+                                    <i class="fas fa-info-circle mr-1 text-xs"></i>Instructions
+                                </h3>
+                                <ol class="list-decimal list-inside space-y-1 text-xs text-blue-800">
+                                    <li>Click "Start Camera"</li>
+                                    <li>Position face in center</li>
+                                    <li>Ensure good lighting</li>
+                                    <li>Look directly at camera</li>
+                                    <li>Click "Capture Face"</li>
+                                </ol>
+                                <div class="mt-2 p-1.5 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+                                    <i class="fas fa-exclamation-triangle mr-1 text-xs"></i>
+                                    <strong>Important:</strong> Only your face should be visible.
                                 </div>
                             </div>
                         </div>
@@ -208,29 +210,64 @@
         let captureBtn = document.getElementById('captureFace');
         let cameraContainer = document.getElementById('cameraContainer');
         let status = document.getElementById('status');
+        let faceStatus = document.getElementById('faceStatus');
         let successMessage = document.getElementById('successMessage');
         let errorMessage = document.getElementById('errorMessage');
         let isCapturing = false;
+        let overlayCanvas = document.getElementById('overlayCanvas');
+        let overlayCtx = null;
+        let detectionInterval = null;
+        let canvas = null;
+        let ctx = null;
 
         startBtn.addEventListener('click', async () => {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { 
-                        width: 640, 
-                        height: 480 
+                        width: 480, 
+                        height: 360 
                     } 
                 });
                 video.srcObject = stream;
                 cameraContainer.style.display = 'block';
                 startBtn.style.display = 'none';
                 stopBtn.style.display = 'inline-block';
-                status.textContent = 'Camera started. Position your face in the center and look directly at the camera.';
+                status.textContent = 'Camera started. Position your face in the center.';
+                
+                // Initialize canvas and overlay
+                video.addEventListener('loadedmetadata', () => {
+                    // Create canvas for capturing frames
+                    canvas = document.createElement('canvas');
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    ctx = canvas.getContext('2d');
+                    
+                    // Initialize overlay canvas
+                    if (overlayCanvas) {
+                        overlayCtx = overlayCanvas.getContext('2d');
+                        updateOverlaySize();
+                    }
+                    
+                    // Start face detection
+                    startFaceDetection();
+                });
             } catch (err) {
                 alert('Error accessing camera: ' + err.message);
             }
         });
 
         stopBtn.addEventListener('click', () => {
+            // Stop face detection
+            if (detectionInterval) {
+                clearInterval(detectionInterval);
+                detectionInterval = null;
+            }
+            
+            // Clear overlay
+            if (overlayCtx && overlayCanvas) {
+                overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            }
+            
             if (video.srcObject) {
                 video.srcObject.getTracks().forEach(track => track.stop());
             }
@@ -238,7 +275,119 @@
             startBtn.style.display = 'inline-block';
             stopBtn.style.display = 'none';
             status.textContent = '';
+            faceStatus.textContent = '';
         });
+        
+        // Update overlay canvas size to match video
+        function updateOverlaySize() {
+            if (!overlayCanvas || !video) return;
+            const videoRect = video.getBoundingClientRect();
+            overlayCanvas.width = video.videoWidth;
+            overlayCanvas.height = video.videoHeight;
+            overlayCanvas.style.width = video.style.width || video.offsetWidth + 'px';
+            overlayCanvas.style.height = video.style.height || video.offsetHeight + 'px';
+        }
+        
+        // Draw face detection box
+        function drawFaceBox(x, y, width, height, message) {
+            if (!overlayCtx || !overlayCanvas || !video) return;
+            
+            // Clear previous drawings
+            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            
+            // Calculate position relative to video dimensions
+            const scaleX = overlayCanvas.width / video.videoWidth;
+            const scaleY = overlayCanvas.height / video.videoHeight;
+            
+            const boxX = x * scaleX;
+            const boxY = y * scaleY;
+            const boxWidth = width * scaleX;
+            const boxHeight = height * scaleY;
+            
+            // Draw green box
+            overlayCtx.strokeStyle = '#00ff00';
+            overlayCtx.lineWidth = 3;
+            overlayCtx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+            
+            // Draw label
+            overlayCtx.fillStyle = '#00ff00';
+            overlayCtx.font = 'bold 14px Arial';
+            const label = message || 'Face Detected';
+            const textWidth = overlayCtx.measureText(label).width;
+            const padding = 8;
+            const labelHeight = 24;
+            
+            // Label background
+            overlayCtx.fillStyle = 'rgba(0, 255, 0, 0.8)';
+            overlayCtx.fillRect(boxX, boxY - labelHeight - 5, textWidth + padding * 2, labelHeight);
+            
+            // Label text
+            overlayCtx.fillStyle = '#000';
+            overlayCtx.fillText(label, boxX + padding, boxY - 10);
+        }
+        
+        // Clear face box
+        function clearFaceBox() {
+            if (overlayCtx && overlayCanvas) {
+                overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            }
+        }
+        
+        // Start continuous face detection
+        function startFaceDetection() {
+            if (detectionInterval) {
+                clearInterval(detectionInterval);
+            }
+            
+            detectionInterval = setInterval(async () => {
+                if (!video || video.readyState !== video.HAVE_ENOUGH_DATA || isCapturing) {
+                    return;
+                }
+                
+                try {
+                    // Capture current frame
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    
+                    // Convert to blob
+                    canvas.toBlob(async (blob) => {
+                        if (!blob) return;
+                        
+                        const formData = new FormData();
+                        formData.append('image', blob, 'frame.jpg');
+                        
+                        try {
+                            const response = await fetch('/api/register/detect', {
+                                method: 'POST',
+                                body: formData
+                            });
+                            
+                            const result = await response.json();
+                            
+                            if (result.success && result.face_detected) {
+                                if (result.multiple_faces) {
+                                    clearFaceBox();
+                                    faceStatus.textContent = '⚠️ Multiple faces detected';
+                                    faceStatus.className = 'mt-1 text-xs font-semibold text-yellow-600';
+                                } else if (result.face_box) {
+                                    const { x, y, width, height } = result.face_box;
+                                    drawFaceBox(x, y, width, height, '✓ Face Ready');
+                                    faceStatus.textContent = '✓ Face detected - Ready to capture!';
+                                    faceStatus.className = 'mt-1 text-xs font-semibold text-green-600';
+                                }
+                            } else {
+                                clearFaceBox();
+                                faceStatus.textContent = 'Position your face in the center';
+                                faceStatus.className = 'mt-1 text-xs font-semibold text-gray-500';
+                            }
+                        } catch (error) {
+                            console.error('Detection error:', error);
+                        }
+                    }, 'image/jpeg', 0.8);
+                } catch (error) {
+                    console.error('Error capturing frame:', error);
+                }
+            }, 500); // Check every 500ms
+        }
 
         captureBtn.addEventListener('click', async () => {
             if (isCapturing) return;

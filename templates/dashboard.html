@@ -7,6 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/global.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
     <style>
         .attendance-row {
             transition: background-color 0.2s ease;
@@ -14,6 +15,67 @@
         
         .attendance-row:hover {
             background-color: #f9fafb;
+        }
+        .recent-chart-wrapper {
+            width: 100%;
+            max-width: 920px;
+            margin: 0 auto;
+        }
+        .recent-chart-wrapper canvas {
+            width: 100%;
+            height: 250px;
+        }
+        /* Recent attendance filter + chart */
+        .recent-range-select {
+            border: 1px solid #e2e8f0;
+            border-radius: 0.5rem;
+            background-color: #fff;
+            color: #475569;
+            padding: 0.35rem 0.75rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            outline: none;
+        }
+        .recent-range-select:focus {
+            border-color: #6366f1;
+            box-shadow: 0 0 0 2px rgba(99,102,241,0.2);
+        }
+        .recent-filter-form {
+            border: 1px dashed #cbd5f5;
+            border-radius: 0.85rem;
+            padding: 0.75rem 1rem;
+            background-color: #f8fafc;
+        }
+        .recent-date-input {
+            border: 1px solid #cbd5f5;
+            border-radius: 0.5rem;
+            padding: 0.35rem 0.6rem;
+            font-size: 0.85rem;
+            color: #1f2937;
+            outline: none;
+        }
+        .recent-date-input:focus {
+            border-color: #6366f1;
+            box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
+        }
+        .recent-filter-btn {
+            display: inline-flex;
+            align-items: center;
+            background-color: #2563eb;
+            color: #fff;
+            font-weight: 600;
+            border-radius: 9999px;
+            padding: 0.4rem 1rem;
+            font-size: 0.85rem;
+            border: none;
+        }
+        .recent-filter-btn:hover {
+            background-color: #1d4ed8;
+        }
+        .recent-reset-link {
+            font-size: 0.85rem;
+            color: #ef4444;
+            font-weight: 600;
         }
     </style>
 </head>
@@ -155,87 +217,189 @@
                         <h2 class="text-lg font-semibold text-gray-900">Recent Attendance</h2>
                         <p class="text-gray-600 text-sm mt-1">Latest attendance records</p>
                     </div>
-                    <div class="text-xs text-gray-500 font-medium">
-                        Last 5 records
+                    <div class="flex items-center gap-2 text-xs text-gray-500 font-medium">
+                        <span class="hidden md:inline">Range:</span>
+                        <select id="recentRangeSelect" class="recent-range-select">
+                            <option value="daily" selected>Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                            <option value="yearly">Yearly</option>
+                        </select>
                     </div>
                 </div>
             </div>
             
-            <!-- Table Content -->
-            <div class="overflow-hidden">
-                <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-white">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Date & Time
-                                </th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Student
-                                </th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Status
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
-                            {% if recent_attendance %}
-                                {% for record in recent_attendance %}
-                                <tr class="attendance-row">
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        <div class="flex items-center">
-                                            <div class="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center mr-3">
-                                                <i class="fas fa-clock text-gray-500 text-sm"></i>
+            <div class="px-6 py-6">
+                <form method="get" class="recent-filter-form mb-4">
+                    <div class="flex flex-wrap items-center gap-3">
+                        <label class="text-sm font-medium text-gray-600">From</label>
+                        <input type="date" name="start_date" value="{{ start_date or '' }}" class="recent-date-input">
+                        <label class="text-sm font-medium text-gray-600">to</label>
+                        <input type="date" name="end_date" value="{{ end_date or '' }}" class="recent-date-input">
+                        <button type="submit" class="recent-filter-btn">
+                            <i class="fas fa-filter mr-1"></i>Apply
+                        </button>
+                        {% if start_date or end_date %}
+                        <a href="{{ url_for('dashboard') }}" class="recent-reset-link">Reset</a>
+                        {% endif %}
                                             </div>
-                                            <div class="text-sm font-medium text-gray-900">{{ record.date }}</div>
+                </form>
+                {% if start_date or end_date %}
+                <p class="text-xs text-gray-500 mb-3">
+                    Showing attendance between 
+                    <strong>{{ start_date or 'start' }}</strong> and <strong>{{ end_date or 'today' }}</strong>.
+                </p>
+                {% endif %}
+                {% if recent_attendance_chart %}
+                <div class="recent-chart-wrapper">
+                    <canvas id="recentAttendanceChart"></canvas>
                                         </div>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        <div class="flex items-center">
-                                            <div class="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center mr-3">
-                                                <span class="text-white font-medium text-sm">{{ record.name[0] }}</span>
-                                            </div>
-                                            <div class="text-sm font-medium text-gray-900">{{ record.name }}</div>
-                                        </div>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        {% if record.status == 'Present' %}
-                                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-200">
-                                            ● Present
-                                        </span>
-                                        {% elif record.status == 'Absent' %}
-                                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800 border border-red-200">
-                                            ● Absent
-                                        </span>
-                                        {% elif record.status == 'Late' %}
-                                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
-                                            ● Late
-                                        </span>
                                         {% else %}
-                                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-300">
-                                            ● {{ record.status|title }}
-                                        </span>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            {% else %}
-                                <tr>
-                                    <td colspan="3" class="px-6 py-12 text-center">
-                                        <div class="flex flex-col items-center">
-                                            <i class="fas fa-clipboard-list text-2xl text-gray-400 mb-3"></i>
-                                            <p class="text-sm text-gray-500">No attendance records found</p>
+                <div class="py-10 text-center text-sm text-gray-500">
+                    <i class="fas fa-clipboard-list text-2xl text-gray-300 mb-3"></i>
+                    <p>No attendance data available yet.</p>
                                         </div>
-                                    </td>
-                                </tr>
                             {% endif %}
-                        </tbody>
-                    </table>
-                </div>
             </div>
         </div>
             </main>
         </div>
     </div>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const attendanceSeries = {{ attendance_series | tojson }};
+    const recentSeries = {{ recent_chart_series | tojson }};
+    const chartConfigs = [
+        { key: 'daily', canvasId: 'attendanceChartDaily', color: '#2563eb', label: 'Daily Attendance' },
+        { key: 'weekly', canvasId: 'attendanceChartWeekly', color: '#16a34a', label: 'Weekly Attendance' },
+        { key: 'monthly', canvasId: 'attendanceChartMonthly', color: '#a855f7', label: 'Monthly Attendance' },
+        { key: 'yearly', canvasId: 'attendanceChartYearly', color: '#f97316', label: 'Yearly Attendance' }
+    ];
+
+    const sharedOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            x: {
+                grid: { display: false },
+                ticks: { color: '#6b7280', font: { size: 11 } }
+            },
+            y: {
+                beginAtZero: true,
+                grid: { color: '#f1f5f9' },
+                ticks: { color: '#6b7280', precision: 0, font: { size: 11 } }
+            }
+        },
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                backgroundColor: '#111827',
+                callbacks: {
+                    label: context => `Attendance: ${context.formattedValue}`
+                }
+            }
+        }
+    };
+
+    chartConfigs.forEach(({ key, canvasId, color, label }) => {
+        const ctx = document.getElementById(canvasId);
+        if (!ctx) return;
+        const range = attendanceSeries?.[key] || [];
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: range.map(item => item.label),
+                datasets: [{
+                    label,
+                    data: range.map(item => item.value),
+                    backgroundColor: color + '33',
+                    borderColor: color,
+                    borderWidth: 2,
+                    borderRadius: 6,
+                    barThickness: 16,
+                    maxBarThickness: 18
+                }]
+            },
+            options: sharedOptions
+        });
+    });
+
+    const recentCtx = document.getElementById('recentAttendanceChart');
+    const rangeSelect = document.getElementById('recentRangeSelect');
+    let recentChart;
+
+    const getRecentData = (rangeKey) => {
+        const source = recentSeries?.[rangeKey] || [];
+        return source;
+    };
+
+    const buildRecentChart = (dataset) => ({
+        type: 'bar',
+        data: {
+            labels: dataset.map(point => point.label),
+            datasets: [{
+                label: 'Attendance Count',
+                data: dataset.map(point => point.value),
+                backgroundColor: '#2563eb33',
+                borderColor: '#2563eb',
+                borderWidth: 1.5,
+                borderRadius: 6,
+                barThickness: 26,
+                maxBarThickness: 30
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: { color: '#6b7280', font: { size: 12 } }
+                },
+                y: {
+                    beginAtZero: true,
+                    grid: { color: '#f1f5f9' },
+                    ticks: { color: '#6b7280', precision: 0, stepSize: 1 }
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#0f172a',
+                    callbacks: {
+                        label: context => `Attendance: ${context.formattedValue}`
+                    }
+                }
+            }
+        }
+    });
+
+    const initializeRecentChart = (rangeKey) => {
+        if (!recentCtx) return;
+        const data = getRecentData(rangeKey);
+        if (!data.length) {
+            if (recentChart) {
+                recentChart.destroy();
+                recentChart = null;
+            }
+            return;
+        }
+        if (!recentChart) {
+            recentChart = new Chart(recentCtx, buildRecentChart(data));
+        } else {
+            recentChart.data.labels = data.map(point => point.label);
+            recentChart.data.datasets[0].data = data.map(point => point.value);
+            recentChart.update();
+        }
+    };
+
+    const initialRange = rangeSelect ? rangeSelect.value : 'daily';
+    initializeRecentChart(initialRange);
+
+    rangeSelect?.addEventListener('change', (event) => {
+        initializeRecentChart(event.target.value);
+    });
+});
+</script>
 </body>
 </html>

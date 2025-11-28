@@ -56,8 +56,8 @@
             <!-- User Info (Clickable to Profile) -->
             <div class="absolute bottom-0 w-64 border-t border-gray-700">
                 <a href="{{ url_for('faculty_profile') }}" class="flex items-center px-6 py-3 hover:bg-gray-700 transition duration-200">
-                    {% if faculty_info.attendance_image %}
-                    <img src="{{ url_for('static', filename='attendance_images/' + faculty_info.attendance_image) }}" 
+                    {% if faculty_info.profile_picture %}
+                    <img src="{{ url_for('static', filename='profile_pictures/' + faculty_info.profile_picture) }}" 
                          alt="{{ faculty_info.firstname }} {{ faculty_info.lastname }}" 
                          class="w-8 h-8 rounded-full object-cover border-2 border-blue-600 mr-3"
                          onerror="this.onerror=null; this.style.display='none'; this.nextElementSibling.style.display='flex';">
@@ -124,7 +124,6 @@
                                         <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Class</th>
                                         <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">EDP</th>
                                         <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Presents</th>
-                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Unique</th>
                                     </tr>
                                 </thead>
                                 <tbody id="summaryBody" class="bg-white divide-y divide-gray-100"></tbody>
@@ -143,7 +142,6 @@
                                         <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Event</th>
                                         <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Date</th>
                                         <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Presents</th>
-                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Unique</th>
                                     </tr>
                                 </thead>
                                 <tbody id="eventSummaryBody" class="bg-white divide-y divide-gray-100"></tbody>
@@ -246,7 +244,6 @@
                     <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${row.class_name}</td>
                     <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${row.edpcode ?? ''}</td>
                     <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${row.present_count}</td>
-                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${row.unique_students}</td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -284,7 +281,6 @@
                     <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.event_name}</td>
                     <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.event_date}</td>
                     <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.present_count}</td>
-                    <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.unique_attendees}</td>
                 `;
                 tbody.appendChild(tr);
             });
