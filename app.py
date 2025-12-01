@@ -6379,36 +6379,30 @@ def attendance():
     
     return render_template('faculty_attendance.html', faculty_info=faculty_info, classes=classes, events=events)
 
-# Faculty Reports & Analytics
+# Faculty Reports & Analytics - DISABLED: Only admin can access reports
 @app.route('/attendance_reports')
 def faculty_reports():
-    if 'user_id' not in session or session['role'] != 'faculty':
+    if 'user_id' not in session:
         return redirect(url_for('login'))
     
-    conn = get_db_connection()
+    # Block faculty access - redirect to dashboard
+    if session.get('role') == 'faculty':
+        flash('Reports and Analytics are only available to administrators.', 'error')
+        return redirect(url_for('faculty_dashboard'))
     
-    # Add profile_picture column to faculty table if it doesn't exist
-    try:
-        conn.execute('ALTER TABLE faculty ADD COLUMN profile_picture VARCHAR(255)')
-        conn.commit()
-    except:
-        pass  # Column already exists
+    # Allow admin access
+    if session.get('role') == 'admin':
+        return redirect(url_for('admin_reports'))
     
-    faculty_info = conn.execute('''
-        SELECT u.*, f.faculty_id, f.position, f.attendance_image, f.profile_picture, d.dept_name
-        FROM user u
-        JOIN faculty f ON u.user_id = f.user_id
-        LEFT JOIN department d ON u.dept_id = d.dept_id
-        WHERE u.user_id = ?
-    ''', (session['user_id'],)).fetchone()
-    conn.close()
-    
-    return render_template('faculty/faculty_reports.html', faculty_info=faculty_info)
+    return redirect(url_for('login'))
 
 @app.route('/api/faculty/reports/summary')
 def api_faculty_reports_summary():
-    if 'user_id' not in session or session['role'] != 'faculty':
-        return jsonify([]), 401
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    # Block faculty access
+    if session.get('role') == 'faculty':
+        return jsonify({'error': 'Reports are only available to administrators'}), 403
     start = request.args.get('start')
     end = request.args.get('end')
     if not start or not end:
@@ -6445,8 +6439,11 @@ def api_faculty_reports_summary():
 
 @app.route('/api/faculty/reports/absence-patterns')
 def api_faculty_reports_absence_patterns():
-    if 'user_id' not in session or session['role'] != 'faculty':
-        return jsonify([]), 401
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    # Block faculty access
+    if session.get('role') == 'faculty':
+        return jsonify({'error': 'Reports are only available to administrators'}), 403
     start = request.args.get('start')
     end = request.args.get('end')
     if not start or not end:
@@ -6488,8 +6485,11 @@ def api_faculty_reports_absence_patterns():
 
 @app.route('/api/faculty/reports/monthly')
 def api_faculty_reports_monthly():
-    if 'user_id' not in session or session['role'] != 'faculty':
-        return jsonify([]), 401
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    # Block faculty access
+    if session.get('role') == 'faculty':
+        return jsonify({'error': 'Reports are only available to administrators'}), 403
     year = request.args.get('year', datetime.now().strftime('%Y'))
     conn = get_db_connection()
     faculty = conn.execute('''
@@ -6522,8 +6522,11 @@ def api_faculty_reports_monthly():
 
 @app.route('/api/faculty/reports/events/summary')
 def api_faculty_reports_events_summary():
-    if 'user_id' not in session or session['role'] != 'faculty':
-        return jsonify([]), 401
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    # Block faculty access
+    if session.get('role') == 'faculty':
+        return jsonify({'error': 'Reports are only available to administrators'}), 403
     start = request.args.get('start')
     end = request.args.get('end')
     if not start or not end:
@@ -6559,8 +6562,11 @@ def api_faculty_reports_events_summary():
 
 @app.route('/api/faculty/reports/events/absence-patterns')
 def api_faculty_reports_events_absence():
-    if 'user_id' not in session or session['role'] != 'faculty':
-        return jsonify([]), 401
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    # Block faculty access
+    if session.get('role') == 'faculty':
+        return jsonify({'error': 'Reports are only available to administrators'}), 403
     start = request.args.get('start')
     end = request.args.get('end')
     if not start or not end:
@@ -6599,8 +6605,11 @@ def api_faculty_reports_events_absence():
 
 @app.route('/api/faculty/reports/events/monthly')
 def api_faculty_reports_events_monthly():
-    if 'user_id' not in session or session['role'] != 'faculty':
-        return jsonify([]), 401
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    # Block faculty access
+    if session.get('role') == 'faculty':
+        return jsonify({'error': 'Reports are only available to administrators'}), 403
     year = request.args.get('year', datetime.now().strftime('%Y'))
     conn = get_db_connection()
     faculty = conn.execute('''
@@ -6630,8 +6639,12 @@ def api_faculty_reports_events_monthly():
 
 @app.route('/attendance_reports/export/<fmt>')
 def faculty_reports_export(fmt):
-    if 'user_id' not in session or session['role'] != 'faculty':
+    if 'user_id' not in session:
         return redirect(url_for('login'))
+    # Block faculty access
+    if session.get('role') == 'faculty':
+        flash('Export reports are only available to administrators.', 'error')
+        return redirect(url_for('faculty_dashboard'))
     
     try:
         start = request.args.get('start')
