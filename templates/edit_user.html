@@ -165,12 +165,6 @@
                             </select>
                         </div>
                         
-                        <div class="flex items-center">
-                            <input type="checkbox" name="is_active" value="1" {% if user.is_active %}checked{% endif %} 
-                                   class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
-                            <label class="ml-2 block text-sm text-gray-900">Active User</label>
-                        </div>
-                        
                         <!-- Student-specific fields -->
                         <div id="studentFields" class="{% if user.role != 'student' %}hidden{% endif %}">
                             <div class="border-t pt-4">

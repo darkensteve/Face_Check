@@ -332,14 +332,15 @@ def validate_input(data, field_type='text', min_len=1, max_len=255):
     """Validate and sanitize input data"""
     if not data or not isinstance(data, str):
         return False, "Invalid input"
-    
+
     data = data.strip()
-    
+
     if len(data) < min_len or len(data) > max_len:
         return False, f"Length must be between {min_len} and {max_len} characters"
-    
+
     if field_type == 'idno':
-        # Only allow alphanumeric characters for ID numbers
+        # Allow existing IDs that may contain letters, numbers, hyphens, and underscores
+        # (e.g., the built-in 'admin' account), while still blocking other symbols.
         if not data.replace('-', '').replace('_', '').isalnum():
             return False, "ID number can only contain letters, numbers, hyphens, and underscores"
     elif field_type == 'name':
@@ -734,6 +735,12 @@ def create_user():
         # Validate required fields
         if not all([idno, firstname, lastname, role]):
             flash('Please fill in all required fields', 'error')
+            return redirect(url_for('admin_users'))
+
+        # For NEW users, enforce strictly numeric ID numbers.
+        # This does not affect login; it only restricts what admins can create going forward.
+        if not idno.isdigit():
+            flash('ID number must contain numbers only (no letters or special characters)', 'error')
             return redirect(url_for('admin_users'))
         
         # Validate each field
@@ -1217,9 +1224,14 @@ def admin_classes():
         return redirect(url_for('login'))
     
     conn = get_db_connection()
+
+    # Optional filters
+    search = request.args.get('search', '').strip()
+    dept_filter = request.args.get('dept', '').strip()
+    status_filter = request.args.get('status', '').strip()  # 'active', 'inactive', or ''
     
     # Get all classes with faculty info and days (including deactivated for admin view)
-    classes_raw = conn.execute('''
+    base_query = '''
         SELECT c.*, u.firstname, u.lastname, d.dept_name,
                GROUP_CONCAT(DISTINCT day.day_name) as days
         FROM class c
@@ -1228,10 +1240,39 @@ def admin_classes():
         LEFT JOIN department d ON u.dept_id = d.dept_id
         LEFT JOIN class_days cd ON c.class_id = cd.class_id
         LEFT JOIN days day ON cd.day_id = day.day_id
+    '''
+
+    where_clauses = []
+    params = []
+
+    if search:
+        where_clauses.append('('
+                             'LOWER(c.class_name) LIKE LOWER(?) OR '
+                             'LOWER(c.edpcode) LIKE LOWER(?) OR '
+                             'LOWER(u.firstname || " " || u.lastname) LIKE LOWER(?)'
+                             ')')
+        like_term = f'%{search}%'
+        params.extend([like_term, like_term, like_term])
+
+    if dept_filter:
+        where_clauses.append('d.dept_id = ?')
+        params.append(dept_filter)
+
+    if status_filter == 'active':
+        where_clauses.append('c.is_active = 1')
+    elif status_filter == 'inactive':
+        where_clauses.append('c.is_active = 0')
+
+    if where_clauses:
+        base_query += ' WHERE ' + ' AND '.join(where_clauses)
+
+    base_query += '''
         GROUP BY c.class_id, c.class_name, c.edpcode, c.start_time, c.end_time, c.room, 
                  c.faculty_id, u.firstname, u.lastname, d.dept_name, c.is_active
         ORDER BY c.is_active DESC, c.class_name
-    ''').fetchall()
+    '''
+
+    classes_raw = conn.execute(base_query, tuple(params)).fetchall()
     
     # Format classes with 12-hour time format
     classes = []
@@ -1277,9 +1318,17 @@ def admin_classes():
         WHERE u.is_active = 1
         ORDER BY u.firstname, u.lastname
     ''').fetchall()
+
+    departments = conn.execute('SELECT dept_id, dept_name FROM department ORDER BY dept_name').fetchall()
     
     conn.close()
-    return render_template('admin_classes.html', classes=classes, faculty=faculty)
+    return render_template('admin_classes.html',
+                           classes=classes,
+                           faculty=faculty,
+                           departments=departments,
+                           search=search,
+                           selected_dept=dept_filter,
+                           selected_status=status_filter)
 
 @app.route('/admin/classes/create', methods=['GET', 'POST'])
 def create_class():
@@ -1296,9 +1345,14 @@ def create_class():
             faculty_id = request.form.get('faculty_id')
             days = request.form.getlist('days')  # Multiple days can be selected
             
+            # Validate required fields including at least one schedule day
             if not all([class_name, edpcode, start_time, end_time, room, faculty_id]):
                 flash('Please fill in all required fields', 'error')
-                return redirect(url_for('admin_classes'))
+                return redirect(url_for('create_class'))
+            
+            if not days:
+                flash('Please select at least one day of the week for the class schedule', 'error')
+                return redirect(url_for('create_class'))
             
             conn = get_db_connection()
             
@@ -1307,7 +1361,7 @@ def create_class():
             if existing_class:
                 flash('EDP Code already exists', 'error')
                 conn.close()
-                return redirect(url_for('admin_classes'))
+                return redirect(url_for('create_class'))
             
             # Insert class
             cursor = conn.cursor()
@@ -1333,6 +1387,7 @@ def create_class():
             
         except Exception as e:
             flash(f'Error creating class: {str(e)}', 'error')
+            return redirect(url_for('create_class'))
     
     # GET request - show form
     conn = get_db_connection()
@@ -1367,8 +1422,14 @@ def edit_class(class_id):
             faculty_id = request.form.get('faculty_id')
             days = request.form.getlist('days')
             
+            # Validate required fields including at least one schedule day
             if not all([class_name, edpcode, start_time, end_time, room, faculty_id]):
                 flash('Please fill in all required fields', 'error')
+                conn.close()
+                return redirect(url_for('edit_class', class_id=class_id))
+            
+            if not days:
+                flash('Please select at least one day of the week for the class schedule', 'error')
                 conn.close()
                 return redirect(url_for('edit_class', class_id=class_id))
             
@@ -1458,7 +1519,7 @@ def class_students(class_id):
     # Show read-only message for deactivated classes
     is_readonly = not row_get(class_info, 'is_active', 1)
     
-    # Get enrolled students
+    # Get enrolled students (exclude deactivated users)
     enrolled_students = conn.execute('''
         SELECT u.idno, u.firstname, u.lastname, s.student_id, s.year_level, c.course_name, d.dept_name
         FROM student_class sc
@@ -1466,7 +1527,7 @@ def class_students(class_id):
         JOIN user u ON s.user_id = u.user_id
         LEFT JOIN course c ON s.course_id = c.course_id
         LEFT JOIN department d ON u.dept_id = d.dept_id
-        WHERE sc.class_id = ?
+        WHERE sc.class_id = ? AND u.is_active = 1
         ORDER BY u.firstname, u.lastname
     ''', (class_id,)).fetchall()
     
@@ -4609,7 +4670,7 @@ def api_students_by_class(class_id):
         FROM student_class sc
         JOIN student s ON sc.student_id = s.student_id
         JOIN user u ON s.user_id = u.user_id
-        WHERE sc.class_id = ?
+        WHERE sc.class_id = ? AND u.is_active = 1
         ORDER BY u.lastname, u.firstname
     ''', (class_id,)).fetchall()
     
@@ -4898,6 +4959,7 @@ def api_event_attendance_today():
         JOIN event e ON ea.event_id = e.event_id
         WHERE DATE(ea.attendance_time) = ? AND ea.event_id = ?
         AND f.faculty_id != e.faculty_id  -- Exclude organizer
+        AND u.is_active = 1               -- Exclude deactivated users
         ORDER BY ea.attendance_time DESC
     ''', (today, event_id)).fetchall()
     
@@ -5570,13 +5632,13 @@ def faculty_get_students(selection):
             JOIN user u ON s.user_id = u.user_id
             LEFT JOIN course c ON s.course_id = c.course_id
             JOIN class cl ON sc.class_id = cl.class_id
-            WHERE sc.class_id = ? AND cl.faculty_id = ?
+            WHERE sc.class_id = ? AND cl.faculty_id = ? AND u.is_active = 1
             ORDER BY u.firstname, u.lastname
         ''', (class_id, faculty['faculty_id'])).fetchall()
         
     elif selection.startswith('event_'):
         event_id = selection.replace('event_', '')
-        # Get students who have attended this event
+        # Get students who have attended this event (exclude deactivated)
         students = conn.execute('''
             SELECT DISTINCT u.user_id, u.idno, u.firstname, u.lastname, u.is_active,
                    s.year_level, s.profile_picture, c.course_name
@@ -5585,7 +5647,7 @@ def faculty_get_students(selection):
             JOIN student s ON u.user_id = s.user_id
             LEFT JOIN course c ON s.course_id = c.course_id
             JOIN event e ON ea.event_id = e.event_id
-            WHERE ea.event_id = ? AND e.faculty_id = ?
+            WHERE ea.event_id = ? AND e.faculty_id = ? AND u.is_active = 1
             ORDER BY u.firstname, u.lastname
         ''', (event_id, faculty['faculty_id'])).fetchall()
     
@@ -6084,7 +6146,7 @@ def faculty_class_view(class_id):
         flash('Class not found or access denied', 'error')
         return redirect(url_for('faculty_my_classes'))
     
-    # Get enrolled students
+    # Get enrolled students (exclude deactivated users)
     students = conn.execute('''
         SELECT u.idno, u.firstname, u.lastname, s.student_id, s.year_level, 
                c.course_name, d.dept_name, s.profile_picture
@@ -6093,7 +6155,7 @@ def faculty_class_view(class_id):
         JOIN user u ON s.user_id = u.user_id
         LEFT JOIN course c ON s.course_id = c.course_id
         LEFT JOIN department d ON u.dept_id = d.dept_id
-        WHERE sc.class_id = ?
+        WHERE sc.class_id = ? AND u.is_active = 1
         ORDER BY u.firstname, u.lastname
     ''', (class_id,)).fetchall()
     
@@ -6379,16 +6441,43 @@ def attendance():
     
     return render_template('faculty_attendance.html', faculty_info=faculty_info, classes=classes, events=events)
 
-# Faculty Reports & Analytics - DISABLED: Only admin can access reports
+# Faculty Reports & Analytics
 @app.route('/attendance_reports')
 def faculty_reports():
     if 'user_id' not in session:
         return redirect(url_for('login'))
     
-    # Block faculty access - redirect to dashboard
+    # Allow faculty access
     if session.get('role') == 'faculty':
-        flash('Reports and Analytics are only available to administrators.', 'error')
-        return redirect(url_for('faculty_dashboard'))
+        conn = get_db_connection()
+        
+        # Add profile_picture column to faculty table if it doesn't exist
+        try:
+            conn.execute('ALTER TABLE faculty ADD COLUMN profile_picture VARCHAR(255)')
+            conn.commit()
+        except:
+            pass  # Column already exists
+        
+        faculty = conn.execute('''
+            SELECT u.firstname, u.lastname, f.faculty_id, f.profile_picture
+            FROM user u
+            JOIN faculty f ON u.user_id = f.user_id
+            WHERE u.user_id = ?
+        ''', (session['user_id'],)).fetchone()
+        conn.close()
+        
+        if not faculty:
+            flash('Faculty record not found.', 'error')
+            return redirect(url_for('faculty_dashboard'))
+        
+        faculty_info = {
+            'faculty_id': faculty['faculty_id'],
+            'firstname': faculty['firstname'],
+            'lastname': faculty['lastname'],
+            'profile_picture': faculty['profile_picture']
+        }
+        
+        return render_template('faculty/faculty_reports.html', faculty_info=faculty_info)
     
     # Allow admin access
     if session.get('role') == 'admin':
@@ -6400,9 +6489,9 @@ def faculty_reports():
 def api_faculty_reports_summary():
     if 'user_id' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
-    # Block faculty access
-    if session.get('role') == 'faculty':
-        return jsonify({'error': 'Reports are only available to administrators'}), 403
+    # Require faculty or admin role
+    if session.get('role') not in ['faculty', 'admin']:
+        return jsonify({'error': 'Access denied'}), 403
     start = request.args.get('start')
     end = request.args.get('end')
     if not start or not end:
@@ -6441,9 +6530,9 @@ def api_faculty_reports_summary():
 def api_faculty_reports_absence_patterns():
     if 'user_id' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
-    # Block faculty access
-    if session.get('role') == 'faculty':
-        return jsonify({'error': 'Reports are only available to administrators'}), 403
+    # Require faculty or admin role
+    if session.get('role') not in ['faculty', 'admin']:
+        return jsonify({'error': 'Access denied'}), 403
     start = request.args.get('start')
     end = request.args.get('end')
     if not start or not end:
@@ -6487,9 +6576,9 @@ def api_faculty_reports_absence_patterns():
 def api_faculty_reports_monthly():
     if 'user_id' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
-    # Block faculty access
-    if session.get('role') == 'faculty':
-        return jsonify({'error': 'Reports are only available to administrators'}), 403
+    # Require faculty or admin role
+    if session.get('role') not in ['faculty', 'admin']:
+        return jsonify({'error': 'Access denied'}), 403
     year = request.args.get('year', datetime.now().strftime('%Y'))
     conn = get_db_connection()
     faculty = conn.execute('''
@@ -6524,9 +6613,9 @@ def api_faculty_reports_monthly():
 def api_faculty_reports_events_summary():
     if 'user_id' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
-    # Block faculty access
-    if session.get('role') == 'faculty':
-        return jsonify({'error': 'Reports are only available to administrators'}), 403
+    # Require faculty or admin role
+    if session.get('role') not in ['faculty', 'admin']:
+        return jsonify({'error': 'Access denied'}), 403
     start = request.args.get('start')
     end = request.args.get('end')
     if not start or not end:
@@ -6564,9 +6653,9 @@ def api_faculty_reports_events_summary():
 def api_faculty_reports_events_absence():
     if 'user_id' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
-    # Block faculty access
-    if session.get('role') == 'faculty':
-        return jsonify({'error': 'Reports are only available to administrators'}), 403
+    # Require faculty or admin role
+    if session.get('role') not in ['faculty', 'admin']:
+        return jsonify({'error': 'Access denied'}), 403
     start = request.args.get('start')
     end = request.args.get('end')
     if not start or not end:
@@ -6607,9 +6696,9 @@ def api_faculty_reports_events_absence():
 def api_faculty_reports_events_monthly():
     if 'user_id' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
-    # Block faculty access
-    if session.get('role') == 'faculty':
-        return jsonify({'error': 'Reports are only available to administrators'}), 403
+    # Require faculty or admin role
+    if session.get('role') not in ['faculty', 'admin']:
+        return jsonify({'error': 'Access denied'}), 403
     year = request.args.get('year', datetime.now().strftime('%Y'))
     conn = get_db_connection()
     faculty = conn.execute('''
@@ -6641,10 +6730,10 @@ def api_faculty_reports_events_monthly():
 def faculty_reports_export(fmt):
     if 'user_id' not in session:
         return redirect(url_for('login'))
-    # Block faculty access
-    if session.get('role') == 'faculty':
-        flash('Export reports are only available to administrators.', 'error')
-        return redirect(url_for('faculty_dashboard'))
+    # Allow faculty access
+    if session.get('role') not in ['faculty', 'admin']:
+        flash('Access denied.', 'error')
+        return redirect(url_for('login'))
     
     try:
         start = request.args.get('start')

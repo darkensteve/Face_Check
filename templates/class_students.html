@@ -294,6 +294,74 @@
             </main>
         </div>
     </div>
+
+    <!-- Bulk Enroll Confirmation Modal -->
+    <div id="bulkEnrollConfirmModal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold text-gray-900">Confirm Enrollment</h3>
+                    <button type="button" onclick="closeBulkEnrollConfirm()" class="text-gray-400 hover:text-gray-600 transition">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="px-6 py-5 space-y-3">
+                    <p class="text-sm text-gray-700">
+                        You are about to enroll the following number of students into this class:
+                    </p>
+                    <div class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 flex items-center justify-between">
+                        <span class="text-xs uppercase tracking-wide text-gray-500">Students to Enroll</span>
+                        <span id="bulkEnrollCount" class="text-base font-semibold text-gray-900">0</span>
+                    </div>
+                    <p class="text-xs text-gray-500">
+                        Please review your selection. You can always unenroll students later if needed.
+                    </p>
+                </div>
+                <div class="px-6 py-4 bg-gray-50 flex justify-end space-x-3">
+                    <button type="button" onclick="closeBulkEnrollConfirm()" class="px-4 py-2 text-gray-700 bg-gray-200 rounded hover:bg-gray-300 transition">
+                        Cancel
+                    </button>
+                    <button type="button" onclick="confirmBulkEnroll()" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition">
+                        Yes, Enroll Students
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Unenroll Confirmation Modal -->
+    <div id="bulkUnenrollConfirmModal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold text-gray-900">Confirm Removal</h3>
+                    <button type="button" onclick="closeBulkUnenrollConfirm()" class="text-gray-400 hover:text-gray-600 transition">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="px-6 py-5 space-y-3">
+                    <p class="text-sm text-gray-700">
+                        You are about to remove the following number of students from this class:
+                    </p>
+                    <div class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 flex items-center justify-between">
+                        <span class="text-xs uppercase tracking-wide text-gray-500">Students to Remove</span>
+                        <span id="bulkUnenrollCount" class="text-base font-semibold text-gray-900">0</span>
+                    </div>
+                    <p class="text-xs text-gray-500">
+                        This will unenroll the selected students from this class. You can enroll them again later if needed.
+                    </p>
+                </div>
+                <div class="px-6 py-4 bg-gray-50 flex justify-end space-x-3">
+                    <button type="button" onclick="closeBulkUnenrollConfirm()" class="px-4 py-2 text-gray-700 bg-gray-200 rounded hover:bg-gray-300 transition">
+                        Cancel
+                    </button>
+                    <button type="button" onclick="confirmBulkUnenroll()" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition">
+                        Yes, Remove Students
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
     
     <script>
         // Search functionality
@@ -418,6 +486,7 @@
         }
         
         // Bulk unenroll functionality
+        let pendingBulkUnenrollIds = [];
         function unenrollSelected() {
             const checkedBoxes = document.querySelectorAll('.enrolled-student-checkbox:checked');
             const studentIds = Array.from(checkedBoxes).map(cb => cb.value);
@@ -426,26 +495,45 @@
                 alert('Please select at least one student to remove.');
                 return;
             }
-            
-            if (confirm(`Are you sure you want to remove ${studentIds.length} student(s) from this class?`)) {
-                // Create a form to submit multiple student IDs
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.action = '{{ url_for("bulk_unenroll_students", class_id=class_info.class_id) }}';
-                
-                studentIds.forEach(id => {
-                    const input = document.createElement('input');
-                    input.type = 'hidden';
-                    input.name = 'student_ids';
-                    input.value = id;
-                    form.appendChild(input);
-                });
-                
-                document.body.appendChild(form);
-                form.submit();
+
+            pendingBulkUnenrollIds = studentIds;
+            const countEl = document.getElementById('bulkUnenrollCount');
+            if (countEl) {
+                countEl.textContent = studentIds.length.toString();
             }
+            document.getElementById('bulkUnenrollConfirmModal').classList.remove('hidden');
+        }
+
+        function closeBulkUnenrollConfirm() {
+            document.getElementById('bulkUnenrollConfirmModal').classList.add('hidden');
+            pendingBulkUnenrollIds = [];
+        }
+
+        function confirmBulkUnenroll() {
+            if (!pendingBulkUnenrollIds || pendingBulkUnenrollIds.length === 0) {
+                closeBulkUnenrollConfirm();
+                return;
+            }
+
+            // Create a form to submit multiple student IDs
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '{{ url_for("bulk_unenroll_students", class_id=class_info.class_id) }}';
+            
+            pendingBulkUnenrollIds.forEach(id => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'student_ids';
+                input.value = id;
+                form.appendChild(input);
+            });
+            
+            document.body.appendChild(form);
+            form.submit();
         }
         
+        let pendingBulkEnrollIds = [];
+
         // Bulk enroll functionality (only enroll visible checked students)
         function enrollSelected() {
             // Only get checkboxes from visible student cards
@@ -461,24 +549,41 @@
                 alert('Please select at least one student to enroll.');
                 return;
             }
-            
-            if (confirm(`Are you sure you want to enroll ${studentIds.length} student(s)?`)) {
-                // Create a form to submit multiple student IDs
-                const form = document.createElement('form');
-                form.method = 'POST';
-                form.action = '{{ url_for("bulk_enroll_students", class_id=class_info.class_id) }}';
-                
-                studentIds.forEach(id => {
-                    const input = document.createElement('input');
-                    input.type = 'hidden';
-                    input.name = 'student_ids';
-                    input.value = id;
-                    form.appendChild(input);
-                });
-                
-                document.body.appendChild(form);
-                form.submit();
+
+            pendingBulkEnrollIds = studentIds;
+            const countEl = document.getElementById('bulkEnrollCount');
+            if (countEl) {
+                countEl.textContent = studentIds.length.toString();
             }
+            document.getElementById('bulkEnrollConfirmModal').classList.remove('hidden');
+        }
+
+        function closeBulkEnrollConfirm() {
+            document.getElementById('bulkEnrollConfirmModal').classList.add('hidden');
+            pendingBulkEnrollIds = [];
+        }
+
+        function confirmBulkEnroll() {
+            if (!pendingBulkEnrollIds || pendingBulkEnrollIds.length === 0) {
+                closeBulkEnrollConfirm();
+                return;
+            }
+
+            // Create a form to submit multiple student IDs
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '{{ url_for("bulk_enroll_students", class_id=class_info.class_id) }}';
+            
+            pendingBulkEnrollIds.forEach(id => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'student_ids';
+                input.value = id;
+                form.appendChild(input);
+            });
+            
+            document.body.appendChild(form);
+            form.submit();
         }
         
         // Initialize

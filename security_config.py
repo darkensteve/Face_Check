@@ -64,6 +64,10 @@ def validate_password_strength(password):
     # Check for at least one letter (character)
     if not re.search(r'[a-zA-Z]', password):
         return False, "Password must contain at least one letter (a-z, A-Z)"
+
+    # Check for at least one uppercase letter
+    if not re.search(r'[A-Z]', password):
+        return False, "Password must contain at least one uppercase letter (A-Z)"
     
     # Check for at least one number
     if not re.search(r'[0-9]', password):

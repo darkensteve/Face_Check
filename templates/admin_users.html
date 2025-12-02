@@ -306,13 +306,20 @@
                 <div class="px-6 py-4 border-b border-gray-200">
                     <h3 class="text-lg font-medium text-gray-900">Create New User</h3>
                 </div>
-                <form method="POST" action="{{ url_for('create_user') }}">
+                <form id="createUserForm" method="POST" action="{{ url_for('create_user') }}">
                     <div class="px-6 py-4 space-y-6">
                         <!-- Basic Information -->
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700">User ID</label>
-                                <input type="text" name="idno" required class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <input 
+                                    type="text" 
+                                    name="idno" 
+                                    required 
+                                    inputmode="numeric" 
+                                    pattern="[0-9]*"
+                                    oninput="this.value = this.value.replace(/[^0-9]/g, '');"
+                                    class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                                 <p class="text-xs text-gray-500 mt-1">This will be used as the default password. Users can change it after first login.</p>
                             </div>
                             <div>
@@ -392,9 +399,44 @@
                     </div>
                     <div class="px-6 py-4 bg-gray-50 flex justify-end space-x-3">
                         <button type="button" onclick="closeCreateModal()" class="px-4 py-2 text-gray-700 bg-gray-200 rounded hover:bg-gray-300 transition duration-200">Cancel</button>
-                        <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition duration-200">Create User</button>
+                        <button type="button" onclick="openCreateConfirmModal()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition duration-200">Create User</button>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create User Confirmation Modal -->
+    <div id="createConfirmModal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold text-gray-900">Confirm User Creation</h3>
+                    <button type="button" onclick="closeCreateConfirmModal()" class="text-gray-400 hover:text-gray-600 transition">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="px-6 py-5 space-y-3">
+                    <p class="text-sm text-gray-700">
+                        You are about to create a new account with the following User ID:
+                    </p>
+                    <div class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                        <p class="text-xs uppercase tracking-wide text-gray-500">User ID</p>
+                        <p id="confirmUserId" class="text-base font-semibold text-gray-900 mt-1">—</p>
+                    </div>
+                    <p class="text-xs text-gray-500">
+                        The <span class="font-semibold">User ID cannot be changed later</span>. 
+                        It will also be used as the user's initial password (they can change it after first login).
+                    </p>
+                </div>
+                <div class="px-6 py-4 bg-gray-50 flex justify-end space-x-3">
+                    <button type="button" onclick="closeCreateConfirmModal()" class="px-4 py-2 text-gray-700 bg-gray-200 rounded hover:bg-gray-300 transition">
+                        Cancel
+                    </button>
+                    <button type="button" onclick="confirmCreateUser()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition">
+                        Yes, Create User
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -508,6 +550,30 @@
     </div>
 
     <script>
+        function openCreateConfirmModal() {
+            const idInput = document.querySelector('#createModal input[name="idno"]');
+            const idValue = (idInput ? idInput.value.trim() : '') || 'Not set';
+            const idDisplay = document.getElementById('confirmUserId');
+            if (idDisplay) {
+                idDisplay.textContent = idValue;
+            }
+            document.getElementById('createConfirmModal').classList.remove('hidden');
+        }
+
+        function closeCreateConfirmModal() {
+            document.getElementById('createConfirmModal').classList.add('hidden');
+        }
+
+        function confirmCreateUser() {
+            const form = document.getElementById('createUserForm');
+            if (form) {
+                // Close both modals to give a smooth transition
+                closeCreateConfirmModal();
+                // Allow the form to submit normally
+                form.submit();
+            }
+        }
+
         function openCreateModal() {
             document.getElementById('createModal').classList.remove('hidden');
         }
@@ -621,12 +687,16 @@
         window.onclick = function(event) {
             const createModal = document.getElementById('createModal');
             const resetModal = document.getElementById('resetModal');
+            const createConfirmModal = document.getElementById('createConfirmModal');
             
             if (event.target === createModal) {
                 closeCreateModal();
             }
             if (event.target === resetModal) {
                 closeResetModal();
+            }
+            if (event.target === createConfirmModal) {
+                closeCreateConfirmModal();
             }
         }
 

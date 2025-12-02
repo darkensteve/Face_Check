@@ -136,10 +136,55 @@
             
             <!-- Main Content Area -->
             <main class="flex-1 overflow-y-auto p-6">
-                <!-- Classes Table -->
+                <!-- Filters + Classes Table -->
                 <div class="bg-white rounded-xl shadow-lg overflow-hidden">
                     <div class="px-6 py-4 border-b border-gray-200">
-                        <h3 class="text-lg font-semibold text-gray-900">All Classes</h3>
+                        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                            <h3 class="text-lg font-semibold text-gray-900">All Classes</h3>
+                            <form method="GET" action="{{ url_for('admin_classes') }}" class="flex flex-col md:flex-row gap-3 md:items-center">
+                                <div class="relative">
+                                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <i class="fas fa-search text-gray-400 text-sm"></i>
+                                    </span>
+                                    <input
+                                        type="text"
+                                        name="search"
+                                        value="{{ search or '' }}"
+                                        placeholder="Search by class, EDP, or faculty"
+                                        class="pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-64"
+                                    >
+                                </div>
+                                <div class="flex flex-col md:flex-row gap-3">
+                                    <select
+                                        name="dept"
+                                        class="py-2 px-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-[200px]"
+                                    >
+                                        <option value="">All Departments</option>
+                                        {% for dept in departments %}
+                                        <option value="{{ dept.dept_id }}" {% if selected_dept and selected_dept|int == dept.dept_id %}selected{% endif %}>
+                                            {{ dept.dept_name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    <select
+                                        name="status"
+                                        class="py-2 px-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-[160px]"
+                                    >
+                                        <option value="" {% if not selected_status %}selected{% endif %}>All Statuses</option>
+                                        <option value="active" {% if selected_status == 'active' %}selected{% endif %}>Active</option>
+                                        <option value="inactive" {% if selected_status == 'inactive' %}selected{% endif %}>Deactivated</option>
+                                    </select>
+                                </div>
+                                <div class="flex gap-2">
+                                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition">
+                                        Apply
+                                    </button>
+                                    <a href="{{ url_for('admin_classes') }}" class="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition">
+                                        Reset
+                                    </a>
+                                </div>
+                            </form>
+                        </div>
                     </div>
                     
                     {% if classes %}

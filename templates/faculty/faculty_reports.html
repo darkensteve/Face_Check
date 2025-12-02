@@ -45,7 +45,7 @@
 
                 <a href="/attendance_reports" class="flex items-center px-6 py-3 bg-gray-700 text-white">
                     <i class="fas fa-chart-line mr-3"></i>
-                    Reports and Analytics
+                    Reports & Analytics
                 </a>
 
                 <a href="/faculty/register_face" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
@@ -90,27 +90,23 @@
                         <p class="text-gray-600">Generate class attendance summaries and insights</p>
                     </div>
                     <div class="flex items-center space-x-3">
-                        <input id="startDate" type="date" class="border rounded-lg px-3 py-2 text-sm" />
+                        <div class="relative">
+                            <input id="startDate" type="date" class="border rounded-lg px-3 py-2 pr-8 text-sm" />
+                            <i class="fas fa-calendar absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none"></i>
+                        </div>
                         <span class="text-gray-500">to</span>
-                        <input id="endDate" type="date" class="border rounded-lg px-3 py-2 text-sm" />
-                        <button id="applyFilters" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm">
-                            <i class="fas fa-filter mr-2"></i>Apply
+                        <div class="relative">
+                            <input id="endDate" type="date" class="border rounded-lg px-3 py-2 pr-8 text-sm" />
+                            <i class="fas fa-calendar absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none"></i>
+                        </div>
+                        <button id="applyFilters" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm flex items-center">
+                            <i class="fas fa-chevron-down mr-2"></i>Apply
                         </button>
                     </div>
                 </div>
             </header>
 
             <main class="flex-1 overflow-y-auto p-4 space-y-4 text-sm">
-                <!-- Export Row -->
-                <div class="bg-white rounded-xl shadow p-4 flex items-center justify-between">
-                    <div class="text-gray-700 font-semibold">Export Reports</div>
-                    <div class="space-x-2">
-                        <button onclick="exportReports('csv')" class="px-3 py-2 bg-gray-700 text-white rounded hover:bg-gray-800 text-sm"><i class="fa-solid fa-file-csv mr-2"></i>CSV</button>
-                        <button onclick="exportReports('xlsx')" class="px-3 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 text-sm"><i class="fa-solid fa-file-excel mr-2"></i>Excel</button>
-                        <button onclick="exportReports('pdf')" class="px-3 py-2 bg-rose-600 text-white rounded hover:bg-rose-700 text-sm"><i class="fa-solid fa-file-pdf mr-2"></i>PDF</button>
-                    </div>
-                </div>
-
                 <!-- Summaries -->
                 <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
                     <div class="bg-white rounded-xl shadow p-4">
@@ -121,9 +117,9 @@
                             <table class="min-w-full divide-y divide-gray-200 text-xs">
                                 <thead class="bg-gray-50">
                                     <tr>
-                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Class</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">CLASS</th>
                                         <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">EDP</th>
-                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Presents</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">PRESENTS</th>
                                     </tr>
                                 </thead>
                                 <tbody id="summaryBody" class="bg-white divide-y divide-gray-100"></tbody>
@@ -139,9 +135,9 @@
                             <table class="min-w-full divide-y divide-gray-200 text-xs">
                                 <thead class="bg-gray-50">
                                     <tr>
-                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Event</th>
-                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Presents</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">EVENT</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">DATE</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">PRESENTS</th>
                                     </tr>
                                 </thead>
                                 <tbody id="eventSummaryBody" class="bg-white divide-y divide-gray-100"></tbody>
@@ -160,10 +156,10 @@
                             <table class="min-w-full divide-y divide-gray-200 text-xs">
                                 <thead class="bg-gray-50">
                                     <tr>
-                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Class</th>
-                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Presents</th>
-                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Absents</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">STUDENT</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">CLASS</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">PRESENTS</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">ABSENTS</th>
                                     </tr>
                                 </thead>
                                 <tbody id="absenceBody" class="bg-white divide-y divide-gray-100"></tbody>
@@ -179,10 +175,10 @@
                             <table class="min-w-full divide-y divide-gray-200 text-xs">
                                 <thead class="bg-gray-50">
                                     <tr>
-                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Attendee</th>
-                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Event</th>
-                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Presents</th>
-                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Absents</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">ATTENDEE</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">EVENT</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">PRESENTS</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">ABSENTS</th>
                                     </tr>
                                 </thead>
                                 <tbody id="eventAbsenceBody" class="bg-white divide-y divide-gray-100"></tbody>
