@@ -2832,16 +2832,34 @@ def faculty_dashboard():
         key=lambda c: c['next_occurrence'] or (now + timedelta(days=30))
     )
     
-    # Check if faculty has registered their face
+    # Check if faculty has registered their face (database first, then filesystem)
     has_face_registered = False
     if faculty['attendance_image']:
         import os
+        # attendance_image is expected to store the full relative path (e.g. "known_faces/faculty_1234.jpg")
         if os.path.exists(faculty['attendance_image']):
             has_face_registered = True
         else:
             # File doesn't exist, clear the database record
             conn.execute('UPDATE faculty SET attendance_image = NULL WHERE user_id = ?', (session['user_id'],))
             conn.commit()
+
+    # Fallback: check common legacy paths directly and update database
+    if not has_face_registered:
+        import os
+        possible_paths = [
+            f"known_faces/faculty_{faculty['idno']}.jpg",  # current faculty registration pattern
+            f"known_faces/{faculty['idno']}.jpg",          # legacy pattern without prefix
+        ]
+        for face_image_path in possible_paths:
+            if os.path.exists(face_image_path):
+                conn.execute(
+                    'UPDATE faculty SET attendance_image = ? WHERE user_id = ?',
+                    (face_image_path, session['user_id'])
+                )
+                conn.commit()
+                has_face_registered = True
+                break
     
     conn.close()
     return render_template('faculty/faculty_dashboard.html', 
@@ -5989,22 +6007,31 @@ def faculty_profile():
             'student_count': class_item['student_count'] or 0
         })
     
-    # Check face registration status
+    # Check face registration status (database first, then filesystem)
     has_face_registered = False
     if faculty['attendance_image']:
-        face_image_path = f"static/attendance_images/{faculty['attendance_image']}"
-        if os.path.exists(face_image_path):
+        # attendance_image should already contain the correct relative path
+        if os.path.exists(faculty['attendance_image']):
             has_face_registered = True
         else:
             conn.execute('UPDATE faculty SET attendance_image = NULL WHERE user_id = ?', (session['user_id'],))
             conn.commit()
     
+    # Fallback: check common faculty face image locations and update database
     if not has_face_registered:
-        face_image_path = f"known_faces/{faculty['idno']}.jpg"
-        if os.path.exists(face_image_path):
-            conn.execute('UPDATE faculty SET attendance_image = ? WHERE user_id = ?', (face_image_path, session['user_id']))
-            conn.commit()
-            has_face_registered = True
+        possible_paths = [
+            f"known_faces/faculty_{faculty['idno']}.jpg",  # current faculty registration pattern
+            f"known_faces/{faculty['idno']}.jpg",          # legacy pattern without prefix
+        ]
+        for face_image_path in possible_paths:
+            if os.path.exists(face_image_path):
+                conn.execute(
+                    'UPDATE faculty SET attendance_image = ? WHERE user_id = ?',
+                    (face_image_path, session['user_id'])
+                )
+                conn.commit()
+                has_face_registered = True
+                break
     
     # Get today's attendance stats
     today = datetime.now().strftime('%Y-%m-%d')
@@ -6032,6 +6059,37 @@ def faculty_profile():
                          has_face_registered=has_face_registered,
                          today_attendance=today_stats['today_count'] if today_stats else 0,
                          total_students=total_students['total'] if total_students else 0)
+
+@app.route('/faculty/profile/update_name', methods=['POST'])
+def update_faculty_name():
+    """Allow the currently logged-in faculty to update their first and last name."""
+    if 'user_id' not in session or session.get('role') != 'faculty':
+        return redirect(url_for('login'))
+
+    firstname = request.form.get('firstname', '').strip()
+    lastname = request.form.get('lastname', '').strip()
+
+    if not firstname or not lastname:
+        flash('First name and last name are required.', 'error')
+        return redirect(url_for('faculty_profile'))
+
+    conn = get_db_connection()
+    conn.execute(
+        '''
+        UPDATE user
+        SET firstname = ?, lastname = ?
+        WHERE user_id = ?
+        ''',
+        (firstname, lastname, session['user_id'])
+    )
+    conn.commit()
+    conn.close()
+
+    # Keep the session display name in sync for the dashboard/header
+    session['username'] = f"{firstname} {lastname}"
+
+    flash('Name updated successfully.', 'success')
+    return redirect(url_for('faculty_profile'))
 
 # Faculty My Classes
 @app.route('/faculty/my_classes')
@@ -6572,43 +6630,6 @@ def api_faculty_reports_absence_patterns():
         'absent_count': r['absent_count'] or 0
     } for r in rows])
 
-@app.route('/api/faculty/reports/monthly')
-def api_faculty_reports_monthly():
-    if 'user_id' not in session:
-        return jsonify({'error': 'Unauthorized'}), 401
-    # Require faculty or admin role
-    if session.get('role') not in ['faculty', 'admin']:
-        return jsonify({'error': 'Access denied'}), 403
-    year = request.args.get('year', datetime.now().strftime('%Y'))
-    conn = get_db_connection()
-    faculty = conn.execute('''
-        SELECT f.faculty_id FROM faculty f JOIN user u ON f.user_id = u.user_id
-        WHERE u.user_id = ?
-    ''', (session['user_id'],)).fetchone()
-    if not faculty:
-        conn.close()
-        return jsonify([])
-    # Initialize months 1..12 to 0
-    month_counts = {str(m).zfill(2): 0 for m in range(1, 13)}
-    rows = conn.execute('''
-        SELECT strftime('%m', a.attendance_date) AS month,
-               COUNT(a.attendance_id) AS present_count
-        FROM attendance a
-        JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
-        JOIN class c ON sc.class_id = c.class_id
-        WHERE c.faculty_id = ? AND strftime('%Y', a.attendance_date) = ?
-        GROUP BY strftime('%m', a.attendance_date)
-    ''', (faculty['faculty_id'], str(year))).fetchall()
-    conn.close()
-    for r in rows:
-        month_counts[r['month']] = r['present_count'] or 0
-    # Map months to labels
-    month_names = {
-        '01': 'Jan','02': 'Feb','03': 'Mar','04': 'Apr','05': 'May','06': 'Jun',
-        '07': 'Jul','08': 'Aug','09': 'Sep','10': 'Oct','11': 'Nov','12': 'Dec'
-    }
-    return jsonify([{ 'month': month_names[m], 'present_count': month_counts[m] } for m in sorted(month_counts.keys())])
-
 @app.route('/api/faculty/reports/events/summary')
 def api_faculty_reports_events_summary():
     if 'user_id' not in session:
@@ -6691,40 +6712,6 @@ def api_faculty_reports_events_absence():
         'present_count': r['present_count'] or 0,
         'absent_count': r['absent_count'] or 0
     } for r in rows])
-
-@app.route('/api/faculty/reports/events/monthly')
-def api_faculty_reports_events_monthly():
-    if 'user_id' not in session:
-        return jsonify({'error': 'Unauthorized'}), 401
-    # Require faculty or admin role
-    if session.get('role') not in ['faculty', 'admin']:
-        return jsonify({'error': 'Access denied'}), 403
-    year = request.args.get('year', datetime.now().strftime('%Y'))
-    conn = get_db_connection()
-    faculty = conn.execute('''
-        SELECT f.faculty_id FROM faculty f JOIN user u ON f.user_id = u.user_id
-        WHERE u.user_id = ?
-    ''', (session['user_id'],)).fetchone()
-    if not faculty:
-        conn.close()
-        return jsonify([])
-    month_counts = {str(m).zfill(2): 0 for m in range(1, 13)}
-    rows = conn.execute('''
-        SELECT strftime('%m', e.event_date) AS month,
-               SUM(CASE WHEN ea.status = 'present' THEN 1 ELSE 0 END) AS present_count
-        FROM event e
-        LEFT JOIN event_attendance ea ON e.event_id = ea.event_id
-        WHERE e.faculty_id = ? AND strftime('%Y', e.event_date) = ?
-        GROUP BY strftime('%m', e.event_date)
-    ''', (faculty['faculty_id'], str(year))).fetchall()
-    conn.close()
-    for r in rows:
-        month_counts[r['month']] = r['present_count'] or 0
-    month_names = {
-        '01': 'Jan','02': 'Feb','03': 'Mar','04': 'Apr','05': 'May','06': 'Jun',
-        '07': 'Jul','08': 'Aug','09': 'Sep','10': 'Oct','11': 'Nov','12': 'Dec'
-    }
-    return jsonify([{ 'month': month_names[m], 'present_count': month_counts[m] } for m in sorted(month_counts.keys())])
 
 @app.route('/attendance_reports/export/<fmt>')
 def faculty_reports_export(fmt):
