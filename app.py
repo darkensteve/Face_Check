@@ -6334,6 +6334,181 @@ def faculty_event_view(event_id):
                          end_time=end_time,
                          is_organizer=is_organizer)
 
+@app.route('/faculty/attendance-records')
+def faculty_attendance_records():
+    """Page where a faculty member can see attendance records for their classes and events,
+    and also their own attendance when joining events.
+    """
+    if 'user_id' not in session or session['role'] != 'faculty':
+        return redirect(url_for('login'))
+
+    conn = get_db_connection()
+
+    # Ensure profile_picture column exists
+    try:
+        conn.execute('ALTER TABLE faculty ADD COLUMN profile_picture VARCHAR(255)')
+        conn.commit()
+    except Exception:
+        pass
+
+    # Get faculty info
+    faculty_info = conn.execute('''
+        SELECT u.*, f.faculty_id, f.position, f.attendance_image, f.profile_picture, d.dept_name
+        FROM user u
+        JOIN faculty f ON u.user_id = f.user_id
+        LEFT JOIN department d ON u.dept_id = d.dept_id
+        WHERE u.user_id = ?
+    ''', (session['user_id'],)).fetchone()
+
+    if not faculty_info:
+        conn.close()
+        flash('Faculty record not found', 'error')
+        return redirect(url_for('faculty_dashboard'))
+
+    faculty_id = faculty_info['faculty_id']
+    user_id = session['user_id']
+
+    # All active classes handled by this faculty (for dropdown)
+    classes = conn.execute('''
+        SELECT class_id, class_name, edpcode
+        FROM class
+        WHERE faculty_id = ? AND is_active = 1
+        ORDER BY class_name
+    ''', (faculty_id,)).fetchall()
+
+    # Handle selected class (optional, via query param)
+    selected_class_id = request.args.get('class_id', type=int)
+    if not selected_class_id and classes:
+        selected_class_id = classes[0]['class_id']
+
+    class_attendance = []
+    if selected_class_id:
+        # Detailed attendance for the selected class
+        rows = conn.execute('''
+            SELECT 
+                DATE(a.attendance_date) AS date,
+                a.attendance_date,
+                a.attendance_status,
+                u.firstname,
+                u.lastname,
+                c.class_name
+            FROM attendance a
+            JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+            JOIN student s ON sc.student_id = s.student_id
+            JOIN user u ON s.user_id = u.user_id
+            JOIN class c ON sc.class_id = c.class_id
+            WHERE c.faculty_id = ?
+              AND c.class_id = ?
+            ORDER BY a.attendance_date DESC
+        ''', (faculty_id, selected_class_id)).fetchall()
+
+        for r in rows:
+            # normalize time string
+            time_str = ''
+            if r['attendance_date']:
+                try:
+                    if isinstance(r['attendance_date'], str):
+                        time_str = r['attendance_date'].split(' ')[1] if ' ' in r['attendance_date'] else r['attendance_date']
+                    else:
+                        time_str = r['attendance_date'].strftime('%H:%M:%S')
+                except Exception:
+                    time_str = str(r['attendance_date'])
+
+            class_attendance.append({
+                'date': r['date'],
+                'time': time_str,
+                'status': r['attendance_status'],
+                'student_name': f"{r['firstname']} {r['lastname']}",
+                'class_name': r['class_name'],
+            })
+
+    # Event attendance for events this faculty organizes or is assigned to
+    event_rows = conn.execute('''
+        SELECT 
+            e.event_name,
+            DATE(e.event_date) AS event_date,
+            ea.attendance_time,
+            ea.status,
+            u.firstname,
+            u.lastname,
+            ea.user_id
+        FROM event_attendance ea
+        JOIN event e ON ea.event_id = e.event_id
+        JOIN user u ON ea.user_id = u.user_id
+        WHERE e.is_active = 1
+          AND (
+                e.faculty_id = ?
+                OR e.event_id IN (
+                    SELECT ef.event_id FROM event_faculty ef WHERE ef.faculty_id = ?
+              )
+          )
+        ORDER BY e.event_date DESC, ea.attendance_time DESC
+    ''', (faculty_id, faculty_id)).fetchall()
+
+    event_attendance = []
+    for r in event_rows:
+        time_str = ''
+        if r['attendance_time']:
+            try:
+                if isinstance(r['attendance_time'], str):
+                    time_str = r['attendance_time'].split(' ')[1] if ' ' in r['attendance_time'] else r['attendance_time']
+                else:
+                    time_str = r['attendance_time'].strftime('%H:%M:%S')
+            except Exception:
+                time_str = str(r['attendance_time'])
+
+        event_attendance.append({
+            'event_name': r['event_name'],
+            'event_date': r['event_date'],
+            'time': time_str,
+            'status': r['status'],
+            'attendee_name': f"{r['firstname']} {r['lastname']}",
+            'is_self': r['user_id'] == user_id,
+        })
+
+    # Faculty member's own attendance to any events
+    my_rows = conn.execute('''
+        SELECT 
+            e.event_name,
+            DATE(e.event_date) AS event_date,
+            ea.attendance_time,
+            ea.status
+        FROM event_attendance ea
+        JOIN event e ON ea.event_id = e.event_id
+        WHERE ea.user_id = ?
+        ORDER BY e.event_date DESC, ea.attendance_time DESC
+    ''', (user_id,)).fetchall()
+
+    my_event_attendance = []
+    for r in my_rows:
+        time_str = ''
+        if r['attendance_time']:
+            try:
+                if isinstance(r['attendance_time'], str):
+                    time_str = r['attendance_time'].split(' ')[1] if ' ' in r['attendance_time'] else r['attendance_time']
+                else:
+                    time_str = r['attendance_time'].strftime('%H:%M:%S')
+            except Exception:
+                time_str = str(r['attendance_time'])
+
+        my_event_attendance.append({
+            'event_name': r['event_name'],
+            'event_date': r['event_date'],
+            'time': time_str,
+            'status': r['status'],
+        })
+
+    conn.close()
+    return render_template(
+        'faculty/faculty_attendance_records.html',
+        faculty_info=faculty_info,
+        classes=classes,
+        selected_class_id=selected_class_id,
+        class_attendance=class_attendance,
+        event_attendance=event_attendance,
+        my_event_attendance=my_event_attendance,
+    )
+
 @app.route('/faculty/class-details/<type>/<int:id>')
 def faculty_class_details(type, id):
     if 'user_id' not in session or session['role'] != 'faculty':
