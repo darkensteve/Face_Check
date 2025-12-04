@@ -1745,6 +1745,36 @@ def create_event():
             if not all([event_name, event_date, start_time, end_time, faculty_id]):
                 flash('Please fill in all required fields', 'error')
                 return redirect(url_for('admin_events'))
+
+            # Validate that event date/time is not in the past
+            try:
+                # Parse event date
+                event_date_obj = datetime.strptime(event_date, '%Y-%m-%d').date()
+                
+                # Parse start time (support HH:MM and HH:MM:SS)
+                time_str = start_time.strip()
+                time_formats = ['%H:%M', '%H:%M:%S']
+                start_time_obj = None
+                for fmt in time_formats:
+                    try:
+                        start_time_obj = datetime.strptime(time_str, fmt).time()
+                        break
+                    except ValueError:
+                        continue
+                
+                if not start_time_obj:
+                    flash('Invalid start time format', 'error')
+                    return redirect(url_for('admin_events'))
+                
+                event_start_dt = datetime.combine(event_date_obj, start_time_obj)
+                now = datetime.now()
+                
+                if event_start_dt <= now:
+                    flash('Event date and time must be in the future. You cannot schedule events in the past.', 'error')
+                    return redirect(url_for('admin_events'))
+            except Exception as e:
+                flash(f'Invalid event date/time: {str(e)}', 'error')
+                return redirect(url_for('admin_events'))
             
             conn = get_db_connection()
             
@@ -1782,7 +1812,10 @@ def create_event():
     ''').fetchall()
     conn.close()
     
-    return render_template('create_event.html', faculty=faculty)
+    # Provide today's date for min constraint on date picker
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    
+    return render_template('create_event.html', faculty=faculty, today=today_str)
 
 @app.route('/admin/events/<int:event_id>/edit', methods=['GET', 'POST'])
 def edit_event(event_id):
@@ -2191,6 +2224,29 @@ def student_dashboard():
         LIMIT 10
     ''', (student['student_id'],)).fetchall()
     
+    # Get upcoming schedule (next classes for this student)
+    upcoming_raw = conn.execute('''
+        SELECT 
+            c.class_name,
+            c.edpcode,
+            GROUP_CONCAT(DISTINCT d.day_name) AS days,
+            c.start_time,
+            c.end_time,
+            u_f.firstname AS faculty_firstname,
+            u_f.lastname AS faculty_lastname
+        FROM student_class sc
+        JOIN class c ON sc.class_id = c.class_id
+        LEFT JOIN class_days cd ON c.class_id = cd.class_id
+        LEFT JOIN days d ON cd.day_id = d.day_id
+        LEFT JOIN faculty f ON c.faculty_id = f.faculty_id
+        LEFT JOIN user u_f ON f.user_id = u_f.user_id
+        WHERE sc.student_id = ?
+          AND c.is_active = 1
+        GROUP BY c.class_id, c.class_name, c.edpcode, c.start_time, c.end_time
+        ORDER BY c.class_name
+        LIMIT 5
+    ''', (student['student_id'],)).fetchall()
+    
     # Format attendance history for template
     formatted_history = []
     for record in attendance_history:
@@ -2242,99 +2298,40 @@ def student_dashboard():
             conn.commit()
             has_face_registered = True
     
+    # Format upcoming classes schedule nicely
+    def format_time(value):
+        if not value:
+            return None
+        try:
+            return datetime.strptime(str(value), '%H:%M:%S').strftime('%I:%M %p')
+        except Exception:
+            try:
+                return datetime.strptime(str(value), '%H:%M').strftime('%I:%M %p')
+            except Exception:
+                return str(value)
+
+    upcoming_classes = []
+    for item in upcoming_raw or []:
+        schedule_parts = []
+        if item['days']:
+            schedule_parts.append(item['days'])
+        if item['start_time'] and item['end_time']:
+            schedule_parts.append(f"{format_time(item['start_time'])} - {format_time(item['end_time'])}")
+        upcoming_classes.append({
+            'class_name': item['class_name'],
+            'edpcode': item['edpcode'],
+            'schedule': ' • '.join(schedule_parts) if schedule_parts else 'Schedule not set',
+            'faculty_firstname': item['faculty_firstname'],
+            'faculty_lastname': item['faculty_lastname'],
+        })
+
     conn.close()
     return render_template('student_dashboard.html', 
                          student_info=student,
                          student=student,
                          attendance_history=formatted_history,
-                         has_face_registered=has_face_registered)
-
-# My Attendance Route
-@app.route('/my_attendance')
-def my_attendance():
-    if 'user_id' not in session or session['role'] != 'student':
-        return redirect(url_for('login'))
-    
-    conn = get_db_connection()
-    
-    # Get student info
-    student = conn.execute('''
-        SELECT u.*, s.student_id, s.year_level, s.profile_picture, c.course_name, d.dept_name
-        FROM user u
-        JOIN student s ON u.user_id = s.user_id
-        LEFT JOIN course c ON s.course_id = c.course_id
-        LEFT JOIN department d ON u.dept_id = d.dept_id
-        WHERE u.user_id = ?
-    ''', (session['user_id'],)).fetchone()
-    
-    # Get all attendance records for the student - format datetime at SQL level to remove microseconds
-    attendance_records = conn.execute('''
-        SELECT strftime('%Y-%m-%d %H:%M:%S', a.attendance_date) as attendance_date,
-               a.attendance_status, cl.class_name, cl.edpcode,
-               u_f.firstname as faculty_firstname, u_f.lastname as faculty_lastname
-        FROM attendance a
-        JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
-        JOIN class cl ON sc.class_id = cl.class_id
-        JOIN faculty f ON cl.faculty_id = f.faculty_id
-        JOIN user u_f ON f.user_id = u_f.user_id
-        WHERE sc.student_id = ?
-        ORDER BY a.attendance_date DESC
-    ''', (student['student_id'],)).fetchall()
-    
-    # Format attendance records for template
-    formatted_records = []
-    for record in attendance_records:
-        date_str = ''
-        time_str = ''
-        formatted_datetime = ''
-        
-        iso_date = ''
-        iso_datetime = ''
-        
-        if record['attendance_date']:
-            try:
-                date_str_raw = str(record['attendance_date'])
-                # DateTime is already formatted without microseconds from SQL
-                date_obj = datetime.strptime(date_str_raw, '%Y-%m-%d %H:%M:%S')
-                date_str = date_obj.strftime('%B %d, %Y')
-                time_str = date_obj.strftime('%I:%M %p')
-                formatted_datetime = date_obj.strftime('%B %d, %Y %I:%M %p')
-                iso_date = date_obj.strftime('%Y-%m-%d')
-                iso_datetime = date_obj.strftime('%Y-%m-%dT%H:%M:%S')
-            except:
-                date_str = date_str_raw.split(' ')[0] if ' ' in date_str_raw else date_str_raw
-                time_str = ''
-                formatted_datetime = date_str_raw
-                iso_date = date_str_raw.split(' ')[0] if ' ' in date_str_raw else date_str_raw
-                iso_datetime = date_str_raw
-        
-        formatted_records.append({
-            'date': date_str,
-            'time': time_str,
-            'datetime': formatted_datetime,
-            'iso_date': iso_date,
-            'iso_datetime': iso_datetime,
-            'status': record['attendance_status'],
-            'class_name': record['class_name'],
-            'edpcode': record['edpcode'],
-            'faculty': f"{record['faculty_firstname']} {record['faculty_lastname']}"
-        })
-    
-    # Get statistics
-    total_records = len(formatted_records)
-    present_count = sum(1 for r in formatted_records if r['status'].lower() == 'present')
-    absent_count = sum(1 for r in formatted_records if r['status'].lower() == 'absent')
-    attendance_rate = (present_count / total_records * 100) if total_records > 0 else 0
-    
-    conn.close()
-    return render_template('my_attendance.html',
-                         student_info=student,
-                         student=student,
-                         attendance_records=formatted_records,
-                         total_records=total_records,
-                         present_count=present_count,
-                         absent_count=absent_count,
-                         attendance_rate=round(attendance_rate, 1))
+                         has_face_registered=has_face_registered,
+                         upcoming_classes=upcoming_classes)
 
 # My Classes Route
 @app.route('/my_classes')
@@ -2679,6 +2676,49 @@ def student_profile():
                          total_records=total_records,
                          present_count=present_count,
                          attendance_rate=round(attendance_rate, 1))
+
+@app.route('/profile/update_name', methods=['POST'])
+def update_student_name():
+    """Allow the currently logged-in student to update their first and last name."""
+    if 'user_id' not in session or session.get('role') != 'student':
+        return redirect(url_for('login'))
+
+    firstname = request.form.get('firstname', '').strip()
+    lastname = request.form.get('lastname', '').strip()
+
+    # Basic required check
+    if not firstname or not lastname:
+        flash('First name and last name are required.', 'error')
+        return redirect(url_for('student_profile'))
+
+    # Reuse existing validation helper
+    is_valid_fname, fname_msg = validate_input(firstname, 'name', 1, 50)
+    if not is_valid_fname:
+        flash(f'Invalid first name: {fname_msg}', 'error')
+        return redirect(url_for('student_profile'))
+
+    is_valid_lname, lname_msg = validate_input(lastname, 'name', 1, 50)
+    if not is_valid_lname:
+        flash(f'Invalid last name: {lname_msg}', 'error')
+        return redirect(url_for('student_profile'))
+
+    conn = get_db_connection()
+    conn.execute(
+        '''
+        UPDATE user
+        SET firstname = ?, lastname = ?
+        WHERE user_id = ?
+        ''',
+        (firstname, lastname, session['user_id'])
+    )
+    conn.commit()
+    conn.close()
+
+    # Keep the session display name in sync
+    session['username'] = f"{firstname} {lastname}"
+
+    flash('Profile updated successfully.', 'success')
+    return redirect(url_for('student_profile'))
 
 # Faculty Dashboard
 @app.route('/faculty/dashboard')
@@ -4601,6 +4641,8 @@ def admin_attendance_export(fmt):
                 
                 buffer = BytesIO()
                 doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), topMargin=0.5*inch)
+                # Set a descriptive PDF title so the browser tab doesn't show "(anonymous)"
+                doc.title = f"FaceCheck Reports - {report_type.title()} ({date_from or 'All'} to {date_to or 'All'})"
                 elements = []
                 
                 styles = getSampleStyleSheet()
@@ -5384,9 +5426,12 @@ def export_reports(fmt):
     try:
         conn = get_db_connection()
         
-        # Get data based on report type (reuse logic from api_admin_reports)
+        # Use the same data logic as api_admin_reports so export matches the on-screen table,
+        # but allow date range to be optional (no range = all data).
+        params = []
         if report_type == 'class':
-            data = conn.execute('''
+            # Class attendance summary
+            query = '''
                 SELECT 
                     DATE(a.attendance_date) as date,
                     c.class_name as name,
@@ -5396,13 +5441,88 @@ def export_reports(fmt):
                 FROM attendance a
                 JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
                 JOIN class c ON sc.class_id = c.class_id
-                WHERE DATE(a.attendance_date) BETWEEN ? AND ?
-                GROUP BY DATE(a.attendance_date), c.class_id
-                ORDER BY date DESC
-            ''', (date_from, date_to)).fetchall()
+                WHERE 1=1
+            '''
+            if date_from:
+                query += ' AND DATE(a.attendance_date) >= ?'
+                params.append(date_from)
+            if date_to:
+                query += ' AND DATE(a.attendance_date) <= ?'
+                params.append(date_to)
+            query += ' GROUP BY DATE(a.attendance_date), c.class_id ORDER BY date DESC'
+            data = conn.execute(query, params).fetchall()
+        
+        elif report_type == 'event':
+            # Event attendance summary
+            query = '''
+                SELECT 
+                    DATE(ea.attendance_time) as date,
+                    e.event_name as name,
+                    COUNT(CASE WHEN ea.status = 'present' THEN 1 END) as present,
+                    COUNT(CASE WHEN ea.status = 'absent' THEN 1 END) as absent,
+                    COUNT(CASE WHEN ea.status = 'late' THEN 1 END) as late
+                FROM event_attendance ea
+                JOIN event e ON ea.event_id = e.event_id
+                WHERE 1=1
+            '''
+            if date_from:
+                query += ' AND DATE(ea.attendance_time) >= ?'
+                params.append(date_from)
+            if date_to:
+                query += ' AND DATE(ea.attendance_time) <= ?'
+                params.append(date_to)
+            query += ' GROUP BY DATE(ea.attendance_time), e.event_id ORDER BY date DESC'
+            data = conn.execute(query, params).fetchall()
+        
+        elif report_type == 'absence':
+            # Absence patterns
+            query = '''
+                SELECT 
+                    u.lastname || ', ' || u.firstname as name,
+                    DATE(a.attendance_date) as date,
+                    0 as present,
+                    COUNT(CASE WHEN a.attendance_status = 'absent' THEN 1 END) as absent,
+                    COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late
+                FROM attendance a
+                JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+                JOIN student s ON sc.student_id = s.student_id
+                JOIN user u ON s.user_id = u.user_id
+                WHERE a.attendance_status IN ('absent', 'late')
+            '''
+            if date_from:
+                query += ' AND DATE(a.attendance_date) >= ?'
+                params.append(date_from)
+            if date_to:
+                query += ' AND DATE(a.attendance_date) <= ?'
+                params.append(date_to)
+            query += ' GROUP BY u.user_id, DATE(a.attendance_date) ORDER BY date DESC, name'
+            data = conn.execute(query, params).fetchall()
+        
+        elif report_type == 'monthly':
+            # Monthly summary
+            query = '''
+                SELECT 
+                    strftime('%Y-%m', a.attendance_date) as date,
+                    'Monthly Total' as name,
+                    COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) as present,
+                    COUNT(CASE WHEN a.attendance_status = 'absent' THEN 1 END) as absent,
+                    COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late
+                FROM attendance a
+                WHERE 1=1
+            '''
+            if date_from:
+                query += ' AND DATE(a.attendance_date) >= ?'
+                params.append(date_from)
+            if date_to:
+                query += ' AND DATE(a.attendance_date) <= ?'
+                params.append(date_to)
+            query += " GROUP BY strftime('%Y-%m', a.attendance_date) ORDER BY date DESC"
+            data = conn.execute(query, params).fetchall()
+        
         else:
-            # Simple default for other types
-            data = []
+            conn.close()
+            flash('Invalid report type for export', 'error')
+            return redirect(url_for('admin_reports'))
         
         conn.close()
         
@@ -6088,7 +6208,7 @@ def update_faculty_name():
     # Keep the session display name in sync for the dashboard/header
     session['username'] = f"{firstname} {lastname}"
 
-    flash('Name updated successfully.', 'success')
+    flash('Profile updated successfully.', 'success')
     return redirect(url_for('faculty_profile'))
 
 # Faculty My Classes
@@ -6378,12 +6498,21 @@ def faculty_attendance_records():
 
     # Handle selected class (optional, via query param)
     selected_class_id = request.args.get('class_id', type=int)
+    class_page = request.args.get('page', 1, type=int) or 1
+    if class_page < 1:
+        class_page = 1
+
     if not selected_class_id and classes:
         selected_class_id = classes[0]['class_id']
 
     class_attendance = []
+    class_page_size = 10
+    class_has_next = False
+    class_has_prev = False
+
     if selected_class_id:
         # Detailed attendance for the selected class
+        offset = (class_page - 1) * class_page_size
         rows = conn.execute('''
             SELECT 
                 DATE(a.attendance_date) AS date,
@@ -6400,7 +6529,14 @@ def faculty_attendance_records():
             WHERE c.faculty_id = ?
               AND c.class_id = ?
             ORDER BY a.attendance_date DESC
-        ''', (faculty_id, selected_class_id)).fetchall()
+            LIMIT ? OFFSET ?
+        ''', (faculty_id, selected_class_id, class_page_size + 1, offset)).fetchall()
+
+        if len(rows) > class_page_size:
+            class_has_next = True
+            rows = rows[:class_page_size]
+
+        class_has_prev = class_page > 1
 
         for r in rows:
             # normalize time string
@@ -6505,6 +6641,10 @@ def faculty_attendance_records():
         classes=classes,
         selected_class_id=selected_class_id,
         class_attendance=class_attendance,
+        class_page=class_page,
+        class_page_size=class_page_size,
+        class_has_next=class_has_next,
+        class_has_prev=class_has_prev,
         event_attendance=event_attendance,
         my_event_attendance=my_event_attendance,
     )
@@ -6627,6 +6767,9 @@ def attendance():
         pass  # Column already exists
     
     faculty_info = None
+    selected_class_id = request.args.get('class_id')
+    selected_event_id = request.args.get('event_id')
+
     if session.get('role') == 'faculty':
         # Get faculty info
         faculty_info = conn.execute('''
@@ -6672,7 +6815,14 @@ def attendance():
     
     conn.close()
     
-    return render_template('faculty_attendance.html', faculty_info=faculty_info, classes=classes, events=events)
+    return render_template(
+        'faculty_attendance.html',
+        faculty_info=faculty_info,
+        classes=classes,
+        events=events,
+        preselected_class_id=selected_class_id,
+        preselected_event_id=selected_event_id
+    )
 
 # Faculty Reports & Analytics
 @app.route('/attendance_reports')

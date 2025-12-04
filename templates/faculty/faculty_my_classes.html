@@ -37,11 +37,6 @@
                     My Classes/Events
                 </a>
                 
-                <a href="/attendance" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
-                    <i class="fas fa-camera mr-3"></i>
-                    Take Attendance
-                </a>
-
                 <a href="{{ url_for('faculty_attendance_records') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-clipboard-list mr-3"></i>
                     Attendance Records
@@ -175,11 +170,14 @@
                                         <h4 class="text-lg font-semibold text-gray-900">{{ class_info.class_name }}</h4>
                                         <p class="text-sm text-gray-600">EDP: {{ class_info.edpcode }}</p>
                                     </div>
-                                    <div class="flex space-x-2">
-                                        <a href="{{ url_for('faculty_class_view', class_id=class_info.class_id) }}" class="text-blue-600 hover:text-blue-800">
-                                            <i class="fas fa-eye"></i>
-                                        </a>
-                                    </div>
+                                <div class="flex space-x-3">
+                                    <a href="{{ url_for('faculty_class_view', class_id=class_info.class_id) }}" class="text-blue-600 hover:text-blue-800" title="View Class Details">
+                                        <i class="fas fa-eye"></i>
+                                    </a>
+                                    <a href="{{ url_for('attendance') }}?class_id={{ class_info.class_id }}" class="text-green-600 hover:text-green-800" title="Take Attendance">
+                                        <i class="fas fa-camera"></i>
+                                    </a>
+                                </div>
                                 </div>
                                 
                                 <div class="space-y-2 text-sm text-gray-600">
@@ -231,9 +229,12 @@
                                         <h4 class="text-lg font-semibold text-gray-900">{{ event_info.event_name }}</h4>
                                         <p class="text-sm text-gray-600">{{ event_info.event_date }}</p>
                                     </div>
-                                    <div class="flex space-x-2">
-                                        <a href="{{ url_for('faculty_event_view', event_id=event_info.event_id) }}" class="text-blue-600 hover:text-blue-800">
+                                    <div class="flex space-x-3">
+                                        <a href="{{ url_for('faculty_event_view', event_id=event_info.event_id) }}" class="text-blue-600 hover:text-blue-800" title="View Event Details">
                                             <i class="fas fa-eye"></i>
+                                        </a>
+                                        <a href="{{ url_for('attendance') }}?event_id={{ event_info.event_id }}" class="text-green-600 hover:text-green-800" title="Take Attendance">
+                                            <i class="fas fa-camera"></i>
                                         </a>
                                     </div>
                                 </div>

@@ -71,7 +71,7 @@
                 
                 <a href="{{ url_for('admin_attendance') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-clipboard-check mr-3"></i>
-                    View Attendance Record
+                    Attendance Records
                 </a>
                 
                 <a href="/reports" class="flex items-center px-6 py-3 bg-gray-700 text-white">
@@ -502,24 +502,27 @@
             });
         }
 
-        async function exportReport(format) {
+        function exportReport(format) {
             const dateFrom = document.getElementById('dateFrom').value;
             const dateTo = document.getElementById('dateTo').value;
             const reportType = document.getElementById('reportType').value;
 
-            if (!dateFrom || !dateTo) {
-                showNotification('Please select both start and end dates', 'error');
-                return;
-            }
+            // Build query string (same style as Attendance Records export)
+            const params = new URLSearchParams();
+            if (dateFrom) params.append('date_from', dateFrom);
+            if (dateTo) params.append('date_to', dateTo);
+            if (reportType) params.append('type', reportType);
+
+            const url = `/admin/reports/export/${format}?${params.toString()}`;
 
             // Show loading notification
             const formatName = format === 'csv' ? 'CSV' : format === 'xlsx' ? 'Excel' : 'PDF';
             showNotification(`Generating ${formatName} report...`, 'info');
 
-            // Create a temporary link to trigger download
+            // Create a temporary link to trigger download (same behavior as Attendance Records)
             const link = document.createElement('a');
-            link.href = `/admin/reports/export/${format}?date_from=${dateFrom}&date_to=${dateTo}&type=${reportType}`;
-            link.style.display = 'none';
+            link.href = url;
+            link.download = `reports_${reportType || 'summary'}_${new Date().toISOString().split('T')[0]}.${format}`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);

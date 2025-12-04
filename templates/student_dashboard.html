@@ -32,19 +32,9 @@
                     Dashboard
                 </a>
                 
-                <a href="{{ url_for('my_attendance') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
-                    <i class="fas fa-calendar-check mr-3"></i>
-                    My Attendance
-                </a>
-                
-                <a href="/register_face" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
-                    <i class="fas fa-user-plus mr-3"></i>
-                    Register Face
-                </a>
-                
                 <a href="{{ url_for('my_classes') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-book mr-3"></i>
-                    Attendance & Classes
+                    Classes & Attendance
                 </a>
             </nav>
             
@@ -156,6 +146,60 @@
             </div>
         </div>
         {% endif %}
+
+        <!-- Upcoming Classes -->
+        <div class="bg-white rounded-xl shadow-lg mb-8">
+            <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                    <div class="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center">
+                        <i class="fas fa-calendar-alt text-blue-600 text-sm"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-base md:text-lg font-semibold text-gray-900">Upcoming Classes</h2>
+                        <p class="text-xs text-gray-500 hidden sm:block">Based on classes you are currently enrolled in</p>
+                    </div>
+                </div>
+                <a href="{{ url_for('my_classes') }}" class="text-xs md:text-sm text-blue-600 hover:text-blue-800 font-medium">
+                    View all
+                </a>
+            </div>
+            <div class="p-6">
+                {% if upcoming_classes %}
+                <div class="grid md:grid-cols-2 gap-4">
+                    {% for uc in upcoming_classes %}
+                    <div class="border border-gray-100 rounded-lg px-4 py-3 hover:border-blue-200 hover:bg-blue-50/40 transition duration-150">
+                        <div class="flex items-start justify-between">
+                            <div>
+                                <div class="flex items-center space-x-2">
+                                    <span class="text-sm font-semibold text-gray-900 truncate max-w-[10rem] md:max-w-[12rem]">
+                                        {{ uc.class_name }}
+                                    </span>
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-100 text-blue-700">
+                                        {{ uc.edpcode }}
+                                    </span>
+                                </div>
+                                <div class="mt-2 flex items-center text-[11px] text-gray-600 space-x-2">
+                                    <i class="fas fa-clock text-gray-400"></i>
+                                    <span>{{ uc.schedule }}</span>
+                                </div>
+                                <div class="mt-1 flex items-center text-[11px] text-gray-500 space-x-2">
+                                    <i class="fas fa-chalkboard-teacher text-gray-400"></i>
+                                    <span>Facilitator: {{ uc.faculty_firstname }} {{ uc.faculty_lastname }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="flex flex-col items-center justify-center text-center py-6 text-gray-500">
+                    <i class="fas fa-calendar-times text-3xl mb-2 text-gray-300"></i>
+                    <p class="text-sm font-medium">No upcoming classes found</p>
+                    <p class="text-xs mt-1">Once you are enrolled in classes, they will appear here.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
 
         <!-- Recent Attendance History -->
         <div class="bg-white rounded-xl shadow-lg">

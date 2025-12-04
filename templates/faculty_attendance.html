@@ -36,16 +36,11 @@
                     Dashboard
                 </a>
                 
-                <a href="{{ url_for('faculty_my_classes') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
+                <a href="{{ url_for('faculty_my_classes') }}" class="flex items-center px-6 py-3 bg-gray-700 text-white">
                     <i class="fas fa-chalkboard mr-3"></i>
                     My Classes/Events
                 </a>
                 
-                <a href="/attendance" class="flex items-center px-6 py-3 bg-gray-700 text-white">
-                    <i class="fas fa-camera mr-3"></i>
-                    Take Attendance
-                </a>
-
                 <a href="{{ url_for('faculty_attendance_records') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-clipboard-list mr-3"></i>
                     Attendance Records
@@ -369,7 +364,10 @@
             // Set up event listeners
             document.getElementById('startCamera').addEventListener('click', startCamera);
             document.getElementById('stopCamera').addEventListener('click', stopCamera);
-            document.getElementById('backToClasses').addEventListener('click', backToClassSelection);
+            // When changing class/event, go back to My Classes & Events page
+            document.getElementById('backToClasses').addEventListener('click', function() {
+                window.location.href = '{{ url_for("faculty_my_classes") }}';
+            });
             
             // Update time and date
             updateDateTime();
@@ -378,6 +376,26 @@
             // Load faculty classes and events
             await loadFacultyClasses();
             await loadFacultyEvents();
+
+            // Auto-select class/event when coming from My Classes & Events
+            const preClassId = '{{ preselected_class_id or "" }}';
+            const preEventId = '{{ preselected_event_id or "" }}';
+
+            if (preClassId) {
+                const targetClass = facultyClasses.find(c => String(c.class_id) === String(preClassId));
+                if (targetClass) {
+                    selectClass(targetClass);
+                    document.getElementById('classSelectionSection').style.display = 'none';
+                    document.getElementById('cameraSection').style.display = 'grid';
+                }
+            } else if (preEventId) {
+                const targetEvent = facultyEvents.find(e => String(e.event_id) === String(preEventId));
+                if (targetEvent) {
+                    selectEvent(targetEvent);
+                    document.getElementById('classSelectionSection').style.display = 'none';
+                    document.getElementById('cameraSection').style.display = 'grid';
+                }
+            }
         });
         
         // Smooth interpolation function

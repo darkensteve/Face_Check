@@ -71,7 +71,7 @@
                 
                 <a href="{{ url_for('admin_attendance') }}" class="flex items-center px-6 py-3 bg-gray-700 text-white">
                     <i class="fas fa-clipboard-check mr-3"></i>
-                    View Attendance Record
+                    Attendance Records
                 </a>
                 
                 <a href="/reports" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
@@ -447,6 +447,34 @@
             renderAttendancePage();
         }
         
+        function showNotification(message, type) {
+            const notification = document.createElement('div');
+            notification.className = `fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg text-white transition-all duration-300 ${
+                type === 'success' ? 'bg-green-500' : 
+                type === 'error' ? 'bg-red-500' : 
+                'bg-blue-500'
+            }`;
+            notification.innerHTML = `
+                <div class="flex items-center">
+                    <i class="fas ${
+                        type === 'success' ? 'fa-check-circle' : 
+                        type === 'error' ? 'fa-exclamation-circle' : 
+                        'fa-info-circle'
+                    } mr-2"></i>
+                    <span>${message}</span>
+                </div>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                setTimeout(() => {
+                    notification.remove();
+                }, 300);
+            }, type === 'error' ? 4000 : 3000);
+        }
+
         function exportAttendance(format) {
             // Get filter values
             const dateFrom = document.getElementById('dateFrom').value;

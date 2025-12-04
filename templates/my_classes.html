@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Attendance & Classes - FaceCheck</title>
+    <title>Classes & Attendance - FaceCheck</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/global.css') }}">
@@ -32,19 +32,9 @@
                     Dashboard
                 </a>
                 
-                <a href="{{ url_for('my_attendance') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
-                    <i class="fas fa-calendar-check mr-3"></i>
-                    My Attendance
-                </a>
-                
-                <a href="/register_face" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
-                    <i class="fas fa-user-plus mr-3"></i>
-                    Register Face
-                </a>
-                
                 <a href="{{ url_for('my_classes') }}" class="flex items-center px-6 py-3 bg-gray-700 text-white">
                     <i class="fas fa-book mr-3"></i>
-                    Attendance & Classes
+                    Classes & Attendance
                 </a>
             </nav>
             
@@ -83,7 +73,7 @@
                 <div class="px-6 py-4">
                     <div class="flex items-center justify-between">
                         <div>
-                            <h2 class="text-2xl font-bold text-gray-800">Attendance & Classes</h2>
+                            <h2 class="text-2xl font-bold text-gray-800">Classes & Attendance</h2>
                             <p class="text-gray-600">View your enrolled classes and schedules</p>
                         </div>
                     </div>
