@@ -173,11 +173,9 @@
                                             <a href="{{ url_for('edit_event', event_id=event.event_id) }}" class="text-indigo-600 hover:text-indigo-900 transition-colors" title="Edit Event">
                                                 <i class="fas fa-edit text-lg"></i>
                                             </a>
-                                            <form method="POST" action="{{ url_for('delete_event', event_id=event.event_id) }}" class="inline" onsubmit="return confirm('Are you sure you want to deactivate this event? It will no longer be displayed to faculty and students.')">
-                                                <button type="submit" class="text-orange-600 hover:text-orange-900 transition-colors" title="Deactivate Event">
-                                                    <i class="fas fa-ban text-lg"></i>
-                                                </button>
-                                            </form>
+                                            <button type="button" onclick="openDeactivateEventModal({{ event.event_id }}, '{{ event.event_name|e }}')" class="text-orange-600 hover:text-orange-900 transition-colors" title="Deactivate Event">
+                                                <i class="fas fa-ban text-lg"></i>
+                                            </button>
                                             {% else %}
                                             <span class="text-gray-400 cursor-not-allowed" title="View Faculty (Read-only)">
                                                 <i class="fas fa-user-tie text-lg"></i>
@@ -212,5 +210,70 @@
             </main>
         </div>
     </div>
+
+    <!-- Deactivate Event Confirmation Modal -->
+    <div id="deactivateEventModal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold text-gray-900">Confirm Deactivation</h3>
+                    <button type="button" onclick="closeDeactivateEventModal()" class="text-gray-400 hover:text-gray-600 transition">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="px-6 py-5 space-y-3">
+                    <div class="flex items-center justify-center w-16 h-16 mx-auto bg-orange-100 rounded-full mb-4">
+                        <i class="fas fa-exclamation-triangle text-orange-600 text-2xl"></i>
+                    </div>
+                    <p class="text-center text-gray-700 font-medium">
+                        Are you sure you want to deactivate this event?
+                    </p>
+                    <div class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                        <p class="text-xs uppercase tracking-wide text-gray-500 mb-1">Event Name</p>
+                        <p id="deactivateEventName" class="text-base font-semibold text-gray-900">—</p>
+                    </div>
+                    <p class="text-xs text-gray-500 text-center">
+                        The event will no longer be displayed to faculty and students. You can reactivate it later if needed.
+                    </p>
+                </div>
+                <div class="px-6 py-4 bg-gray-50 flex justify-end space-x-3">
+                    <button type="button" onclick="closeDeactivateEventModal()" class="px-4 py-2 text-gray-700 bg-gray-200 rounded hover:bg-gray-300 transition">
+                        Cancel
+                    </button>
+                    <form id="deactivateEventForm" method="POST" class="inline">
+                        <button type="submit" class="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 transition">
+                            Yes, Deactivate
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Deactivate Event Modal Functions
+        function openDeactivateEventModal(eventId, eventName) {
+            document.getElementById('deactivateEventName').textContent = eventName;
+            const form = document.getElementById('deactivateEventForm');
+            form.action = `/admin/events/${eventId}/delete`;
+            document.getElementById('deactivateEventModal').classList.remove('hidden');
+        }
+
+        function closeDeactivateEventModal() {
+            document.getElementById('deactivateEventModal').classList.add('hidden');
+        }
+
+        // Close modal when clicking outside
+        document.addEventListener('DOMContentLoaded', function() {
+            const deactivateModal = document.getElementById('deactivateEventModal');
+            if (deactivateModal) {
+                deactivateModal.addEventListener('click', function(e) {
+                    if (e.target === deactivateModal) {
+                        closeDeactivateEventModal();
+                    }
+                });
+            }
+        });
+    </script>
 </body>
 </html>

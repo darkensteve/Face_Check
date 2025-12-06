@@ -247,11 +247,9 @@
                                             <a href="{{ url_for('edit_class', class_id=class.class_id) }}" class="text-indigo-600 hover:text-indigo-900 transition-colors" title="Edit Class">
                                                 <i class="fas fa-edit text-lg"></i>
                                             </a>
-                                            <form method="POST" action="{{ url_for('delete_class', class_id=class.class_id) }}" class="inline" onsubmit="return confirm('Are you sure you want to deactivate this class? It will no longer be displayed to faculty and students.')">
-                                                <button type="submit" class="text-orange-600 hover:text-orange-900 transition-colors" title="Deactivate Class">
-                                                    <i class="fas fa-ban text-lg"></i>
-                                                </button>
-                                            </form>
+                                            <button type="button" onclick="openDeactivateClassModal({{ class.class_id }}, '{{ class.class_name|e }}')" class="text-orange-600 hover:text-orange-900 transition-colors" title="Deactivate Class">
+                                                <i class="fas fa-ban text-lg"></i>
+                                            </button>
                                             {% else %}
                                             <span class="text-gray-400 cursor-not-allowed" title="View Students (Read-only)">
                                                 <i class="fas fa-users text-lg"></i>
@@ -296,6 +294,45 @@
                     {% endif %}
                 </div>
             </main>
+        </div>
+    </div>
+
+    <!-- Deactivate Class Confirmation Modal -->
+    <div id="deactivateClassModal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold text-gray-900">Confirm Deactivation</h3>
+                    <button type="button" onclick="closeDeactivateClassModal()" class="text-gray-400 hover:text-gray-600 transition">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="px-6 py-5 space-y-3">
+                    <div class="flex items-center justify-center w-16 h-16 mx-auto bg-orange-100 rounded-full mb-4">
+                        <i class="fas fa-exclamation-triangle text-orange-600 text-2xl"></i>
+                    </div>
+                    <p class="text-center text-gray-700 font-medium">
+                        Are you sure you want to deactivate this class?
+                    </p>
+                    <div class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                        <p class="text-xs uppercase tracking-wide text-gray-500 mb-1">Class Name</p>
+                        <p id="deactivateClassName" class="text-base font-semibold text-gray-900">—</p>
+                    </div>
+                    <p class="text-xs text-gray-500 text-center">
+                        The class will no longer be displayed to faculty and students. You can reactivate it later if needed.
+                    </p>
+                </div>
+                <div class="px-6 py-4 bg-gray-50 flex justify-end space-x-3">
+                    <button type="button" onclick="closeDeactivateClassModal()" class="px-4 py-2 text-gray-700 bg-gray-200 rounded hover:bg-gray-300 transition">
+                        Cancel
+                    </button>
+                    <form id="deactivateClassForm" method="POST" class="inline">
+                        <button type="submit" class="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 transition">
+                            Yes, Deactivate
+                        </button>
+                    </form>
+                </div>
+            </div>
         </div>
     </div>
 </body>
@@ -361,6 +398,30 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     renderClassPage();
+});
+
+// Deactivate Class Modal Functions
+function openDeactivateClassModal(classId, className) {
+    document.getElementById('deactivateClassName').textContent = className;
+    const form = document.getElementById('deactivateClassForm');
+    form.action = `/admin/classes/${classId}/delete`;
+    document.getElementById('deactivateClassModal').classList.remove('hidden');
+}
+
+function closeDeactivateClassModal() {
+    document.getElementById('deactivateClassModal').classList.add('hidden');
+}
+
+// Close modal when clicking outside
+document.addEventListener('DOMContentLoaded', function() {
+    const deactivateModal = document.getElementById('deactivateClassModal');
+    if (deactivateModal) {
+        deactivateModal.addEventListener('click', function(e) {
+            if (e.target === deactivateModal) {
+                closeDeactivateClassModal();
+            }
+        });
+    }
 });
 </script>
 </html>
