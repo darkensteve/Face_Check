@@ -7,10 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/global.css') }}">
-    <link href="{{ url_for('static', filename='css/anti-spoofing.css') }}" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
-    <script src="{{ url_for('static', filename='js/anti-spoofing.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/anti-spoofing.css') }}">
 </head>
 <body class="bg-gray-100">
     <!-- Sidebar -->
@@ -217,11 +214,22 @@
                                 <div id="recognitionIndicator" class="w-3 h-3 bg-gray-400 rounded-full"></div>
                             </div>
                         </div>
-                        
-                        <!-- Anti-Spoofing Status -->
-                        <div id="antiSpoofingContainer" class="mt-4">
-                            <!-- Anti-spoofing status will be inserted here by JavaScript -->
+
+                        <!-- Anti-spoofing Status -->
+                        <div class="mt-3">
+                            <div id="antiSpoofingContainer" class="anti-spoofing-status bg-white p-4 rounded-lg shadow-sm border-l-4 border-gray-200">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center">
+                                        <div id="spoofing-indicator" class="w-3 h-3 rounded-full bg-gray-400 mr-2"></div>
+                                        <h4 class="text-sm font-medium text-gray-900">Anti-Spoofing</h4>
+                                    </div>
+                                    <span id="spoofing-confidence" class="text-sm font-semibold text-gray-700">--</span>
+                                </div>
+                                <p id="spoofing-status" class="text-xs text-gray-600 mt-1">Waiting for camera...</p>
+                                <p id="spoofing-details" class="text-xs text-gray-500 mt-1">Live face verification prevents photos/screens from marking attendance.</p>
+                            </div>
                         </div>
+                        
                     </div>
                     
                     <!-- Attendance Table Section -->
@@ -311,6 +319,7 @@
         </div>
     </div>
     
+    <script src="{{ url_for('static', filename='js/anti-spoofing.js') }}"></script>
     <script>
         let video, canvas, ctx, overlayCanvas, overlayCtx;
         let stream = null;
@@ -318,35 +327,25 @@
         let isDetecting = false;
         let currentStudent = null;
         let alreadyMarked = new Set(); // Stores composite keys: "student_id:class_id" or "user_id:event_id"
-        let blinkCount = 0;
-        let blinkBaseline = null;
         let missedDetections = 0;
-        let nosePrev = null;
-        let noseMaxDisp = 0.0;
-        let livenessActive = false;
         let detectionInterval = null;
         let recognitionInterval = null;
-        let livenessTimeout = null;
         let currentFaceBox = null; // Store current face detection box
         let targetFaceBox = null; // Target box position
         let animationFrameId = null; // For smooth 60fps animation
         
         // Face recognition parameters (from face_recog_test.py)
         const MATCH_TOLERANCE = 0.62;
-        const BLINK_TIMEOUT_MS = 8000; // 8 seconds to complete blink challenge
-        const BLINK_ABSOLUTE_THRESHOLD = 0.18;
-        const BLINK_MIN_DROP = 0.03;
         const MAX_MISSED_DETECTIONS = 6;
         let selectedClass = null;
         let selectedEvent = null;
         let facultyClasses = [];
         let facultyEvents = [];
+        let antiSpoofingManager = null;
+        const LIVE_CONFIDENCE_THRESHOLD = 0.42;
         
-        // Anti-spoofing manager
-        let antiSpoofingManager = null; // will be initialized in initializeAntiSpoofing()
         const REDETECT_EVERY = 12;
         const RECOGNIZE_EVERY = 45;
-        const LIVENESS_EVERY = 4;
         
         // Global variables
         
@@ -357,9 +356,17 @@
             ctx = canvas.getContext('2d');
             overlayCanvas = document.getElementById('overlayCanvas');
             overlayCtx = overlayCanvas.getContext('2d');
-            
-            // Initialize anti-spoofing manager
-            initializeAntiSpoofing();
+            window.addEventListener('resize', updateOverlaySize);
+            video.addEventListener('loadedmetadata', updateOverlaySize);
+
+            antiSpoofingManager = new AntiSpoofingManager({
+                videoElement: video,
+                statusElement: document.getElementById('spoofing-status'),
+                confidenceElement: document.getElementById('spoofing-confidence'),
+                detailsElement: document.getElementById('spoofing-details'),
+                enableRealTime: false,
+                confidenceThreshold: LIVE_CONFIDENCE_THRESHOLD
+            });
             
             // Set up event listeners
             document.getElementById('startCamera').addEventListener('click', startCamera);
@@ -557,37 +564,6 @@
             }
         }
         
-        // Initialize anti-spoofing manager
-        function initializeAntiSpoofing() {
-            const container = document.getElementById('antiSpoofingContainer');
-            
-            if (typeof AntiSpoofingManager !== 'undefined') {
-                antiSpoofingManager = new AntiSpoofingManager({
-                    videoElement: video,
-                    canvasElement: canvas,
-                    enableRealTime: false, // We'll control this manually
-                    confidenceThreshold: 0.7
-                });
-                
-                console.log('✅ Anti-spoofing manager initialized');
-            } else {
-                console.warn('⚠️ Anti-spoofing manager not available');
-                // Show a simple status without anti-spoofing
-                container.innerHTML = `
-                    <div class="p-4 bg-yellow-50 rounded-lg border-l-4 border-yellow-400">
-                        <div class="flex items-center">
-                            <i class="fas fa-exclamation-triangle text-yellow-600 mr-2"></i>
-                            <span class="text-sm font-medium text-yellow-800">Anti-spoofing module not loaded</span>
-                        </div>
-                    </div>
-                `;
-            }
-            
-            // Add resize listener for overlay
-            window.addEventListener('resize', updateOverlaySize);
-            video.addEventListener('loadedmetadata', updateOverlaySize);
-        }
-        
         // Start camera
         async function startCamera() {
             try {
@@ -607,15 +583,13 @@
                 document.getElementById('cameraStatus').innerHTML = '<i class="fas fa-circle text-green-500 mr-2"></i>Camera On';
                 document.getElementById('recognitionStatus').textContent = 'Camera active - detecting faces...';
                 document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-green-400 rounded-full';
-                
-                // Initialize anti-spoofing if available
                 if (antiSpoofingManager) {
-                    antiSpoofingManager.startRealTimeAnalysis();
+                    antiSpoofingManager.updateStatus('🟡 Warming up', 'Initializing liveness...', 'text-yellow-600');
                 }
                 
-                // Start face detection loop
+                // Start face detection loop after UI is ready
                 startFaceDetection();
-                
+
             } catch (err) {
                 console.error('Error accessing camera:', err);
                 alert('Error accessing camera. Please check permissions.');
@@ -634,24 +608,10 @@
                 recognitionInterval = null;
             }
             
-            // Stop anti-spoofing analysis
-            if (antiSpoofingManager) {
-                antiSpoofingManager.stopRealTimeAnalysis();
-            }
-            
             // Reset state
             currentStudent = null;
-            livenessActive = false;
-            blinkCount = 0;
-            blinkBaseline = null;
             missedDetections = 0;
-            nosePrev = null;
-            noseMaxDisp = 0.0;
             targetFaceBox = null;
-            if (livenessTimeout) {
-                clearTimeout(livenessTimeout);
-                livenessTimeout = null;
-            }
             
             // Clear face detection box AFTER stopping intervals
             clearFaceBox();
@@ -670,6 +630,10 @@
             document.getElementById('cameraStatus').innerHTML = '<i class="fas fa-circle text-red-500 mr-2"></i>Camera Off';
             document.getElementById('recognitionStatus').textContent = 'Ready to detect faces';
             document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-gray-400 rounded-full';
+            if (antiSpoofingManager) {
+                antiSpoofingManager.resetAnalysis();
+                antiSpoofingManager.updateStatus('⚪ Idle', 'Camera stopped', 'text-gray-600');
+            }
             
             // Force a small delay to ensure all async operations complete
             setTimeout(() => {
@@ -792,28 +756,28 @@
         // Handle recognition result
         function handleRecognitionResult(result) {
             console.log('Handling recognition result:', result);
-            
-            // Check for spoofing detection first
-            if (result.student_id === 'SPOOFING_DETECTED') {
-                document.getElementById('recognitionStatus').textContent = '⚠️ Spoofing attempt detected!';
-                document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-red-500 rounded-full';
-                
-                // Show alert
-                showSpoofingAlert(result.message || 'Spoofing attempt detected');
-                return;
+            const anti = result.anti_spoofing || null;
+
+            if (antiSpoofingManager && anti) {
+                antiSpoofingManager.updateAnalysisResults({
+                    success: anti.success !== false,
+                    is_live: !!anti.is_live,
+                    confidence: anti.confidence ?? 0,
+                    details: anti.details || 'Analysis complete',
+                    checks: anti.checks || {}
+                });
             }
-            
-            // Check anti-spoofing results if available
-            if (result.anti_spoofing) {
-                const antiSpoofing = result.anti_spoofing;
-                if (!antiSpoofing.is_live || antiSpoofing.confidence < 0.5) {
-                    document.getElementById('recognitionStatus').textContent = 
-                        `⚠️ Anti-spoofing failed (${Math.round(antiSpoofing.confidence * 100)}%)`;
-                    document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-red-500 rounded-full';
-                    
-                    showSpoofingAlert(`Anti-spoofing check failed. Confidence: ${Math.round(antiSpoofing.confidence * 100)}%`);
-                    return;
-                }
+
+            const failedLiveness = anti && (anti.is_live === false || (anti.confidence ?? 0) < LIVE_CONFIDENCE_THRESHOLD);
+            if (failedLiveness) {
+                const reason = anti.details || 'Anti-spoofing blocked this attempt';
+                document.getElementById('recognitionStatus').textContent = reason;
+                document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-red-500 rounded-full';
+                showEnhancedNotification('Anti-spoofing active', reason, 'warning');
+                clearFaceBox();
+                currentStudent = null;
+                missedDetections = 0;
+                return;
             }
             
             if (result.success && result.student_id && result.student_id !== 'Unknown') {
@@ -832,50 +796,30 @@
                     );
                 }
                 
-                // Student recognized and passed anti-spoofing
+                // Prevent duplicate marking while current student is being processed
                 if (currentStudent && currentStudent.student_id === result.student_id) {
-                    missedDetections = 0;
-                    // Same student, continue liveness detection
-                    updateLivenessDetection(result);
-                } else {
-                    // New student detected
-                    currentStudent = {
-                        student_id: result.student_id,
-                        student_name: result.student_name
-                    };
-                    blinkBaseline = null;
-                    missedDetections = 0;
-                    
-                    // Check if already marked today for this specific class
-                    const markedKey = selectedClass ? `${result.student_id}:${selectedClass.class_id}` : 
-                                     (selectedEvent ? `${result.student_id}:${selectedEvent.event_id}` : null);
-                    if (markedKey && alreadyMarked.has(markedKey)) {
-                        document.getElementById('recognitionStatus').textContent = `${result.student_name} - Already marked today`;
-                        document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-yellow-400 rounded-full';
-                    } else {
-                        // Start blink challenge
-                        livenessActive = true;
-                        blinkCount = 0;
-                        nosePrev = null;
-                        noseMaxDisp = 0.0;
-                        
-                        document.getElementById('recognitionStatus').textContent = `${result.student_name} - Please blink to confirm attendance`;
-                        document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-blue-400 rounded-full animate-pulse';
-                        
-                        // Give the student a limited time to blink before resetting
-                        if (livenessTimeout) clearTimeout(livenessTimeout);
-                        livenessTimeout = setTimeout(() => {
-                            if (livenessActive && currentStudent && currentStudent.student_id === result.student_id && blinkCount < REQUIRE_BLINKS) {
-                                console.log('Blink not detected within time - resetting challenge');
-                                document.getElementById('recognitionStatus').textContent = `${currentStudent.student_name} - Blink not detected. Please try again.`;
-                                document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-yellow-400 rounded-full';
-                                livenessActive = false;
-                                blinkCount = 0;
-                                currentStudent = null;
-                            }
-                        }, BLINK_TIMEOUT_MS);
-                    }
+                    return;
                 }
+
+                // Check if already marked today for this specific class/event
+                const markedKey = selectedClass ? `${result.student_id}:${selectedClass.class_id}` : 
+                                 (selectedEvent ? `${result.student_id}:${selectedEvent.event_id}` : null);
+                if (markedKey && alreadyMarked.has(markedKey)) {
+                    document.getElementById('recognitionStatus').textContent = `${result.student_name} - Already marked today`;
+                    document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-yellow-400 rounded-full';
+                    return;
+                }
+
+                currentStudent = {
+                    student_id: result.student_id,
+                    student_name: result.student_name
+                };
+                missedDetections = 0;
+
+                document.getElementById('recognitionStatus').textContent = `Recognized: ${result.student_name} - marking attendance...`;
+                document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-blue-400 rounded-full animate-pulse';
+
+                markAttendance(result.student_id, result.student_name);
             } else {
                 // No student recognized but maybe face detected
                 if (result.face_box) {
@@ -898,60 +842,8 @@
                 }
                 
                 console.log('No student recognized. Result:', result);
-                if (currentStudent) {
-                    missedDetections++;
-                    if (missedDetections >= MAX_MISSED_DETECTIONS) {
-                        currentStudent = null;
-                        livenessActive = false;
-                        blinkBaseline = null;
-                        missedDetections = 0;
-                    }
-                } else {
-                    currentStudent = null;
-                    livenessActive = false;
-                    blinkBaseline = null;
-                }
-            }
-        }
-        
-        // Update liveness detection (blink check with adaptive baseline)
-        function updateLivenessDetection(result) {
-            if (!livenessActive || !currentStudent) return;
-            
-            const eyeRatio = typeof result.eye_ratio === 'number' ? result.eye_ratio : null;
-            
-            if (eyeRatio !== null && !Number.isNaN(eyeRatio)) {
-                if (!blinkBaseline || eyeRatio > blinkBaseline) {
-                    blinkBaseline = eyeRatio;
-                } else {
-                    blinkBaseline = (blinkBaseline * 0.9) + (eyeRatio * 0.1);
-                }
-                
-                const dropFromBaseline = blinkBaseline ? (blinkBaseline - eyeRatio) : 0;
-                
-                if (eyeRatio <= BLINK_ABSOLUTE_THRESHOLD || dropFromBaseline >= BLINK_MIN_DROP) {
-                    if (livenessTimeout) {
-                        clearTimeout(livenessTimeout);
-                        livenessTimeout = null;
-                    }
-                    
-                    document.getElementById('recognitionStatus').textContent = `${currentStudent.student_name} - Blink detected! Marking attendance...`;
-                    document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-green-400 rounded-full';
-                    
-                    markAttendance(currentStudent.student_id, currentStudent.student_name);
-                    
-                    livenessActive = false;
-                    blinkCount = 0;
-                    blinkBaseline = null;
-                    currentStudent = null;
-                    missedDetections = 0;
-                    return;
-                } else {
-                    document.getElementById('recognitionStatus').textContent = 
-                        `${currentStudent.student_name} - Please blink · EAR ${eyeRatio.toFixed(2)} · Baseline ${blinkBaseline?.toFixed(2) || '...'}`;
-                }
-            } else {
-                document.getElementById('recognitionStatus').textContent = `${currentStudent.student_name} - Please blink`;
+                currentStudent = null;
+                missedDetections = 0;
             }
         }
         
@@ -963,19 +855,10 @@
                 
                 console.log(`Attempting to mark attendance for: ${personId}, ${personName}, ${isEvent ? 'Event: ' + selectedEvent?.event_id : 'Class: ' + selectedClass?.class_id}`);
                 
-                // Include anti-spoofing data if available
                 const attendanceData = {
                     person_id: personId,
                     person_name: personName
                 };
-                
-                // Add anti-spoofing data if available
-                if (antiSpoofingManager && antiSpoofingManager.getAnalysisHistory().length > 0) {
-                    const latestAnalysis = antiSpoofingManager.getAnalysisHistory().slice(-1)[0];
-                    if (latestAnalysis && latestAnalysis.result) {
-                        attendanceData.anti_spoofing = latestAnalysis.result;
-                    }
-                }
                 
                 // Choose the right endpoint based on selection
                 let endpoint = '';
@@ -1030,9 +913,18 @@
                         showNotification(`Failed to mark attendance: ${result.message}`, 'error');
                     }
                 } else {
-                    const errorText = await response.text();
-                    console.error('Attendance mark HTTP error:', response.status, errorText);
-                    showNotification(`HTTP Error ${response.status}: ${errorText}`, 'error');
+                    let errorMessage = `HTTP Error ${response.status}`;
+                    try {
+                        const errJson = await response.json();
+                        errorMessage = errJson.message || errorMessage;
+                    } catch (err) {
+                        const errorText = await response.text();
+                        if (errorText) {
+                            errorMessage = `${errorMessage}: ${errorText}`;
+                        }
+                    }
+                    console.error('Attendance mark HTTP error:', response.status, errorMessage);
+                    showNotification(errorMessage, 'error');
                 }
             } catch (error) {
                 console.error('Error marking attendance:', error);
@@ -1717,68 +1609,6 @@
             
             document.getElementById('currentTime').textContent = timeString;
             document.getElementById('currentDate').textContent = dateString;
-        }
-        
-        // Show spoofing alert
-        function showSpoofingAlert(message) {
-            // Create alert overlay
-            const overlay = document.createElement('div');
-            overlay.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
-            overlay.innerHTML = `
-                <div class="bg-white rounded-lg p-6 max-w-md mx-4 shadow-xl border-2 border-red-500 spoofing-alert">
-                    <div class="flex items-center mb-4">
-                        <i class="fas fa-exclamation-triangle text-red-500 text-3xl mr-4"></i>
-                        <div>
-                            <h3 class="text-lg font-bold text-red-800">Spoofing Detected!</h3>
-                            <p class="text-sm text-gray-600">Security Alert</p>
-                        </div>
-                    </div>
-                    <div class="mb-4">
-                        <p class="text-gray-700">${message}</p>
-                        <div class="mt-3 p-3 bg-red-50 rounded border-l-4 border-red-400">
-                            <p class="text-sm text-red-700">
-                                <strong>Please ensure:</strong><br>
-                                • You are using a live person, not a photo or video<br>
-                                • Proper lighting on your face<br>
-                                • Look directly at the camera and blink naturally
-                            </p>
-                        </div>
-                    </div>
-                    <div class="flex justify-end space-x-3">
-                        <button onclick="this.closest('.fixed').remove(); resetAntiSpoofing();" 
-                                class="px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition">
-                            Dismiss
-                        </button>
-                        <button onclick="this.closest('.fixed').remove(); resetAntiSpoofing();" 
-                                class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition">
-                            Try Again
-                        </button>
-                    </div>
-                </div>
-            `;
-            
-            document.body.appendChild(overlay);
-            
-            // Auto-remove after 10 seconds
-            setTimeout(() => {
-                if (overlay.parentNode) {
-                    overlay.remove();
-                }
-            }, 10000);
-        }
-        
-        // Reset anti-spoofing state
-        function resetAntiSpoofing() {
-            if (antiSpoofingManager) {
-                antiSpoofingManager.resetAnalysis();
-            }
-            
-            // Reset current student state
-            currentStudent = null;
-            
-            // Update UI status
-            document.getElementById('recognitionStatus').textContent = 'Ready for next student';
-            document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-gray-400 rounded-full';
         }
         
         // Enhanced notification system for spoofing alerts

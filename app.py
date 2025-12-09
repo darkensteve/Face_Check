@@ -29,11 +29,10 @@ except ImportError as e:
     print("Install with: pip install face-recognition opencv-contrib-python")
     FACE_RECOGNITION_AVAILABLE = False
 
-# Import anti-spoofing module
+# Anti-spoofing detector (guarded import so development still works)
 try:
-    from anti_spoofing import AntiSpoofingDetector, anti_spoofing_detector
+    from anti_spoofing import anti_spoofing_detector
     ANTI_SPOOFING_AVAILABLE = True
-    print("Anti-spoofing module loaded successfully")
 except ImportError as e:
     print(f"Anti-spoofing not available: {e}")
     ANTI_SPOOFING_AVAILABLE = False
@@ -122,6 +121,30 @@ def record_login_attempt(ip_address):
     if ip_address not in login_attempts:
         login_attempts[ip_address] = []
     login_attempts[ip_address].append(time.time())
+
+
+def require_recent_live_check(person_id, attendance_type, class_id=None, event_id=None, max_age_seconds=20):
+    """Ensure a recent anti-spoofing pass exists for this person/target before marking attendance."""
+    live_check = session.get('last_live_check')
+    if not live_check:
+        return False, "Live face verification is required before marking attendance."
+    if not live_check.get('is_live'):
+        return False, "Latest liveness check failed. Please retry with a live face."
+    if attendance_type != live_check.get('attendance_type'):
+        return False, "Liveness check type mismatch. Please re-verify for this flow."
+
+    if attendance_type == 'class':
+        if str(live_check.get('class_id')) != str(class_id) or str(live_check.get('person_id')) != str(person_id):
+            return False, "Liveness check must be done for the same student and class."
+    else:
+        if str(live_check.get('event_id')) != str(event_id) or str(live_check.get('person_id')) != str(person_id):
+            return False, "Liveness check must be done for this faculty and event."
+
+    ts = live_check.get('timestamp')
+    if not ts or time.time() - ts > max_age_seconds:
+        return False, "Liveness check expired. Please look at the camera again."
+
+    return True, ""
 
 # Database connection with better error handling
 def get_db_connection():
@@ -3364,6 +3387,18 @@ def process_face_recognition(image_path, attendance_type='class', class_id=None,
         event_id: Event ID for filtering faculty participants (optional)
     """
     try:
+        anti_result = {
+            'success': ANTI_SPOOFING_AVAILABLE,
+            'is_live': not ANTI_SPOOFING_AVAILABLE,
+            'confidence': 1.0 if not ANTI_SPOOFING_AVAILABLE else 0.0,
+            'details': 'Anti-spoofing disabled' if not ANTI_SPOOFING_AVAILABLE else 'Pending analysis',
+            'checks': {}
+        }
+
+        def _with_anti(payload):
+            payload['anti_spoofing'] = anti_result
+            return payload
+
         # Check if face recognition is available
         if not FACE_RECOGNITION_AVAILABLE:
             print("Using OpenCV fallback for face recognition")
@@ -3371,12 +3406,12 @@ def process_face_recognition(image_path, attendance_type='class', class_id=None,
                 from opencv_face_detector import fallback_face_recognition
                 return fallback_face_recognition(image_path)
             except ImportError as e:
-                return {
+                return _with_anti({
                     'success': False,
                     'message': f'Face recognition system is not configured: {e}',
                     'student_id': 'Unknown',
                     'student_name': 'Unknown'
-                }
+                })
         
         print(f"Processing image: {image_path}, attendance_type: {attendance_type}")
         
@@ -3435,23 +3470,23 @@ def process_face_recognition(image_path, attendance_type='class', class_id=None,
         print(f"Found {len(people)} registered {person_type}s")
         
         if not people:
-            return {
+            return _with_anti({
                 'success': False,
                 'message': f'No registered {person_type}s found',
                 'student_id': 'Unknown',
                 'student_name': 'Unknown'
-            }
+            })
         
         # Load the image
         image = cv2.imread(image_path)
         if image is None:
             print("Could not load image")
-            return {
+            return _with_anti({
                 'success': False,
                 'message': 'Could not load image',
                 'student_id': 'Unknown',
                 'student_name': 'Unknown'
-            }
+            })
         
         print(f"Image loaded: {image.shape}")
         
@@ -3464,12 +3499,12 @@ def process_face_recognition(image_path, attendance_type='class', class_id=None,
         print(f"Found {len(face_locations)} face(s)")
         
         if not face_locations:
-            return {
+            return _with_anti({
                 'success': False,
                 'message': 'No face detected',
                 'student_id': 'Unknown',
                 'student_name': 'Unknown'
-            }
+            })
         
         # Get face encodings and landmarks
         print("Encoding faces...")
@@ -3478,60 +3513,30 @@ def process_face_recognition(image_path, attendance_type='class', class_id=None,
         print(f"Generated {len(face_encodings)} face encoding(s)")
         
         if not face_encodings:
-            return {
+            return _with_anti({
                 'success': False,
                 'message': 'Could not encode face',
                 'student_id': 'Unknown',
                 'student_name': 'Unknown'
-            }
-        
-        # Perform anti-spoofing check
-        anti_spoofing_result = {'is_live': True, 'confidence': 1.0, 'details': 'Anti-spoofing disabled'}
-        if ANTI_SPOOFING_AVAILABLE and face_landmarks:
-            print("Performing anti-spoofing analysis...")
-            anti_spoofing_result = anti_spoofing_detector.comprehensive_anti_spoofing_check(
-                rgb_image, face_landmarks[0], face_locations[0]
-            )
-            print(f"Anti-spoofing result: {anti_spoofing_result['details']}")
-            
-            # Check if face passes anti-spoofing
-            if not anti_spoofing_result['is_live']:
-                return {
+            })
+
+        # Run anti-spoofing check before matching
+        if ANTI_SPOOFING_AVAILABLE:
+            try:
+                anti_result = anti_spoofing_detector.comprehensive_anti_spoofing_check(
+                    image,
+                    face_landmarks[0] if face_landmarks else None,
+                    face_locations[0]
+                )
+            except Exception as anti_err:
+                print(f"Anti-spoofing failed: {anti_err}")
+                anti_result = {
                     'success': False,
-                    'message': f"Spoofing attempt detected! {anti_spoofing_result['details']}",
-                    'student_id': 'SPOOFING_DETECTED',
-                    'student_name': 'Spoofing Attempt',
-                    'anti_spoofing': anti_spoofing_result
+                    'is_live': False,
+                    'confidence': 0.0,
+                    'details': f'Anti-spoofing error: {anti_err}',
+                    'checks': {}
                 }
-        
-        # Calculate real liveness detection metrics
-        eye_ratio = 0.0
-        nose_motion = 0.0
-        
-        if face_landmarks:
-            landmarks = face_landmarks[0]  # Get landmarks for the first face
-            
-            # Calculate Eye Aspect Ratio (EAR) for blink detection
-            if 'left_eye' in landmarks and 'right_eye' in landmarks:
-                left_eye = landmarks['left_eye']
-                right_eye = landmarks['right_eye']
-                
-                # Calculate EAR for both eyes
-                left_ear = calculate_ear(left_eye)
-                right_ear = calculate_ear(right_eye)
-                eye_ratio = (left_ear + right_ear) / 2.0
-                
-                print(f"Eye Aspect Ratio: {eye_ratio}")
-            
-            # Calculate nose motion (simplified - using nose tip position)
-            if 'nose_tip' in landmarks:
-                nose_tip = landmarks['nose_tip']
-                if len(nose_tip) > 0:
-                    # Use nose tip position as motion indicator
-                    nose_motion = len(nose_tip) * 2.0  # Simplified motion calculation
-                    print(f"Nose motion: {nose_motion}")
-        
-        print(f"Liveness metrics - Eye ratio: {eye_ratio}, Nose motion: {nose_motion}")
         
         # Compare with known faces
         print("Comparing with known faces...")
@@ -3577,7 +3582,7 @@ def process_face_recognition(image_path, attendance_type='class', class_id=None,
         # Additional validation: if no one has been checked or best_distance is still infinity, no match
         if best_match is None or best_distance == float('inf'):
             print("No valid faces to compare against")
-            return {
+            return _with_anti({
                 'success': False,
                 'message': f'No registered {person_type}s with valid face data found',
                 'student_id': 'Unknown',
@@ -3588,7 +3593,7 @@ def process_face_recognition(image_path, attendance_type='class', class_id=None,
                     'width': int(face_locations[0][1] - face_locations[0][3]),
                     'height': int(face_locations[0][2] - face_locations[0][0])
                 }
-            }
+            })
         
         # Get face location coordinates for drawing box
         # Use landmarks for more accurate face bounding box (like real-world systems)
@@ -3641,6 +3646,19 @@ def process_face_recognition(image_path, attendance_type='class', class_id=None,
                 'width': int(right - left),
                 'height': int(bottom - top)
             }
+
+        # Enforce liveness/anti-spoofing before accepting any match
+        MIN_LIVE_CONFIDENCE = 0.42
+        if ANTI_SPOOFING_AVAILABLE:
+            if not anti_result.get('is_live') or anti_result.get('confidence', 0) < MIN_LIVE_CONFIDENCE:
+                print("Anti-spoofing blocked attempt (not live)")
+                return _with_anti({
+                    'success': False,
+                    'message': 'Anti-spoofing blocked this attempt. Please present a live face (no photos or screens).',
+                    'student_id': 'Unknown',
+                    'student_name': 'Unknown',
+                    'face_box': face_box
+                })
         
         if best_match and best_distance <= MATCH_TOLERANCE:
             confidence = int((1 - best_distance) * 100)  # Convert distance to confidence percentage
@@ -3649,67 +3667,89 @@ def process_face_recognition(image_path, attendance_type='class', class_id=None,
             MIN_CONFIDENCE = 50
             if confidence < MIN_CONFIDENCE:
                 print(f"Match rejected: confidence {confidence}% is below minimum {MIN_CONFIDENCE}%")
-                return {
+                return _with_anti({
                     'success': False,
                     'message': f'Face detected but confidence too low ({confidence}%). Please ensure proper lighting and face the camera directly.',
                     'student_id': 'Unknown',
                     'student_name': 'Unknown',
                     'distance': float(best_distance),
                     'confidence': confidence,
-                    'face_box': face_box,
-                    'eye_ratio': float(eye_ratio),
-                    'nose_motion': float(nose_motion)
-                }
+                    'face_box': face_box
+                })
             
             print(f"Match accepted! Confidence: {confidence}%")
             
             # For events, use user_id; for classes, use student_id (keep backward compatibility)
             person_id = int(best_match['user_id']) if attendance_type == 'event' else int(best_match['person_id'])
             
-            return {
+            return _with_anti({
                 'success': True,
                 'student_id': person_id,  # Keep 'student_id' key for backward compatibility
                 'student_name': f"{best_match['firstname']} {best_match['lastname']}",
                 'distance': float(best_distance),
                 'confidence': confidence,
-                'face_box': face_box,  # Add face location for drawing box
-                'eye_ratio': float(eye_ratio),  # Real eye aspect ratio
-                'nose_motion': float(nose_motion),  # Real nose motion
-                'anti_spoofing': {
-                    'is_live': bool(anti_spoofing_result.get('is_live', True)),
-                    'confidence': float(anti_spoofing_result.get('confidence', 1.0)),
-                    'details': str(anti_spoofing_result.get('details', 'Anti-spoofing disabled'))
-                }
-            }
+                'face_box': face_box  # Add face location for drawing box
+            })
         else:
             print("No match found")
-            return {
+            return _with_anti({
                 'success': False,
                 'message': f'No matching {person_type} found',
                 'student_id': 'Unknown',
                 'student_name': 'Unknown',
                 'distance': float(best_distance if best_match else 999.0),  # Use 999.0 instead of float('inf')
                 'confidence': 0,
-                'face_box': face_box,  # Still provide face box even if no match
-                'eye_ratio': float(eye_ratio),
-                'nose_motion': float(nose_motion),
-                'anti_spoofing': {
-                    'is_live': bool(anti_spoofing_result.get('is_live', True)),
-                    'confidence': float(anti_spoofing_result.get('confidence', 1.0)),
-                    'details': str(anti_spoofing_result.get('details', 'Anti-spoofing disabled'))
-                }
-            }
+                'face_box': face_box  # Still provide face box even if no match
+            })
             
     except Exception as e:
         print(f"Error in process_face_recognition: {str(e)}")
         import traceback
         traceback.print_exc()
-        return {
+        return _with_anti({
             'success': False,
             'message': f'Recognition error: {str(e)}',
             'student_id': 'Unknown',
             'student_name': 'Unknown'
-        }
+        })
+
+@app.route('/api/anti-spoofing/analyze', methods=['POST'])
+def api_anti_spoofing_analyze():
+    """Run anti-spoofing on a single frame (used by frontend status widget)."""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    if not ANTI_SPOOFING_AVAILABLE:
+        return jsonify({'success': False, 'message': 'Anti-spoofing not available'}), 503
+    
+    file = request.files.get('image')
+    if not file:
+        return jsonify({'success': False, 'message': 'No image provided'}), 400
+    
+    raw = file.read()
+    if len(raw) > 5 * 1024 * 1024:
+        return jsonify({'success': False, 'message': 'File too large'}), 400
+    
+    np_data = np.frombuffer(raw, np.uint8)
+    image = cv2.imdecode(np_data, cv2.IMREAD_COLOR)
+    if image is None:
+        return jsonify({'success': False, 'message': 'Could not decode image'}), 400
+    
+    result = anti_spoofing_detector.comprehensive_anti_spoofing_check(image)
+    return jsonify(result)
+
+
+@app.route('/api/anti-spoofing/reset', methods=['POST'])
+def api_anti_spoofing_reset():
+    """Reset rolling anti-spoofing state (motion history) and cached live check."""
+    if 'user_id' not in session:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+    
+    if ANTI_SPOOFING_AVAILABLE:
+        anti_spoofing_detector.reset_state()
+    session.pop('last_live_check', None)
+    
+    return jsonify({'success': True, 'message': 'Anti-spoofing state cleared'})
+
 
 @app.route('/api/attendance/detect', methods=['POST'])
 def api_attendance_detect():
@@ -3789,6 +3829,20 @@ def api_attendance_detect():
         print(f"Processing face recognition for image: {filepath}, type: {attendance_type}")
         result = process_face_recognition(filepath, attendance_type=attendance_type, class_id=class_id, event_id=event_id)
         print(f"Recognition result: {result}")
+
+        # Persist recent liveness check for the specific target to guard the mark endpoints
+        anti_result = result.get('anti_spoofing', {})
+        if result.get('success') and anti_result and anti_result.get('is_live'):
+            session['last_live_check'] = {
+                'person_id': str(result.get('student_id')),
+                'attendance_type': attendance_type,
+                'class_id': str(class_id) if class_id else None,
+                'event_id': str(event_id) if event_id else None,
+                'is_live': True,
+                'confidence': anti_result.get('confidence'),
+                'timestamp': time.time()
+            }
+            session.modified = True
         
         return jsonify(result)
         
@@ -3920,35 +3974,15 @@ def api_attendance_mark():
         student_id = data.get('student_id')
         student_name = data.get('student_name')
         class_id = data.get('class_id')
-        anti_spoofing_data = data.get('anti_spoofing', {})
         
         print(f"Student ID: {student_id}, Student Name: {student_name}, Class ID: {class_id}")
         
         if not student_id or not student_name or not class_id:
             return jsonify({'success': False, 'message': 'Missing student or class information'}), 400
-        
-        # Check for spoofing attempts
-        if student_id == 'SPOOFING_DETECTED':
-            print("⚠️ Spoofing attempt blocked!")
-            return jsonify({
-                'success': False, 
-                'message': 'Spoofing attempt detected! Please try again with a live face.',
-                'spoofing_detected': True
-            }), 403
-        
-        # Validate anti-spoofing results if available
-        if ANTI_SPOOFING_AVAILABLE and anti_spoofing_data:
-            is_live = anti_spoofing_data.get('is_live', True)
-            confidence = anti_spoofing_data.get('confidence', 1.0)
-            
-            if not is_live or confidence < 0.5:
-                print(f"⚠️ Anti-spoofing failed: live={is_live}, confidence={confidence}")
-                return jsonify({
-                    'success': False,
-                    'message': f'Anti-spoofing check failed. Confidence: {confidence:.1%}',
-                    'spoofing_detected': True,
-                    'anti_spoofing_details': anti_spoofing_data.get('details', 'Low confidence score')
-                }), 403
+
+        is_live_ok, live_message = require_recent_live_check(student_id, 'class', class_id=class_id)
+        if not is_live_ok:
+            return jsonify({'success': False, 'message': live_message, 'error_code': 'LIVENESS_REQUIRED'}), 403
         
         # Mark attendance in database
         conn = get_db_connection()
@@ -4104,6 +4138,8 @@ def api_attendance_mark():
         else:
             message = f'Attendance marked for {student_name}'
         
+        session.pop('last_live_check', None)
+
         return jsonify({
             'success': True,
             'message': message,
@@ -4882,6 +4918,10 @@ def api_event_attendance_mark():
         
         if not event_id:
             return jsonify({'success': False, 'message': 'Event ID required'}), 400
+
+        is_live_ok, live_message = require_recent_live_check(person_id, 'event', event_id=event_id)
+        if not is_live_ok:
+            return jsonify({'success': False, 'message': live_message, 'error_code': 'LIVENESS_REQUIRED'}), 403
         
         conn = get_db_connection()
         
@@ -4966,6 +5006,8 @@ def api_event_attendance_mark():
         conn.commit()
         conn.close()
         
+        session.pop('last_live_check', None)
+
         return jsonify({
             'success': True,
             'message': f'Attendance marked for {user["firstname"]} {user["lastname"]}'
@@ -7394,103 +7436,6 @@ def faculty_reports_export(fmt):
             
     except Exception as e:
         return jsonify({'error': f'Export failed: {str(e)}'}), 500
-
-@app.route('/api/anti-spoofing/analyze', methods=['POST'])
-def api_anti_spoofing_analyze():
-    """Dedicated endpoint for anti-spoofing analysis"""
-    if 'user_id' not in session:
-        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
-    
-    filepath = None
-    try:
-        # Get the uploaded image
-        if 'image' not in request.files:
-            return jsonify({'success': False, 'message': 'No image provided'}), 400
-        
-        file = request.files['image']
-        if file.filename == '':
-            return jsonify({'success': False, 'message': 'No image selected'}), 400
-        
-        # Save the image temporarily
-        import uuid
-        safe_filename = f"antispoofing_{session['user_id']}_{uuid.uuid4().hex[:8]}.jpg"
-        filepath = os.path.join('temp', safe_filename)
-        os.makedirs('temp', mode=0o755, exist_ok=True)
-        
-        # Validate file size
-        file.seek(0, os.SEEK_END)
-        file_size = file.tell()
-        file.seek(0)
-        
-        if file_size > 10 * 1024 * 1024:  # 10MB limit
-            return jsonify({'success': False, 'message': 'File too large'}), 400
-        
-        file.save(filepath)
-        
-        # Check if anti-spoofing is available
-        if not ANTI_SPOOFING_AVAILABLE:
-            return jsonify({
-                'success': False, 
-                'message': 'Anti-spoofing module not available',
-                'is_live': True,  # Default to allowing if module unavailable
-                'confidence': 0.5
-            })
-        
-        # Load and process the image
-        image = cv2.imread(filepath)
-        if image is None:
-            return jsonify({'success': False, 'message': 'Could not load image'}), 400
-        
-        # Convert to RGB
-        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        
-        # Detect faces
-        if FACE_RECOGNITION_AVAILABLE:
-            face_locations = face_recognition.face_locations(rgb_image, model="hog")
-            face_landmarks = face_recognition.face_landmarks(rgb_image, face_locations)
-        else:
-            return jsonify({'success': False, 'message': 'Face detection not available'}), 400
-        
-        if not face_locations or not face_landmarks:
-            return jsonify({'success': False, 'message': 'No face detected'}), 400
-        
-        # Perform anti-spoofing analysis
-        anti_spoofing_result = anti_spoofing_detector.comprehensive_anti_spoofing_check(
-            rgb_image, face_landmarks[0], face_locations[0]
-        )
-        
-        return jsonify({
-            'success': True,
-            'is_live': anti_spoofing_result['is_live'],
-            'confidence': anti_spoofing_result['confidence'],
-            'details': anti_spoofing_result['details'],
-            'checks': anti_spoofing_result['checks']
-        })
-        
-    except Exception as e:
-        return jsonify({'success': False, 'message': f'Analysis error: {str(e)}'}), 500
-    finally:
-        # Clean up temp file
-        if filepath and os.path.exists(filepath):
-            try:
-                os.remove(filepath)
-            except Exception as e:
-                print(f"Warning: Failed to clean up temp file {filepath}: {e}")
-
-@app.route('/api/anti-spoofing/reset', methods=['POST'])
-def api_anti_spoofing_reset():
-    """Reset anti-spoofing detector state"""
-    if 'user_id' not in session:
-        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
-    
-    try:
-        if ANTI_SPOOFING_AVAILABLE:
-            anti_spoofing_detector.reset_state()
-            return jsonify({'success': True, 'message': 'Anti-spoofing state reset'})
-        else:
-            return jsonify({'success': False, 'message': 'Anti-spoofing not available'})
-    except Exception as e:
-        return jsonify({'success': False, 'message': f'Reset error: {str(e)}'}), 500
 
 # ==================== SYSTEM CONFIGURATION MODULE ====================
 
