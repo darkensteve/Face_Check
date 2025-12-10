@@ -333,6 +333,7 @@
         let currentFaceBox = null; // Store current face detection box
         let targetFaceBox = null; // Target box position
         let animationFrameId = null; // For smooth 60fps animation
+        let lastAntiNotification = 0; // Throttle anti-spoofing warning toasts
         
         // Face recognition parameters (from face_recog_test.py)
         const MATCH_TOLERANCE = 0.62;
@@ -773,7 +774,11 @@
                 const reason = anti.details || 'Anti-spoofing blocked this attempt';
                 document.getElementById('recognitionStatus').textContent = reason;
                 document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-red-500 rounded-full';
-                showEnhancedNotification('Anti-spoofing active', reason, 'warning');
+                const now = Date.now();
+                if (now - lastAntiNotification > 2000) { // show at most once every 2s
+                    showEnhancedNotification('Anti-spoofing active', reason, 'warning');
+                    lastAntiNotification = now;
+                }
                 clearFaceBox();
                 currentStudent = null;
                 missedDetections = 0;

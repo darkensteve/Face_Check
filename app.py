@@ -4762,7 +4762,7 @@ def api_students_by_class(class_id):
     conn = get_db_connection()
     
     students = conn.execute('''
-        SELECT s.student_id, u.firstname, u.lastname, u.email
+        SELECT s.student_id, u.firstname, u.lastname, u.idno
         FROM student_class sc
         JOIN student s ON sc.student_id = s.student_id
         JOIN user u ON s.user_id = u.user_id
@@ -4775,7 +4775,7 @@ def api_students_by_class(class_id):
     return jsonify([{
         'student_id': record['student_id'],
         'student_name': f"{record['firstname']} {record['lastname']}",
-        'email': record['email']
+        'idno': record['idno']
     } for record in students])
 
 @app.route('/api/faculty/classes')

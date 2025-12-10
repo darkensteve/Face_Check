@@ -85,9 +85,18 @@ class AntiSpoofingDetector:
         hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
         saturation = hsv[:, :, 1] / 255.0
         sat_std = float(np.std(saturation))
-        # More lenient: lower threshold (0.05 instead of 0.08)
-        score = float(np.clip((sat_std - 0.05) / 0.3, 0.0, 1.0))
+        # Slightly stricter color variation requirement to avoid flat prints
+        score = float(np.clip((sat_std - 0.08) / 0.3, 0.0, 1.0))
         return score, sat_std
+
+    def _illumination_check(self, gray: np.ndarray) -> Tuple[bool, float, float]:
+        """Detect very dark or flat lighting where spoof checks are unreliable."""
+        brightness = float(np.mean(gray))
+        contrast = float(np.std(gray))
+        # Only block VERY dark or VERY flat (photos/videos often have low contrast)
+        # Allow reasonable lighting conditions to pass
+        low_light = brightness < 40 or contrast < 15
+        return low_light, brightness, contrast
 
     def _edge_screen_check(self, gray: np.ndarray) -> Tuple[bool, float, float]:
         edges = cv2.Canny(gray, 70, 200)
@@ -231,50 +240,52 @@ class AntiSpoofingDetector:
             blink_score, ear = self._blink_score(face_landmarks)
             strong_border, edge_density, border_ratio = self._edge_screen_check(gray)
             has_specular, specular_ratio = self._specular_reflection_check(face_roi)
+            low_light, brightness, contrast = self._illumination_check(gray)
             temporal_score, landmark_movement = self._temporal_consistency_check(face_landmarks)
 
-            # Balanced weights: favor texture and motion, but not too strict
+            # Balanced weights: favor texture and motion
             confidence = (
                 0.28 * texture_score
-                + 0.18 * freq_score
+                + 0.20 * freq_score
                 + 0.18 * color_score
-                + 0.26 * motion_score  # Important but not dominant
-                + 0.10 * blink_score
-                + 0.00 * temporal_score  # Don't weight temporal - use as optional check
+                + 0.24 * motion_score  # Keep motion important
+                + 0.08 * blink_score
+                + 0.02 * temporal_score  # small weight to landmark motion
             )
             confidence = float(round(confidence, 4))
 
-            # More lenient thresholds - balance between security and usability
-            min_confidence = 0.42  # Lowered from 0.50
-            min_frames_required = 2  # Reduced from 3 - allow faster acceptance
+            # Balanced thresholds - block spoofs but allow legitimate faces
+            min_confidence = 0.45  # Lowered to allow good faces with decent lighting
+            min_frames_required = 2  # Allow faster acceptance
             
-            # More lenient motion requirements
+            # Reasonable motion requirements - not too strict
             has_good_motion = motion_score >= 0.12 or (motion_score >= 0.08 and len(self.motion_history) >= 3)
-            has_temporal_change = temporal_score >= 0.10 or landmark_movement > 1.5  # Lower threshold
+            has_temporal_change = temporal_score >= 0.10 or landmark_movement > 1.5  # More reasonable movement
             
-            # Calculate individual scores check (used in both logic and details)
+            # Calculate individual scores check - flexible OR logic
             has_good_individual_scores = (
-                (freq_score >= 0.18 or texture_score >= 0.22)  # Lowered thresholds
-                and (motion_score >= 0.10 or len(self.motion_history) >= 4)  # More lenient motion
+                (freq_score >= 0.18 or texture_score >= 0.22)  # At least one texture/freq check passes
+                and (motion_score >= 0.10 or len(self.motion_history) >= 3)  # Some motion detected
             )
             
-            # Hard blocks ONLY for obvious spoofs (borders and specular reflections)
-            if strong_border or has_specular:
+            # Hard blocks ONLY for obvious spoofs or very unreliable conditions
+            if strong_border or has_specular or low_light:
                 is_live = False
             elif self.frame_count < min_frames_required:
-                # Too early - but only require 2 frames now
+                # Too early - need more frames
                 is_live = False
             elif len(self.motion_history) < min_frames_required:
                 # Not enough motion history
                 is_live = False
             else:
-                # More lenient: require confidence OR good individual scores
-                # Temporal consistency is optional (helps but not required)
+                # More flexible: pass if confidence is good OR individual scores are good
+                # Still require motion and block obvious spoofs
                 is_live = (
-                    (confidence >= min_confidence or has_good_individual_scores)
+                    (confidence >= min_confidence or has_good_individual_scores)  # Flexible: confidence OR good scores
                     and has_good_motion  # Still require some motion
                     and not strong_border
                     and not has_specular
+                    and not low_light
                 )
 
             details = "Live face confirmed" if is_live else "Spoofing pattern detected"
@@ -282,6 +293,8 @@ class AntiSpoofingDetector:
                 details = "Screen/print border detected - please use a live face"
             elif has_specular:
                 details = "Screen reflection detected - please use a live face, not a screen"
+            elif low_light:
+                details = "Environment too dark or low contrast - improve lighting"
             elif self.frame_count < min_frames_required:
                 details = f"Verifying... ({min_frames_required - self.frame_count} more frame(s))"
             elif len(self.motion_history) < min_frames_required:
@@ -307,6 +320,7 @@ class AntiSpoofingDetector:
                     "blink_detection": {"passed": blink_score >= 0.5, "score": blink_score, "ear": ear},
                     "border_screen": {"passed": not strong_border, "edge_density": edge_density, "border_ratio": border_ratio},
                     "specular_reflection": {"passed": not has_specular, "ratio": specular_ratio},
+                    "illumination": {"passed": not low_light, "brightness": brightness, "contrast": contrast},
                 },
             }
         except Exception as exc:
