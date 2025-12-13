@@ -732,7 +732,19 @@ def admin_users():
         ORDER BY u.created_at DESC
     ''').fetchall()
     
-    departments = conn.execute('SELECT * FROM department ORDER BY dept_name').fetchall()
+    # Get unique departments by name, using the minimum dept_id if duplicates exist
+    # Also exclude: Information Technology, Engineering, Computer Science, and duplicate Business Administration
+    departments = conn.execute('''
+        SELECT dept_id, dept_name 
+        FROM department 
+        WHERE dept_id IN (
+            SELECT MIN(dept_id) 
+            FROM department 
+            WHERE dept_name NOT IN ('Information Technology', 'Engineering', 'Computer Science')
+            GROUP BY dept_name
+        )
+        ORDER BY dept_name
+    ''').fetchall()
     courses = conn.execute('SELECT * FROM course ORDER BY course_name').fetchall()
     
     conn.close()
@@ -965,7 +977,19 @@ def edit_user(user_id):
         WHERE u.user_id = ?
     ''', (user_id,)).fetchone()
     
-    departments = conn.execute('SELECT * FROM department ORDER BY dept_name').fetchall()
+    # Get unique departments by name, using the minimum dept_id if duplicates exist
+    # Also exclude: Information Technology, Engineering, Computer Science, and duplicate Business Administration
+    departments = conn.execute('''
+        SELECT dept_id, dept_name 
+        FROM department 
+        WHERE dept_id IN (
+            SELECT MIN(dept_id) 
+            FROM department 
+            WHERE dept_name NOT IN ('Information Technology', 'Engineering', 'Computer Science')
+            GROUP BY dept_name
+        )
+        ORDER BY dept_name
+    ''').fetchall()
     courses = conn.execute('SELECT * FROM course ORDER BY course_name').fetchall()
     
     conn.close()
@@ -4009,19 +4033,6 @@ def api_attendance_mark():
         studentclass_id = student_class['studentclass_id']
         print(f"Found studentclass_id: {studentclass_id} for student_id: {student_id}")
 
-        # Restrict attendance to designated class days
-        current_day = datetime.now().strftime('%A')  # e.g., 'Monday'
-        allowed_days = conn.execute('''
-            SELECT d.day_name FROM class_days cd
-            JOIN days d ON cd.day_id = d.day_id
-            WHERE cd.class_id = ?
-        ''', (class_id,)).fetchall()
-        allowed_day_names = [row['day_name'] for row in allowed_days]
-        print(f"Allowed days for class {class_id}: {allowed_day_names}, today: {current_day}")
-        if current_day not in allowed_day_names:
-            conn.close()
-            return jsonify({'success': False, 'message': f'Attendance is not allowed today. This class is only scheduled on: {', '.join(allowed_day_names)}.'}), 403
-
         # Check if already marked today
         today = datetime.now().strftime('%Y-%m-%d')
         print(f"Checking for existing attendance on {today}")
@@ -4482,6 +4493,200 @@ def api_admin_attendance_override():
         
     except Exception as e:
         print(f"Error in admin attendance override: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/faculty/attendance/override', methods=['POST'])
+def api_faculty_attendance_override():
+    """Faculty override attendance by attendance_id (for their own classes)"""
+    if 'user_id' not in session or session.get('role') != 'faculty':
+        return jsonify({'success': False, 'message': 'Unauthorized - Faculty access required'}), 401
+    
+    try:
+        data = request.get_json()
+        attendance_id = data.get('attendance_id')
+        status = data.get('status', 'present')
+        reason = data.get('reason', 'Faculty override')
+        
+        if not attendance_id:
+            return jsonify({'success': False, 'message': 'Missing attendance ID'}), 400
+        
+        if status not in ['present', 'late', 'absent', 'excuse']:
+            return jsonify({'success': False, 'message': 'Invalid status. Must be present, late, absent, or excuse'}), 400
+        
+        conn = get_db_connection()
+        
+        # Get faculty_id
+        faculty = conn.execute('''
+            SELECT f.faculty_id FROM faculty f
+            WHERE f.user_id = ?
+        ''', (session['user_id'],)).fetchone()
+        
+        if not faculty:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Faculty record not found'}), 404
+        
+        faculty_id = faculty['faculty_id']
+        
+        # Get attendance record and verify faculty owns the class
+        attendance = conn.execute('''
+            SELECT a.*, sc.student_id, sc.class_id, s.user_id, u.firstname, u.lastname, c.class_name, c.faculty_id
+            FROM attendance a
+            JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+            JOIN student s ON sc.student_id = s.student_id
+            JOIN user u ON s.user_id = u.user_id
+            JOIN class c ON sc.class_id = c.class_id
+            WHERE a.attendance_id = ?
+        ''', (attendance_id,)).fetchone()
+        
+        if not attendance:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Attendance record not found'}), 404
+        
+        # Verify faculty owns this class
+        if attendance['faculty_id'] != faculty_id:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Unauthorized - You can only override attendance for your own classes'}), 403
+        
+        # Update attendance status
+        conn.execute('''
+            UPDATE attendance 
+            SET attendance_status = ?
+            WHERE attendance_id = ?
+        ''', (status, attendance_id))
+        
+        conn.commit()
+        conn.close()
+        
+        # Create notification for student
+        if NOTIFICATIONS_AVAILABLE:
+            try:
+                from notification_system import create_notification
+                current_time_str = datetime.now().strftime('%I:%M %p on %B %d, %Y')
+                class_name = attendance['class_name']
+                
+                if status == 'present':
+                    notification_msg = f'✅ Your attendance was manually updated to PRESENT for {class_name} at {current_time_str} by faculty.'
+                    create_notification(attendance['user_id'], notification_msg, 'attendance_override_present')
+                elif status == 'absent':
+                    notification_msg = f'❌ Your attendance was manually updated to ABSENT for {class_name} at {current_time_str} by faculty.'
+                    create_notification(attendance['user_id'], notification_msg, 'attendance_override_absent')
+                elif status == 'late':
+                    notification_msg = f'⚠️ Your attendance was manually updated to LATE for {class_name} at {current_time_str} by faculty.'
+                    create_notification(attendance['user_id'], notification_msg, 'attendance_override_late')
+                elif status == 'excuse':
+                    notification_msg = f'📝 Your attendance was manually updated to EXCUSE for {class_name} at {current_time_str} by faculty.'
+                    create_notification(attendance['user_id'], notification_msg, 'attendance_override_excuse')
+            except Exception as e:
+                print(f"Error creating override notification: {e}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Attendance updated to {status.title()}',
+            'attendance_id': attendance_id,
+            'status': status
+        })
+        
+    except Exception as e:
+        print(f"Error in faculty attendance override: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/faculty/event/attendance/override', methods=['POST'])
+def api_faculty_event_attendance_override():
+    """Faculty override event attendance by event_attend_id (for their own events)"""
+    if 'user_id' not in session or session.get('role') != 'faculty':
+        return jsonify({'success': False, 'message': 'Unauthorized - Faculty access required'}), 401
+    
+    try:
+        data = request.get_json()
+        event_attend_id = data.get('event_attend_id')
+        status = data.get('status', 'present')
+        reason = data.get('reason', 'Faculty override')
+        
+        if not event_attend_id:
+            return jsonify({'success': False, 'message': 'Missing event attendance ID'}), 400
+        
+        if status not in ['present', 'late', 'absent', 'excuse']:
+            return jsonify({'success': False, 'message': 'Invalid status. Must be present, late, absent, or excuse'}), 400
+        
+        conn = get_db_connection()
+        
+        # Get faculty_id
+        faculty = conn.execute('''
+            SELECT f.faculty_id FROM faculty f
+            WHERE f.user_id = ?
+        ''', (session['user_id'],)).fetchone()
+        
+        if not faculty:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Faculty record not found'}), 404
+        
+        faculty_id = faculty['faculty_id']
+        
+        # Get event attendance record and verify faculty owns or is assigned to the event
+        event_attendance = conn.execute('''
+            SELECT ea.*, e.event_name, e.faculty_id, u.user_id as attendee_user_id, u.firstname, u.lastname
+            FROM event_attendance ea
+            JOIN event e ON ea.event_id = e.event_id
+            JOIN user u ON ea.user_id = u.user_id
+            WHERE ea.event_attend_id = ?
+        ''', (event_attend_id,)).fetchone()
+        
+        if not event_attendance:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Event attendance record not found'}), 404
+        
+        # Verify faculty owns or is assigned to this event
+        is_organizer = event_attendance['faculty_id'] == faculty_id
+        is_assigned = conn.execute('''
+            SELECT 1 FROM event_faculty ef
+            WHERE ef.event_id = ? AND ef.faculty_id = ?
+        ''', (event_attendance['event_id'], faculty_id)).fetchone() is not None
+        
+        if not (is_organizer or is_assigned):
+            conn.close()
+            return jsonify({'success': False, 'message': 'Unauthorized - You can only override attendance for your own events'}), 403
+        
+        # Update event attendance status
+        conn.execute('''
+            UPDATE event_attendance 
+            SET status = ?
+            WHERE event_attend_id = ?
+        ''', (status, event_attend_id))
+        
+        conn.commit()
+        conn.close()
+        
+        # Create notification for attendee
+        if NOTIFICATIONS_AVAILABLE:
+            try:
+                from notification_system import create_notification
+                current_time_str = datetime.now().strftime('%I:%M %p on %B %d, %Y')
+                event_name = event_attendance['event_name']
+                
+                if status == 'present':
+                    notification_msg = f'✅ Your event attendance was manually updated to PRESENT for {event_name} at {current_time_str} by faculty.'
+                    create_notification(event_attendance['attendee_user_id'], notification_msg, 'event_attendance_override_present')
+                elif status == 'absent':
+                    notification_msg = f'❌ Your event attendance was manually updated to ABSENT for {event_name} at {current_time_str} by faculty.'
+                    create_notification(event_attendance['attendee_user_id'], notification_msg, 'event_attendance_override_absent')
+                elif status == 'late':
+                    notification_msg = f'⚠️ Your event attendance was manually updated to LATE for {event_name} at {current_time_str} by faculty.'
+                    create_notification(event_attendance['attendee_user_id'], notification_msg, 'event_attendance_override_late')
+                elif status == 'excuse':
+                    notification_msg = f'📝 Your event attendance was manually updated to EXCUSE for {event_name} at {current_time_str} by faculty.'
+                    create_notification(event_attendance['attendee_user_id'], notification_msg, 'event_attendance_override_excuse')
+            except Exception as e:
+                print(f"Error creating override notification: {e}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Event attendance updated to {status.title()}',
+            'event_attend_id': event_attend_id,
+            'status': status
+        })
+        
+    except Exception as e:
+        print(f"Error in faculty event attendance override: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/admin/attendance/export/<fmt>')
@@ -6563,6 +6768,9 @@ def faculty_attendance_records():
     class_page = request.args.get('page', 1, type=int) or 1
     if class_page < 1:
         class_page = 1
+    
+    # Date filter for class attendance
+    class_date_filter = request.args.get('class_date', type=str)
 
     if not selected_class_id and classes:
         selected_class_id = classes[0]['class_id']
@@ -6575,8 +6783,17 @@ def faculty_attendance_records():
     if selected_class_id:
         # Detailed attendance for the selected class
         offset = (class_page - 1) * class_page_size
-        rows = conn.execute('''
+        query_params = [faculty_id, selected_class_id]
+        date_filter_clause = ''
+        if class_date_filter:
+            date_filter_clause = 'AND DATE(a.attendance_date) = ?'
+            query_params.append(class_date_filter)
+        
+        query_params.extend([class_page_size + 1, offset])
+        
+        rows = conn.execute(f'''
             SELECT 
+                a.attendance_id,
                 DATE(a.attendance_date) AS date,
                 a.attendance_date,
                 a.attendance_status,
@@ -6590,9 +6807,10 @@ def faculty_attendance_records():
             JOIN class c ON sc.class_id = c.class_id
             WHERE c.faculty_id = ?
               AND c.class_id = ?
+              {date_filter_clause}
             ORDER BY a.attendance_date DESC
             LIMIT ? OFFSET ?
-        ''', (faculty_id, selected_class_id, class_page_size + 1, offset)).fetchall()
+        ''', tuple(query_params)).fetchall()
 
         if len(rows) > class_page_size:
             class_has_next = True
@@ -6613,6 +6831,7 @@ def faculty_attendance_records():
                     time_str = str(r['attendance_date'])
 
             class_attendance.append({
+                'attendance_id': r['attendance_id'],
                 'date': r['date'],
                 'time': time_str,
                 'status': r['attendance_status'],
@@ -6621,8 +6840,18 @@ def faculty_attendance_records():
             })
 
     # Event attendance for events this faculty organizes or is assigned to
-    event_rows = conn.execute('''
+    # Date filter for event attendance
+    event_date_filter = request.args.get('event_date', type=str)
+    
+    event_query_params = [faculty_id, faculty_id]
+    event_date_filter_clause = ''
+    if event_date_filter:
+        event_date_filter_clause = 'AND DATE(ea.attendance_time) = ?'
+        event_query_params.append(event_date_filter)
+    
+    event_rows = conn.execute(f'''
         SELECT 
+            ea.event_attend_id,
             e.event_name,
             DATE(e.event_date) AS event_date,
             ea.attendance_time,
@@ -6640,8 +6869,9 @@ def faculty_attendance_records():
                     SELECT ef.event_id FROM event_faculty ef WHERE ef.faculty_id = ?
               )
           )
+          {event_date_filter_clause}
         ORDER BY e.event_date DESC, ea.attendance_time DESC
-    ''', (faculty_id, faculty_id)).fetchall()
+    ''', tuple(event_query_params)).fetchall()
 
     event_attendance = []
     for r in event_rows:
@@ -6656,6 +6886,7 @@ def faculty_attendance_records():
                 time_str = str(r['attendance_time'])
 
         event_attendance.append({
+            'event_attend_id': r['event_attend_id'],
             'event_name': r['event_name'],
             'event_date': r['event_date'],
             'time': time_str,
@@ -6707,7 +6938,9 @@ def faculty_attendance_records():
         class_page_size=class_page_size,
         class_has_next=class_has_next,
         class_has_prev=class_has_prev,
+        class_date_filter=class_date_filter,
         event_attendance=event_attendance,
+        event_date_filter=event_date_filter,
         my_event_attendance=my_event_attendance,
     )
 

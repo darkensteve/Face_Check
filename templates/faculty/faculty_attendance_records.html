@@ -110,6 +110,10 @@
                                     {% endif %}
                                 </select>
                             </div>
+                            <div>
+                                <label for="class_date" class="block text-xs font-semibold text-gray-600 mb-1">Date Filter</label>
+                                <input type="date" id="class_date" name="class_date" value="{{ class_date_filter or '' }}" class="border rounded-lg px-3 py-2 text-sm">
+                            </div>
                             <div class="pt-5">
                                 <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm flex items-center">
                                     <i class="fas fa-sync-alt mr-2"></i>Load Records
@@ -128,25 +132,36 @@
                                     <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Class</th>
                                     <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Student</th>
                                     <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Action</th>
                                 </tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-100">
                                 {% for row in class_attendance %}
-                                <tr class="hover:bg-gray-50">
+                                <tr class="hover:bg-gray-50" data-attendance-id="{{ row.attendance_id }}">
                                     <td class="px-4 py-2 whitespace-nowrap text-gray-900">{{ row.date }}</td>
                                     <td class="px-4 py-2 whitespace-nowrap text-gray-700">{{ row.time }}</td>
                                     <td class="px-4 py-2 whitespace-nowrap text-gray-700">{{ row.class_name }}</td>
                                     <td class="px-4 py-2 whitespace-nowrap text-gray-900">{{ row.student_name }}</td>
                                     <td class="px-4 py-2 whitespace-nowrap">
-                                        {% if row.status == 'present' %}
-                                        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Present</span>
-                                        {% elif row.status == 'late' %}
-                                        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">Late</span>
-                                        {% elif row.status == 'excuse' %}
-                                        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">Excused</span>
-                                        {% else %}
-                                        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">{{ row.status.title() }}</span>
-                                        {% endif %}
+                                        <span class="status-badge inline-flex px-2 py-1 text-xs font-semibold rounded-full 
+                                            {% if row.status == 'present' %}bg-green-100 text-green-800
+                                            {% elif row.status == 'late' %}bg-yellow-100 text-yellow-800
+                                            {% elif row.status == 'excuse' %}bg-blue-100 text-blue-800
+                                            {% else %}bg-red-100 text-red-800{% endif %}">
+                                            {% if row.status == 'present' %}Present
+                                            {% elif row.status == 'late' %}Late
+                                            {% elif row.status == 'excuse' %}Excused
+                                            {% else %}{{ row.status.title() }}{% endif %}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-2 whitespace-nowrap">
+                                        <select class="attendance-override-select border rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                                                data-attendance-id="{{ row.attendance_id }}"
+                                                data-current-status="{{ row.status }}">
+                                            <option value="present" {% if row.status == 'present' %}selected{% endif %}>Present</option>
+                                            <option value="absent" {% if row.status == 'absent' %}selected{% endif %}>Absent</option>
+                                            <option value="excuse" {% if row.status == 'excuse' %}selected{% endif %}>Excuse</option>
+                                        </select>
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -157,14 +172,14 @@
                         <span class="text-sm text-gray-500">Page {{ class_page }} · showing up to {{ class_page_size }} records</span>
                         <div class="flex items-center space-x-2">
                             <a
-                                href="{{ url_for('faculty_attendance_records', class_id=selected_class_id, page=class_page-1) }}"
+                                href="{{ url_for('faculty_attendance_records', class_id=selected_class_id, page=class_page-1, class_date=class_date_filter or '') }}"
                                 class="px-3 py-1 border rounded-lg text-sm {% if not class_has_prev %}text-gray-400 border-gray-200 cursor-not-allowed{% else %}text-gray-700 hover:bg-gray-50 border-gray-300{% endif %}"
                                 {% if not class_has_prev %}aria-disabled="true" tabindex="-1"{% endif %}
                             >
                                 Prev
                             </a>
                             <a
-                                href="{{ url_for('faculty_attendance_records', class_id=selected_class_id, page=class_page+1) }}"
+                                href="{{ url_for('faculty_attendance_records', class_id=selected_class_id, page=class_page+1, class_date=class_date_filter or '') }}"
                                 class="px-3 py-1 border rounded-lg text-sm {% if not class_has_next %}text-gray-400 border-gray-200 cursor-not-allowed{% else %}text-gray-700 hover:bg-gray-50 border-gray-300{% endif %}"
                                 {% if not class_has_next %}aria-disabled="true" tabindex="-1"{% endif %}
                             >
@@ -195,6 +210,19 @@
                             </h3>
                             <p class="text-sm text-gray-600">Attendance for events you organize or are assigned to.</p>
                         </div>
+                        <form method="get" class="flex items-center space-x-3">
+                            <input type="hidden" name="class_id" value="{{ selected_class_id or '' }}">
+                            <input type="hidden" name="class_date" value="{{ class_date_filter or '' }}">
+                            <div>
+                                <label for="event_date" class="block text-xs font-semibold text-gray-600 mb-1">Date Filter</label>
+                                <input type="date" id="event_date" name="event_date" value="{{ event_date_filter or '' }}" class="border rounded-lg px-3 py-2 text-sm">
+                            </div>
+                            <div class="pt-5">
+                                <button type="submit" class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm flex items-center">
+                                    <i class="fas fa-filter mr-2"></i>Filter
+                                </button>
+                            </div>
+                        </form>
                     </div>
 
                     {% if event_attendance %}
@@ -207,11 +235,12 @@
                                     <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Time</th>
                                     <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Attendee</th>
                                     <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wider">Action</th>
                                 </tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-100">
                                 {% for row in event_attendance %}
-                                <tr class="hover:bg-gray-50">
+                                <tr class="hover:bg-gray-50" data-event-attend-id="{{ row.event_attend_id }}">
                                     <td class="px-4 py-2 whitespace-nowrap text-gray-900">{{ row.event_name }}</td>
                                     <td class="px-4 py-2 whitespace-nowrap text-gray-700">{{ row.event_date }}</td>
                                     <td class="px-4 py-2 whitespace-nowrap text-gray-700">{{ row.time }}</td>
@@ -222,15 +251,25 @@
                                         {% endif %}
                                     </td>
                                     <td class="px-4 py-2 whitespace-nowrap">
-                                        {% if row.status == 'present' %}
-                                        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Present</span>
-                                        {% elif row.status == 'late' %}
-                                        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">Late</span>
-                                        {% elif row.status == 'excuse' %}
-                                        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">Excused</span>
-                                        {% else %}
-                                        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">{{ row.status.title() }}</span>
-                                        {% endif %}
+                                        <span class="event-status-badge inline-flex px-2 py-1 text-xs font-semibold rounded-full 
+                                            {% if row.status == 'present' %}bg-green-100 text-green-800
+                                            {% elif row.status == 'late' %}bg-yellow-100 text-yellow-800
+                                            {% elif row.status == 'excuse' %}bg-blue-100 text-blue-800
+                                            {% else %}bg-red-100 text-red-800{% endif %}">
+                                            {% if row.status == 'present' %}Present
+                                            {% elif row.status == 'late' %}Late
+                                            {% elif row.status == 'excuse' %}Excused
+                                            {% else %}{{ row.status.title() }}{% endif %}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-2 whitespace-nowrap">
+                                        <select class="event-attendance-override-select border rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" 
+                                                data-event-attend-id="{{ row.event_attend_id }}"
+                                                data-current-status="{{ row.status }}">
+                                            <option value="present" {% if row.status == 'present' %}selected{% endif %}>Present</option>
+                                            <option value="absent" {% if row.status == 'absent' %}selected{% endif %}>Absent</option>
+                                            <option value="excuse" {% if row.status == 'excuse' %}selected{% endif %}>Excuse</option>
+                                        </select>
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -299,6 +338,184 @@
             </main>
         </div>
     </div>
+
+    <script>
+        // Handle class attendance override
+        document.addEventListener('DOMContentLoaded', function() {
+            const classOverrideSelects = document.querySelectorAll('.attendance-override-select');
+            classOverrideSelects.forEach(select => {
+                select.addEventListener('change', function() {
+                    const attendanceId = this.dataset.attendanceId;
+                    const newStatus = this.value;
+                    const currentStatus = this.dataset.currentStatus;
+                    const row = this.closest('tr');
+                    const statusBadge = row.querySelector('.status-badge');
+                    
+                    // Don't do anything if status hasn't changed
+                    if (newStatus === currentStatus) {
+                        return;
+                    }
+                    
+                    // Disable select while processing
+                    this.disabled = true;
+                    
+                    // Show loading state
+                    const originalValue = this.value;
+                    this.style.opacity = '0.6';
+                    
+                    fetch('/api/faculty/attendance/override', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            attendance_id: parseInt(attendanceId),
+                            status: newStatus,
+                            reason: 'Faculty override from attendance records'
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // Update status badge
+                            statusBadge.className = 'status-badge inline-flex px-2 py-1 text-xs font-semibold rounded-full ';
+                            statusBadge.textContent = newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
+                            
+                            if (newStatus === 'present') {
+                                statusBadge.className += 'bg-green-100 text-green-800';
+                            } else if (newStatus === 'absent') {
+                                statusBadge.className += 'bg-red-100 text-red-800';
+                            } else if (newStatus === 'excuse') {
+                                statusBadge.className += 'bg-blue-100 text-blue-800';
+                            } else {
+                                statusBadge.className += 'bg-yellow-100 text-yellow-800';
+                            }
+                            
+                            // Update current status
+                            this.dataset.currentStatus = newStatus;
+                            
+                            // Show success message
+                            showNotification('Attendance updated successfully', 'success');
+                        } else {
+                            // Revert select value
+                            this.value = currentStatus;
+                            showNotification(data.message || 'Failed to update attendance', 'error');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        // Revert select value
+                        this.value = currentStatus;
+                        showNotification('An error occurred while updating attendance', 'error');
+                    })
+                    .finally(() => {
+                        // Re-enable select
+                        this.disabled = false;
+                        this.style.opacity = '1';
+                    });
+                });
+            });
+            
+            // Handle event attendance override
+            const eventOverrideSelects = document.querySelectorAll('.event-attendance-override-select');
+            eventOverrideSelects.forEach(select => {
+                select.addEventListener('change', function() {
+                    const eventAttendId = this.dataset.eventAttendId;
+                    const newStatus = this.value;
+                    const currentStatus = this.dataset.currentStatus;
+                    const row = this.closest('tr');
+                    const statusBadge = row.querySelector('.event-status-badge');
+                    
+                    // Don't do anything if status hasn't changed
+                    if (newStatus === currentStatus) {
+                        return;
+                    }
+                    
+                    // Disable select while processing
+                    this.disabled = true;
+                    
+                    // Show loading state
+                    this.style.opacity = '0.6';
+                    
+                    fetch('/api/faculty/event/attendance/override', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            event_attend_id: parseInt(eventAttendId),
+                            status: newStatus,
+                            reason: 'Faculty override from attendance records'
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // Update status badge
+                            statusBadge.className = 'event-status-badge inline-flex px-2 py-1 text-xs font-semibold rounded-full ';
+                            statusBadge.textContent = newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
+                            
+                            if (newStatus === 'present') {
+                                statusBadge.className += 'bg-green-100 text-green-800';
+                            } else if (newStatus === 'absent') {
+                                statusBadge.className += 'bg-red-100 text-red-800';
+                            } else if (newStatus === 'excuse') {
+                                statusBadge.className += 'bg-blue-100 text-blue-800';
+                            } else {
+                                statusBadge.className += 'bg-yellow-100 text-yellow-800';
+                            }
+                            
+                            // Update current status
+                            this.dataset.currentStatus = newStatus;
+                            
+                            // Show success message
+                            showNotification('Event attendance updated successfully', 'success');
+                        } else {
+                            // Revert select value
+                            this.value = currentStatus;
+                            showNotification(data.message || 'Failed to update event attendance', 'error');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        // Revert select value
+                        this.value = currentStatus;
+                        showNotification('An error occurred while updating event attendance', 'error');
+                    })
+                    .finally(() => {
+                        // Re-enable select
+                        this.disabled = false;
+                        this.style.opacity = '1';
+                    });
+                });
+            });
+        });
+        
+        // Simple notification function
+        function showNotification(message, type) {
+            // Remove existing notifications
+            const existing = document.querySelector('.notification-toast');
+            if (existing) {
+                existing.remove();
+            }
+            
+            // Create notification element
+            const notification = document.createElement('div');
+            notification.className = `notification-toast fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50 ${
+                type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+            }`;
+            notification.textContent = message;
+            
+            document.body.appendChild(notification);
+            
+            // Remove after 3 seconds
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                notification.style.transition = 'opacity 0.3s';
+                setTimeout(() => notification.remove(), 300);
+            }, 3000);
+        }
+    </script>
 </body>
 </html>
 
