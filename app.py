@@ -367,10 +367,16 @@ def validate_input(data, field_type='text', min_len=1, max_len=255):
         if not data.replace('-', '').replace('_', '').isalnum():
             return False, "ID number can only contain letters, numbers, hyphens, and underscores"
     elif field_type == 'name':
-        # Only allow letters, spaces, and common name characters
+        # Allow letters (including unicode/international characters), spaces, and common name characters
+        # This supports names from different cultures and languages
         import re
-        if not re.match(r'^[a-zA-Z\s\.\-\']+$', data):
-            return False, "Names can only contain letters, spaces, periods, hyphens, and apostrophes"
+        # Block only dangerous characters that could be used for injection attacks
+        # Allow unicode letters, spaces, periods, hyphens, apostrophes, and other common name characters
+        if re.search(r'[<>{}[\]\\|`~;$&]', data):
+            return False, "Names cannot contain special characters like < > { } [ ] \\ | ` ~ ; $ &"
+        # Ensure the name contains at least some letters (not just symbols/numbers)
+        if not re.search(r'[a-zA-Z\u00C0-\u017F\u0180-\u024F\u1E00-\u1EFF]', data):
+            return False, "Names must contain at least one letter"
     elif field_type == 'role':
         if data not in ['admin', 'faculty', 'student']:
             return False, "Invalid role"
@@ -2386,6 +2392,7 @@ def my_classes():
         LEFT JOIN class_days cd ON cl.class_id = cd.class_id
         LEFT JOIN days d ON cd.day_id = d.day_id
         WHERE sc.student_id = ?
+          AND cl.is_active = 1
         GROUP BY cl.class_id, cl.class_name, cl.edpcode, cl.start_time, cl.end_time, cl.room,
                  u_f.firstname, u_f.lastname
         ORDER BY cl.class_name
@@ -3987,21 +3994,34 @@ def api_attendance_mark():
         # Mark attendance in database
         conn = get_db_connection()
         print("Database connection established")
-        
+
         # Get the correct studentclass_id for this student and class
         student_class = conn.execute('''
             SELECT sc.studentclass_id FROM student_class sc
             WHERE sc.student_id = ? AND sc.class_id = ?
         ''', (student_id, class_id)).fetchone()
-        
+
         if not student_class:
             print(f"No student_class found for student_id: {student_id}")
             conn.close()
             return jsonify({'success': False, 'message': 'Student not enrolled in any class'})
-        
+
         studentclass_id = student_class['studentclass_id']
         print(f"Found studentclass_id: {studentclass_id} for student_id: {student_id}")
-        
+
+        # Restrict attendance to designated class days
+        current_day = datetime.now().strftime('%A')  # e.g., 'Monday'
+        allowed_days = conn.execute('''
+            SELECT d.day_name FROM class_days cd
+            JOIN days d ON cd.day_id = d.day_id
+            WHERE cd.class_id = ?
+        ''', (class_id,)).fetchall()
+        allowed_day_names = [row['day_name'] for row in allowed_days]
+        print(f"Allowed days for class {class_id}: {allowed_day_names}, today: {current_day}")
+        if current_day not in allowed_day_names:
+            conn.close()
+            return jsonify({'success': False, 'message': f'Attendance is not allowed today. This class is only scheduled on: {', '.join(allowed_day_names)}.'}), 403
+
         # Check if already marked today
         today = datetime.now().strftime('%Y-%m-%d')
         print(f"Checking for existing attendance on {today}")
@@ -4009,29 +4029,29 @@ def api_attendance_mark():
             SELECT attendance_id FROM attendance 
             WHERE studentclass_id = ? AND DATE(attendance_date) = ?
         ''', (studentclass_id, today)).fetchone()
-        
+
         if existing:
             print("Already marked today")
             conn.close()
             return jsonify({'success': False, 'message': 'Already marked today'})
-        
+
         # Determine attendance status based on class schedule and late threshold
         from settings_helper import get_late_threshold
         late_threshold_minutes = get_late_threshold()
-        
+
         # Get class schedule to check if student is late
         class_info = conn.execute('''
             SELECT start_time FROM class WHERE class_id = ?
         ''', (class_id,)).fetchone()
-        
+
         attendance_status = 'present'  # Default status
-        
+
         if class_info and class_info['start_time']:
             try:
                 # Parse start_time (format: "HH:MM" or "HH:MM:SS")
                 start_time_str = class_info['start_time'].strip()
                 current_datetime = datetime.now()
-                
+
                 # Try to parse the start time
                 try:
                     # Try HH:MM:SS format first
@@ -4043,14 +4063,14 @@ def api_attendance_mark():
                     except ValueError:
                         # If parsing fails, default to present
                         scheduled_time = None
-                
+
                 if scheduled_time:
                     # Combine today's date with scheduled time
                     scheduled_datetime = datetime.combine(current_datetime.date(), scheduled_time)
-                    
+
                     # Calculate time difference in minutes
                     time_diff_minutes = (current_datetime - scheduled_datetime).total_seconds() / 60
-                    
+
                     # Check if student is late (arrived after schedule + threshold)
                     if time_diff_minutes > late_threshold_minutes:
                         attendance_status = 'late'
@@ -4061,7 +4081,7 @@ def api_attendance_mark():
                 print(f"Error determining late status: {e}")
                 # Default to present if there's an error
                 attendance_status = 'present'
-        
+
         # Insert attendance record with determined status
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         print(f"Inserting attendance record: studentclass_id={studentclass_id}, time={current_time}, status={attendance_status}")

@@ -1115,82 +1115,54 @@
                 console.log('No class selected, cannot load attendance data');
                 return;
             }
-            
             try {
-                // Load today's attendance records first (this always works)
+                // Only load today's attendance records (do not pre-load all students)
                 const attendanceResponse = await fetch(`/api/attendance/today?class_id=${selectedClass.class_id}`);
                 const attendanceRecords = await attendanceResponse.json();
-                
                 // Clear existing table
                 const tbody = document.getElementById('attendanceTableBody');
                 tbody.innerHTML = '';
-                
                 console.log('Loaded attendance records:', attendanceRecords);
-                
-                // Try to load all students in the class for complete view
-                let allStudents = [];
-                try {
-                    const studentsResponse = await fetch(`/api/students/by-class/${selectedClass.class_id}`);
-                    if (studentsResponse.ok) {
-                        allStudents = await studentsResponse.json();
-                        console.log('Loaded all students:', allStudents);
-                    }
-                } catch (error) {
-                    console.warn('Could not load all students, showing attendance records only:', error);
-                }
-                
-                // If we have attendance records, always show them first
                 if (attendanceRecords.length > 0) {
                     document.getElementById('noAttendanceMessage').style.display = 'none';
-                    
-                    // Create a map of attendance records by student_id
-                    const attendanceMap = new Map();
                     attendanceRecords.forEach(record => {
-                        attendanceMap.set(record.student_id, record);
-                        // Add students with attendance records
                         addAttendanceRecord(record.student_name, record.student_id, record.time, record.status);
                     });
-                    
-                    // If we also have all students list, add students without attendance
-                    if (allStudents.length > 0) {
-                        allStudents.forEach(student => {
-                            // Only add if not already in attendance records
-                            if (!attendanceMap.has(student.student_id)) {
-                                addAttendanceRecord(student.student_name, student.student_id, null, null);
-                            }
-                        });
-                    }
-                } else if (allStudents.length > 0) {
-                    // No attendance records but we have student list
-                    document.getElementById('noAttendanceMessage').style.display = 'none';
-                    allStudents.forEach(student => {
-                        addAttendanceRecord(student.student_name, student.student_id, null, null);
-                    });
                 } else {
-                    // No attendance records and no student list
                     document.getElementById('noAttendanceMessage').style.display = 'block';
                 }
-                
                 updateAttendanceStats();
-                
             } catch (error) {
                 console.error('Error loading attendance data:', error);
-                // Fallback: try to show just attendance records
-                try {
-                    const attendanceResponse = await fetch(`/api/attendance/today?class_id=${selectedClass.class_id}`);
-                    const attendanceRecords = await attendanceResponse.json();
-                    
-                    if (attendanceRecords.length > 0) {
-                        document.getElementById('noAttendanceMessage').style.display = 'none';
-                        attendanceRecords.forEach(record => {
-                            addAttendanceRecord(record.student_name, record.student_id, record.time, record.status);
-                        });
-                        updateAttendanceStats();
-                    }
-                } catch (fallbackError) {
-                    console.error('Fallback also failed:', fallbackError);
-                }
             }
+        }
+
+        // Show absentees (students who did not mark attendance)
+        async function showAbsentees() {
+            if (!selectedClass) return;
+            // Get all students
+            let allStudents = [];
+            try {
+                const studentsResponse = await fetch(`/api/students/by-class/${selectedClass.class_id}`);
+                if (studentsResponse.ok) {
+                    allStudents = await studentsResponse.json();
+                }
+            } catch (error) {
+                console.warn('Could not load all students:', error);
+                return;
+            }
+            // Get already marked students
+            const markedIds = new Set();
+            document.querySelectorAll('#attendanceTableBody tr').forEach(row => {
+                markedIds.add(row.getAttribute('data-student-id'));
+            });
+            // Add absentees
+            allStudents.forEach(student => {
+                if (!markedIds.has(String(student.student_id))) {
+                    addAttendanceRecord(student.firstname + ' ' + student.lastname, student.student_id, null, 'absent');
+                }
+            });
+            updateAttendanceStats();
         }
         
         // Load faculty classes
