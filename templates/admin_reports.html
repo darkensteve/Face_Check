@@ -337,6 +337,18 @@
                         legend: {
                             position: 'bottom'
                         }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                precision: 0,
+                                stepSize: 1,
+                                callback: function(value) {
+                                    return Number.isInteger(value) ? value : '';
+                                }
+                            }
+                        }
                     }
                 }
             });
@@ -407,7 +419,16 @@
                         legend: { position: 'bottom' }
                     },
                     scales: {
-                        y: { beginAtZero: true }
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                precision: 0,
+                                stepSize: 1,
+                                callback: function(value) {
+                                    return Number.isInteger(value) ? value : '';
+                                }
+                            }
+                        }
                     }
                 }
             });
@@ -432,7 +453,8 @@
             }
 
             const trendCtx = document.getElementById('attendanceTrendChart').getContext('2d');
-            const isBarChart = reportType === 'class';
+            // Use bar chart for class and monthly summaries, line chart for others
+            const isBarChart = reportType === 'class' || reportType === 'monthly';
             
             const chartConfig = {
                 type: isBarChart ? 'bar' : 'line',
@@ -479,10 +501,30 @@
                     ...(isBarChart ? {
                         scales: {
                             y: {
-                                beginAtZero: true
+                                beginAtZero: true,
+                                ticks: {
+                                    precision: 0,
+                                    stepSize: 1,
+                                    callback: function(value) {
+                                        return Number.isInteger(value) ? value : '';
+                                    }
+                                }
                             }
                         }
-                    } : {})
+                    } : {
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    precision: 0,
+                                    stepSize: 1,
+                                    callback: function(value) {
+                                        return Number.isInteger(value) ? value : '';
+                                    }
+                                }
+                            }
+                        }
+                    })
                 }
             };
 

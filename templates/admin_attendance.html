@@ -202,9 +202,9 @@
                     </div>
                 </div>
 
-                <!-- Filters -->
+                <!-- Class Attendance Filters -->
                 <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
-                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Filters</h3>
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Class Attendance Filters</h3>
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">Date From</label>
@@ -316,6 +316,123 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Event Attendance Filters -->
+                <div class="bg-white rounded-xl shadow-lg p-6 mb-6 mt-10">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Event Attendance Filters</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Date From</label>
+                            <input type="date" id="eventDateFrom" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Date To</label>
+                            <input type="date" id="eventDateTo" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                            <select id="eventStatusFilter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                <option value="">All Status</option>
+                                <option value="present">Present</option>
+                                <option value="late">Late</option>
+                                <option value="absent">Absent</option>
+                                <option value="excuse">Excuse</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Event</label>
+                            <select id="eventFilter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                <option value="">All Events</option>
+                                {% for evt in event_filter_options %}
+                                <option value="{{ evt.event_id }}">{{ evt.event_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex space-x-4">
+                        <button onclick="applyEventFilters()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition duration-200">
+                            <i class="fas fa-filter mr-2"></i>Apply Filters
+                        </button>
+                        <button id="clearEventFiltersBtn" onclick="clearEventFilters()" class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition duration-200 hidden">
+                            <i class="fas fa-times mr-2"></i>Clear Filters
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Event Attendance Records Table -->
+                <div class="bg-white rounded-xl shadow-lg overflow-hidden mt-10">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h3 class="text-lg font-semibold text-gray-900">Event Attendance Records</h3>
+                        <p class="text-sm text-gray-500">All event attendance entries</p>
+                    </div>
+                    
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200" id="eventAttendanceTable">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Attendee</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Event</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Facilitator</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date / Time</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                {% for record in event_attendance_records %}
+                                <tr class="hover:bg-gray-50 event-attendance-row" 
+                                    data-date="{{ record.attendance_time }}"
+                                    data-status="{{ record.attendance_status }}"
+                                    data-event-id="{{ record.event_id }}">
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="flex items-center">
+                                            <div class="flex-shrink-0 h-10 w-10">
+                                                <div class="h-10 w-10 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold">
+                                                    {{ record.firstname[0] }}{{ record.lastname[0] }}
+                                                </div>
+                                            </div>
+                                            <div class="ml-4">
+                                                <div class="text-sm font-medium text-gray-900">{{ record.firstname }} {{ record.lastname }}</div>
+                                                <div class="text-sm text-gray-500">{{ record.idno }}</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="text-sm font-medium text-gray-900">{{ record.event_name }}</div>
+                                        <div class="text-sm text-gray-500">{{ record.event_date }} {{ record.start_time }} - {{ record.end_time }}</div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                        {{ record.faculty_firstname }} {{ record.faculty_lastname }}
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                        {{ record.attendance_time }}
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full
+                                            {% if record.attendance_status == 'present' %}bg-green-100 text-green-800
+                                            {% elif record.attendance_status == 'late' %}bg-yellow-100 text-yellow-800
+                                            {% elif record.attendance_status == 'excuse' %}bg-purple-100 text-purple-800
+                                            {% else %}bg-red-100 text-red-800{% endif %}">
+                                            {{ record.attendance_status.title() }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="px-6 py-4 border-t border-gray-200 flex flex-col md:flex-row items-center justify-between gap-4">
+                        <p id="eventAttendancePaginationInfo" class="text-sm text-gray-500"></p>
+                        <div class="flex items-center gap-2">
+                            <button type="button" id="eventAttendancePrevPage" class="pagination-btn">
+                                <i class="fas fa-chevron-left mr-1 text-xs"></i>Prev
+                            </button>
+                            <span id="eventAttendancePaginationPage" class="text-sm font-semibold text-gray-600"></span>
+                            <button type="button" id="eventAttendanceNextPage" class="pagination-btn">
+                                Next<i class="fas fa-chevron-right ml-1 text-xs"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </main>
         </div>
     </div>
@@ -323,8 +440,11 @@
     <script>
         // Pagination variables
         const attendanceRows = Array.from(document.querySelectorAll('.attendance-row'));
+        const eventAttendanceRows = Array.from(document.querySelectorAll('.event-attendance-row'));
         const rowsPerPageAttendance = 10;
+        const rowsPerPageEvent = 10;
         let attendanceCurrentPage = 1;
+        let eventAttendanceCurrentPage = 1;
 
         function getFilteredAttendanceRows() {
             const dateFrom = document.getElementById('dateFrom').value;
@@ -352,6 +472,39 @@
                 if (classFilter) {
                     const rowClass = row.getAttribute('data-class');
                     if (!rowClass.includes(classFilter)) show = false;
+                }
+                
+                return show;
+            });
+        }
+
+        function getFilteredEventRows() {
+            const dateFrom = document.getElementById('eventDateFrom').value;
+            const dateTo = document.getElementById('eventDateTo').value;
+            const status = document.getElementById('eventStatusFilter').value;
+            const eventId = document.getElementById('eventFilter').value;
+            
+            return eventAttendanceRows.filter(row => {
+                let show = true;
+                
+                // Date filter
+                if (dateFrom || dateTo) {
+                    const rawDate = row.getAttribute('data-date');
+                    const recordDate = new Date(rawDate.replace(' ', 'T'));
+                    if (dateFrom && recordDate < new Date(dateFrom)) show = false;
+                    if (dateTo && recordDate > new Date(dateTo + 'T23:59:59')) show = false;
+                }
+                
+                // Status filter
+                if (status) {
+                    const rowStatus = row.getAttribute('data-status').toLowerCase();
+                    if (rowStatus !== status.toLowerCase()) show = false;
+                }
+                
+                // Event filter
+                if (eventId) {
+                    const rowEventId = row.getAttribute('data-event-id');
+                    if (String(rowEventId) !== String(eventId)) show = false;
                 }
                 
                 return show;
@@ -410,6 +563,47 @@
             }
         }
 
+        function renderEventAttendancePage() {
+            const paginationInfo = document.getElementById('eventAttendancePaginationInfo');
+            const paginationPage = document.getElementById('eventAttendancePaginationPage');
+            const prevBtn = document.getElementById('eventAttendancePrevPage');
+            const nextBtn = document.getElementById('eventAttendanceNextPage');
+            
+            const filteredRows = getFilteredEventRows();
+            const total = filteredRows.length;
+            const totalPages = Math.max(Math.ceil(total / rowsPerPageEvent), 1);
+            
+            if (eventAttendanceCurrentPage > totalPages) eventAttendanceCurrentPage = totalPages;
+            if (eventAttendanceCurrentPage < 1) eventAttendanceCurrentPage = 1;
+            
+            const startIndex = (eventAttendanceCurrentPage - 1) * rowsPerPageEvent;
+            const endIndex = Math.min(startIndex + rowsPerPageEvent, total);
+            
+            eventAttendanceRows.forEach(row => row.style.display = 'none');
+            filteredRows.forEach((row, index) => {
+                if (index >= startIndex && index < endIndex) {
+                    row.style.display = '';
+                }
+            });
+            
+            if (paginationInfo) {
+                paginationInfo.textContent = total === 0 
+                    ? 'No records found.'
+                    : `Showing ${startIndex + 1}-${endIndex} of ${total} entries`;
+            }
+            if (paginationPage) {
+                paginationPage.textContent = `Page ${eventAttendanceCurrentPage} of ${totalPages}`;
+            }
+            if (prevBtn) {
+                if (eventAttendanceCurrentPage <= 1 || total === 0) prevBtn.classList.add('opacity-40');
+                else prevBtn.classList.remove('opacity-40');
+            }
+            if (nextBtn) {
+                if (eventAttendanceCurrentPage >= totalPages || total === 0) nextBtn.classList.add('opacity-40');
+                else nextBtn.classList.remove('opacity-40');
+            }
+        }
+
         function applyFilters() {
             const dateFrom = document.getElementById('dateFrom').value;
             const dateTo = document.getElementById('dateTo').value;
@@ -431,6 +625,22 @@
             attendanceCurrentPage = 1;
             renderAttendancePage();
         }
+
+        function applyEventFilters() {
+            const dateFrom = document.getElementById('eventDateFrom').value;
+            const dateTo = document.getElementById('eventDateTo').value;
+            const status = document.getElementById('eventStatusFilter').value;
+            const eventId = document.getElementById('eventFilter').value;
+            
+            const hasFilters = dateFrom || dateTo || status || eventId;
+            
+            const clearBtn = document.getElementById('clearEventFiltersBtn');
+            if (hasFilters) clearBtn.classList.remove('hidden');
+            else clearBtn.classList.add('hidden');
+            
+            eventAttendanceCurrentPage = 1;
+            renderEventAttendancePage();
+        }
         
         function clearFilters() {
             document.getElementById('dateFrom').value = '';
@@ -445,6 +655,19 @@
             // Reset to first page and render
             attendanceCurrentPage = 1;
             renderAttendancePage();
+        }
+
+        function clearEventFilters() {
+            document.getElementById('eventDateFrom').value = '';
+            document.getElementById('eventDateTo').value = '';
+            document.getElementById('eventStatusFilter').value = '';
+            document.getElementById('eventFilter').value = '';
+            
+            const clearBtn = document.getElementById('clearEventFiltersBtn');
+            clearBtn.classList.add('hidden');
+            
+            eventAttendanceCurrentPage = 1;
+            renderEventAttendancePage();
         }
         
         function showNotification(message, type) {
@@ -530,11 +753,36 @@
                 classFilter.appendChild(option);
             });
         }
+
+        // Initialize event pagination/filtering
+        function initEventAttendance() {
+            renderEventAttendancePage();
+            
+            const prevBtn = document.getElementById('eventAttendancePrevPage');
+            const nextBtn = document.getElementById('eventAttendanceNextPage');
+            
+            prevBtn?.addEventListener('click', () => {
+                if (eventAttendanceCurrentPage > 1) {
+                    eventAttendanceCurrentPage--;
+                    renderEventAttendancePage();
+                }
+            });
+            
+            nextBtn?.addEventListener('click', () => {
+                const filteredRows = getFilteredEventRows();
+                const totalPages = Math.max(Math.ceil(filteredRows.length / rowsPerPageEvent), 1);
+                if (eventAttendanceCurrentPage < totalPages) {
+                    eventAttendanceCurrentPage++;
+                    renderEventAttendancePage();
+                }
+            });
+        }
         
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
             populateClassFilter();
             renderAttendancePage();
+            initEventAttendance();
             
             // Setup pagination event listeners
             const prevBtn = document.getElementById('attendancePrevPage');

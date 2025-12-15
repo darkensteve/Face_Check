@@ -163,6 +163,7 @@
                                                 data-attendance-id="{{ row.attendance_id }}"
                                                 data-current-status="{{ row.status }}">
                                             <option value="present" {% if row.status == 'present' %}selected{% endif %}>Present</option>
+                                            <option value="late" {% if row.status == 'late' %}selected{% endif %}>Late</option>
                                             <option value="absent" {% if row.status == 'absent' %}selected{% endif %}>Absent</option>
                                             <option value="excuse" {% if row.status == 'excuse' %}selected{% endif %}>Excuse</option>
                                         </select>
@@ -287,6 +288,7 @@
                                                 data-event-attend-id="{{ row.event_attend_id }}"
                                                 data-current-status="{{ row.status }}">
                                             <option value="present" {% if row.status == 'present' %}selected{% endif %}>Present</option>
+                                            <option value="late" {% if row.status == 'late' %}selected{% endif %}>Late</option>
                                             <option value="absent" {% if row.status == 'absent' %}selected{% endif %}>Absent</option>
                                             <option value="excuse" {% if row.status == 'excuse' %}selected{% endif %}>Excuse</option>
                                         </select>

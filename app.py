@@ -1647,6 +1647,11 @@ def create_class():
             if not all([class_name, edpcode, start_time, end_time, room, faculty_id]):
                 flash('Please fill in all required fields', 'error')
                 return redirect(url_for('create_class'))
+
+            # Enforce numeric-only EDP code server-side
+            if not edpcode.isdigit():
+                flash('EDP Code must contain numbers only', 'error')
+                return redirect(url_for('create_class'))
             
             if not days:
                 flash('Please select at least one day of the week for the class schedule', 'error')
@@ -1723,6 +1728,12 @@ def edit_class(class_id):
             # Validate required fields including at least one schedule day
             if not all([class_name, edpcode, start_time, end_time, room, faculty_id]):
                 flash('Please fill in all required fields', 'error')
+                conn.close()
+                return redirect(url_for('edit_class', class_id=class_id))
+
+            # Enforce numeric-only EDP code server-side
+            if not edpcode.isdigit():
+                flash('EDP Code must contain numbers only', 'error')
                 conn.close()
                 return redirect(url_for('edit_class', class_id=class_id))
             
@@ -5876,10 +5887,43 @@ def admin_attendance():
         ORDER BY a.attendance_date DESC, u.lastname, u.firstname
     ''').fetchall()
     
+    # Load event attendance records for admin view
+    event_attendance_records = conn.execute('''
+        SELECT 
+            ea.event_attend_id,
+            strftime('%Y-%m-%d %H:%M:%S', ea.attendance_time) AS attendance_time,
+            ea.status AS attendance_status,
+            u.firstname,
+            u.lastname,
+            u.idno,
+            e.event_id,
+            e.event_name,
+            e.event_date,
+            e.start_time,
+            e.end_time,
+            fu.firstname AS faculty_firstname,
+            fu.lastname AS faculty_lastname
+        FROM event_attendance ea
+        JOIN event e ON ea.event_id = e.event_id
+        JOIN user u ON ea.user_id = u.user_id
+        LEFT JOIN faculty f ON e.faculty_id = f.faculty_id
+        LEFT JOIN user fu ON f.user_id = fu.user_id
+        ORDER BY ea.attendance_time DESC, u.lastname, u.firstname
+    ''').fetchall()
+    
+    # Event list for dropdown filter
+    event_filter_options = conn.execute('''
+        SELECT event_id, event_name
+        FROM event
+        ORDER BY COALESCE(event_date, '') DESC, event_name
+    ''').fetchall()
+    
     conn.close()
     
     return render_template('admin_attendance.html', 
                          attendance_records=attendance_records,
+                         event_attendance_records=event_attendance_records,
+                         event_filter_options=event_filter_options,
                          total_records=total_records,
                          present_count=present_count,
                          late_count=late_count,
