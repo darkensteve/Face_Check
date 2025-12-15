@@ -123,20 +123,6 @@
             
             <!-- Main Content Area -->
             <main class="flex-1 overflow-y-auto p-6">
-                <!-- Flash Messages -->
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                    {% if messages %}
-                        {% for category, message in messages %}
-                            <div class="mb-4 p-4 rounded-lg {% if category == 'error' %}bg-red-100 text-red-700 border border-red-200{% else %}bg-green-100 text-green-700 border border-green-200{% endif %}">
-                                <div class="flex items-center">
-                                    <i class="fas {% if category == 'error' %}fa-exclamation-circle{% else %}fa-check-circle{% endif %} mr-2"></i>
-                                    {{ message }}
-                                </div>
-                            </div>
-                        {% endfor %}
-                    {% endif %}
-                {% endwith %}
-
                 <!-- Filter Section -->
                 <div class="bg-white rounded-lg shadow-sm p-4 mb-4">
                     <div class="space-y-4">
@@ -313,6 +299,33 @@
                 <div class="px-6 py-4 border-b border-gray-200">
                     <h3 class="text-lg font-medium text-gray-900">Create New User</h3>
                 </div>
+                {% set ns = namespace(has_error=False) %}
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        <div class="px-6 pt-4">
+                            {% for category, message in messages %}
+                                {% if category == 'error' %}
+                                    {% set ns.has_error = True %}
+                                {% endif %}
+                                <div class="mb-3 p-3 rounded-lg text-sm {% if category == 'error' %}bg-red-100 text-red-700 border border-red-200{% else %}bg-green-100 text-green-700 border border-green-200{% endif %}">
+                                    <div class="flex items-center">
+                                        <i class="fas {% if category == 'error' %}fa-exclamation-circle{% else %}fa-check-circle{% endif %} mr-2"></i>
+                                        {{ message }}
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                {% endwith %}
+                <!-- AJAX error box (no page reload) -->
+                <div id="createUserAjaxError" class="px-6 pt-2 hidden">
+                    <div class="mb-3 p-3 rounded-lg text-sm bg-red-100 text-red-700 border border-red-200">
+                        <div class="flex items-center">
+                            <i class="fas fa-exclamation-circle mr-2"></i>
+                            <span id="createUserAjaxErrorText"></span>
+                        </div>
+                    </div>
+                </div>
                 <form id="createUserForm" method="POST" action="{{ url_for('create_user') }}">
                     <div class="px-6 py-4 space-y-6">
                         <!-- Basic Information -->
@@ -355,7 +368,7 @@
                                     <option value="student">Student</option>
                                 </select>
                             </div>
-                            <div>
+                            <div id="deptFieldContainer" class="hidden">
                                 <label class="block text-sm font-medium text-gray-700">Department</label>
                                 <select name="dept_id" id="deptSelect" class="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent" onchange="filterCourses()">
                                     <option value="">Select Department</option>
@@ -584,7 +597,7 @@
         </div>
     </div>
     
-    <!-- Success Message Toast -->
+    <!-- Success Message Toast: Reset Password -->
     <div id="resetSuccessToast" class="fixed top-4 right-4 bg-green-500 text-white px-6 py-4 rounded-lg shadow-lg hidden z-50">
         <div class="flex items-center">
             <i class="fas fa-check-circle mr-3 text-xl"></i>
@@ -595,7 +608,28 @@
         </div>
     </div>
 
+    <!-- Success Message Toast: Create User -->
+    <div id="createUserSuccessToast" class="fixed top-4 right-4 bg-green-500 text-white px-6 py-4 rounded-lg shadow-lg hidden z-50">
+        <div class="flex items-center">
+            <i class="fas fa-check-circle mr-3 text-xl"></i>
+            <div>
+                <p class="font-semibold">User Created Successfully!</p>
+                <p class="text-sm text-green-100" id="createUserSuccessMessage"></p>
+            </div>
+        </div>
+    </div>
+
     <script>
+        // Automatically reopen the Create User modal if there was an error during creation
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const shouldOpenFromQuery = urlParams.get('open_create') === '1';
+            const hasErrorFlash = {{ 'true' if ns.has_error else 'false' }};
+            if (shouldOpenFromQuery || hasErrorFlash) {
+                openCreateModal();
+            }
+        });
+
         function openCreateConfirmModal() {
             const idInput = document.querySelector('#createModal input[name="idno"]');
             const idValue = (idInput ? idInput.value.trim() : '') || 'Not set';
@@ -610,14 +644,78 @@
             document.getElementById('createConfirmModal').classList.add('hidden');
         }
 
-        function confirmCreateUser() {
+        async function confirmCreateUser() {
             const form = document.getElementById('createUserForm');
-            if (form) {
-                // Close both modals to give a smooth transition
-                closeCreateConfirmModal();
-                // Allow the form to submit normally
-                form.submit();
+            if (!form) return;
+
+            const ajaxErrorWrapper = document.getElementById('createUserAjaxError');
+            const ajaxErrorText = document.getElementById('createUserAjaxErrorText');
+            if (ajaxErrorWrapper) {
+                ajaxErrorWrapper.classList.add('hidden');
             }
+            if (ajaxErrorText) {
+                ajaxErrorText.textContent = '';
+            }
+
+            // Let the browser run built-in validation first
+            if (!form.reportValidity()) {
+                // Keep both modals open so user can see invalid fields
+                return;
+            }
+
+            const formData = new FormData(form);
+
+            try {
+                const response = await fetch('{{ url_for("create_user") }}', {
+                    method: 'POST',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    // On success, close modals and show success toast, then refresh list
+                    closeCreateConfirmModal();
+                    closeCreateModal();
+                    showCreateUserSuccessToast(data.message || 'User created successfully.');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 2000);
+                } else {
+                    // Show error inside modal, do not close it
+                    if (ajaxErrorWrapper && ajaxErrorText) {
+                        ajaxErrorText.textContent = data.message || 'Error creating user. Please check the form and try again.';
+                        ajaxErrorWrapper.classList.remove('hidden');
+                    } else {
+                        alert(data.message || 'Error creating user. Please try again.');
+                    }
+                    // Close only the confirm modal so they stay on the main form
+                    closeCreateConfirmModal();
+                }
+            } catch (error) {
+                console.error('Error creating user:', error);
+                if (ajaxErrorWrapper && ajaxErrorText) {
+                    ajaxErrorText.textContent = 'Unexpected error creating user. Please try again.';
+                    ajaxErrorWrapper.classList.remove('hidden');
+                } else {
+                    alert('Unexpected error creating user. Please try again.');
+                }
+                closeCreateConfirmModal();
+            }
+        }
+
+        function showCreateUserSuccessToast(message) {
+            const toast = document.getElementById('createUserSuccessToast');
+            const messageEl = document.getElementById('createUserSuccessMessage');
+            if (!toast || !messageEl) return;
+            messageEl.textContent = message || 'User created successfully.';
+            toast.classList.remove('hidden');
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 4000);
         }
 
         function openCreateModal() {
@@ -693,14 +791,35 @@
             const role = document.querySelector('select[name="role"]').value;
             const studentFields = document.getElementById('studentFields');
             const facultyFields = document.getElementById('facultyFields');
-            
+            const deptSelect = document.getElementById('deptSelect');
+            const deptContainer = document.getElementById('deptFieldContainer');
+            const yearLevelSelect = document.querySelector('select[name="year_level"]');
+            const courseSelect = document.getElementById('courseSelect');
+            const positionInput = document.querySelector('input[name="position"]');
+
+            // Hide all role-specific sections by default
             studentFields.classList.add('hidden');
             facultyFields.classList.add('hidden');
+            if (deptContainer) deptContainer.classList.add('hidden');
+
+            // Reset required flags
+            if (deptSelect) deptSelect.required = false;
+            if (yearLevelSelect) yearLevelSelect.required = false;
+            if (courseSelect) courseSelect.required = false;
+            if (positionInput) positionInput.required = false;
             
+            // Apply role-specific visibility + required dropdowns/text fields
             if (role === 'student') {
                 studentFields.classList.remove('hidden');
+                if (deptContainer) deptContainer.classList.remove('hidden');
+                if (deptSelect) deptSelect.required = true;
+                if (yearLevelSelect) yearLevelSelect.required = true;
+                if (courseSelect) courseSelect.required = true;
             } else if (role === 'faculty') {
                 facultyFields.classList.remove('hidden');
+                if (deptContainer) deptContainer.classList.remove('hidden');
+                if (deptSelect) deptSelect.required = true;
+                if (positionInput) positionInput.required = true;
             }
         }
 

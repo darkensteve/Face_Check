@@ -98,20 +98,6 @@
                 </div>
             </header>
             
-            <!-- Flash Messages -->
-            {% with messages = get_flashed_messages(with_categories=true) %}
-                {% if messages %}
-                    <div class="px-6 py-4">
-                        {% for category, message in messages %}
-                            <div class="alert alert-{{ 'error' if category == 'error' else 'success' }} bg-{{ 'red' if category == 'error' else 'green' }}-50 border border-{{ 'red' if category == 'error' else 'green' }}-200 text-{{ 'red' if category == 'error' else 'green' }}-800 px-4 py-3 rounded-lg mb-4">
-                                <i class="fas fa-{{ 'exclamation-circle' if category == 'error' else 'check-circle' }} mr-2"></i>
-                                {{ message }}
-                            </div>
-                        {% endfor %}
-                    </div>
-                {% endif %}
-            {% endwith %}
-            
             <!-- Main Content Area -->
             <main class="flex-1 overflow-y-auto p-6">
                 <!-- Events Table -->
@@ -251,6 +237,46 @@
     </div>
 
     <script>
+        {# Capture first success/error flash to show as toast #}
+        {% set ns = namespace(first_success='', first_error='') %}
+        {% for category, message in get_flashed_messages(with_categories=true) %}
+            {% if category == 'success' and not ns.first_success %}
+                {% set ns.first_success = message %}
+            {% endif %}
+            {% if category == 'error' and not ns.first_error %}
+                {% set ns.first_error = message %}
+            {% endif %}
+        {% endfor %}
+        const initialEventSuccess = {{ ns.first_success|tojson }};
+        const initialEventError = {{ ns.first_error|tojson }};
+
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = `fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg text-white transition-all duration-300 ${
+                type === 'success' ? 'bg-green-500' : 'bg-red-500'
+            }`;
+            toast.innerHTML = `
+                <div class="flex items-center">
+                    <i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'} mr-2"></i>
+                    <span>${message}</span>
+                </div>
+            `;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, type === 'success' ? 3000 : 4000);
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            if (initialEventSuccess) {
+                showToast(initialEventSuccess, 'success');
+            }
+            if (initialEventError) {
+                showToast(initialEventError, 'error');
+            }
+        });
+
         // Deactivate Event Modal Functions
         function openDeactivateEventModal(eventId, eventName) {
             document.getElementById('deactivateEventName').textContent = eventName;

@@ -171,6 +171,198 @@ def get_db_connection():
         raise
 
 
+# Helper function to automatically deactivate events that have ended
+def deactivate_ended_events(conn=None):
+    """Deactivate events where the end_time has passed"""
+    if conn is None:
+        conn = get_db_connection()
+        should_close = True
+    else:
+        should_close = False
+    
+    try:
+        now = datetime.now()
+        today = date.today()
+        
+        # Get all active events with event names and faculty info
+        events = conn.execute('''
+            SELECT e.event_id, e.event_name, e.event_date, e.end_time, e.faculty_id
+            FROM event e
+            WHERE e.is_active = 1
+        ''').fetchall()
+        
+        deactivated_count = 0
+        deactivated_events = []  # Store event info for notification
+        for event in events:
+            try:
+                # Parse event_date (could be string or date)
+                event_date_str = event['event_date']
+                if isinstance(event_date_str, str):
+                    # Try different date formats
+                    try:
+                        event_date_obj = datetime.strptime(event_date_str, '%Y-%m-%d').date()
+                    except ValueError:
+                        try:
+                            event_date_obj = datetime.strptime(event_date_str, '%Y-%m-%d %H:%M:%S').date()
+                        except ValueError:
+                            continue
+                else:
+                    event_date_obj = event_date_str if hasattr(event_date_str, 'date') else event_date_str
+                
+                # Parse end_time (could be string or time)
+                end_time_str = event['end_time']
+                if isinstance(end_time_str, str):
+                    # Try different time formats
+                    time_formats = ['%H:%M:%S', '%H:%M']
+                    end_time_obj = None
+                    for fmt in time_formats:
+                        try:
+                            end_time_obj = datetime.strptime(end_time_str, fmt).time()
+                            break
+                        except ValueError:
+                            continue
+                    if not end_time_obj:
+                        continue
+                else:
+                    end_time_obj = end_time_str
+                
+                # Combine date and time to get event end datetime
+                event_end_dt = datetime.combine(event_date_obj, end_time_obj)
+                
+                # If event has ended, deactivate it
+                if event_end_dt < now:
+                    conn.execute('''
+                        UPDATE event
+                        SET is_active = 0
+                        WHERE event_id = ?
+                    ''', (event['event_id'],))
+                    deactivated_count += 1
+                    deactivated_events.append({
+                        'event_id': event['event_id'],
+                        'event_name': event.get('event_name', f"Event #{event['event_id']}"),
+                        'faculty_id': event.get('faculty_id')
+                    })
+            except Exception as e:
+                # Skip events with invalid date/time formats
+                print(f"Error processing event {event['event_id']}: {e}")
+                continue
+        
+        if deactivated_count > 0:
+            conn.commit()
+            print(f"Deactivated {deactivated_count} ended event(s)")
+            
+            # Notify all admins and facilitators about deactivated events
+            if NOTIFICATIONS_AVAILABLE:
+                try:
+                    # Get all admin user IDs
+                    admin_users = conn.execute('''
+                        SELECT user_id FROM user
+                        WHERE role = 'admin' AND is_active = 1
+                    ''').fetchall()
+                    
+                    # Create notification messages
+                    if deactivated_count == 1:
+                        event_name = deactivated_events[0]['event_name']
+                        admin_message = f"Event '{event_name}' has ended and has been automatically deactivated."
+                        facilitator_message = f"Your event '{event_name}' has ended and has been automatically deactivated."
+                    else:
+                        events_list = ', '.join([e['event_name'] for e in deactivated_events[:3]])  # Show first 3
+                        if len(deactivated_events) > 3:
+                            events_list += f" and {len(deactivated_events) - 3} more"
+                        admin_message = f"{deactivated_count} events have ended and been automatically deactivated: {events_list}"
+                        facilitator_message = f"One or more of your events have ended and been automatically deactivated."
+                    
+                    # Send notification to all admins
+                    for admin in admin_users:
+                        try:
+                            create_notification(admin['user_id'], admin_message, 'event_deactivated')
+                        except Exception as notify_err:
+                            print(f"Warning: failed to create notification for admin {admin['user_id']}: {notify_err}")
+                    
+                    # Send notification to each facilitator (faculty who created the event)
+                    facilitator_notified = set()  # Track which facilitators we've notified to avoid duplicates
+                    for event_info in deactivated_events:
+                        faculty_id = event_info.get('faculty_id')
+                        if faculty_id and faculty_id not in facilitator_notified:
+                            # Get the faculty user_id
+                            faculty_user = conn.execute('''
+                                SELECT user_id FROM faculty
+                                WHERE faculty_id = ?
+                            ''', (faculty_id,)).fetchone()
+                            
+                            if faculty_user:
+                                facilitator_notified.add(faculty_id)
+                                try:
+                                    # Use specific message for single event, generic for multiple
+                                    if deactivated_count == 1:
+                                        msg = facilitator_message
+                                    else:
+                                        # Check if this facilitator has multiple events
+                                        facilitator_events = [e for e in deactivated_events if e.get('faculty_id') == faculty_id]
+                                        if len(facilitator_events) == 1:
+                                            msg = f"Your event '{facilitator_events[0]['event_name']}' has ended and has been automatically deactivated."
+                                        else:
+                                            event_names = ', '.join([e['event_name'] for e in facilitator_events[:2]])
+                                            if len(facilitator_events) > 2:
+                                                event_names += f" and {len(facilitator_events) - 2} more"
+                                            msg = f"Your events have ended and been automatically deactivated: {event_names}"
+                                    
+                                    create_notification(faculty_user['user_id'], msg, 'event_deactivated')
+                                except Exception as notify_err:
+                                    print(f"Warning: failed to create notification for facilitator {faculty_id}: {notify_err}")
+                except Exception as notify_error:
+                    print(f"Warning: failed to notify admins and facilitators about deactivated events: {notify_error}")
+        
+        return deactivated_count
+    except Exception as e:
+        print(f"Error deactivating ended events: {e}")
+        return 0
+    finally:
+        if should_close:
+            conn.close()
+
+def is_class_scheduled_today(class_info, conn=None):
+    """Check if a class is scheduled for today based on its days and time"""
+    if conn is None:
+        conn = get_db_connection()
+        should_close = True
+    else:
+        should_close = False
+    
+    try:
+        now = datetime.now()
+        today = date.today()
+        current_day_name = today.strftime('%A')  # e.g., "Monday", "Tuesday"
+        
+        # Get the days for this class
+        days_result = conn.execute('''
+            SELECT d.day_name
+            FROM class_days cd
+            JOIN days d ON cd.day_id = d.day_id
+            WHERE cd.class_id = ?
+        ''', (class_info['class_id'],)).fetchall()
+        
+        scheduled_days = [row['day_name'] for row in days_result]
+        
+        # If no days are scheduled, allow access (edge case)
+        if not scheduled_days:
+            if should_close:
+                conn.close()
+            return True
+        
+        # Check if today is one of the scheduled days
+        is_scheduled_day = current_day_name in scheduled_days
+        
+        # Return True only if today is a scheduled day
+        if should_close:
+            conn.close()
+        return is_scheduled_day
+    except Exception as e:
+        print(f"Error in is_class_scheduled_today: {e}")
+        if should_close:
+            conn.close()
+        return True  # Default to allowing access on error
+
 # Helper to safely format database datetime values which may be stored/returned
 # as strings (most common) or as datetime objects. Prevents AttributeError when
 # code calls .strftime on a string.
@@ -755,6 +947,15 @@ def create_user():
     if 'user_id' not in session or session['role'] != 'admin':
         return redirect(url_for('login'))
     
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+
+    def error_response(message, status_code=400):
+        if is_ajax:
+            return jsonify({'success': False, 'message': message}), status_code
+        flash(message, 'error')
+        # Keep create modal open on error in normal (non-AJAX) flow
+        return redirect(url_for('admin_users', open_create='1'))
+    
     try:
         idno = request.form.get('idno')
         firstname = request.form.get('firstname')
@@ -775,35 +976,29 @@ def create_user():
         
         # Validate required fields
         if not all([idno, firstname, lastname, role]):
-            flash('Please fill in all required fields', 'error')
-            return redirect(url_for('admin_users'))
+            return error_response('Please fill in all required fields')
 
         # For NEW users, enforce strictly numeric ID numbers.
         # This does not affect login; it only restricts what admins can create going forward.
         if not idno.isdigit():
-            flash('ID number must contain numbers only (no letters or special characters)', 'error')
-            return redirect(url_for('admin_users'))
+            return error_response('ID number must contain numbers only (no letters or special characters)')
         
         # Validate each field
         is_valid_id, validated_idno = validate_input(idno, 'idno', 1, 20)
         if not is_valid_id:
-            flash(f'Invalid ID number: {validated_idno}', 'error')
-            return redirect(url_for('admin_users'))
+            return error_response(f'Invalid ID number: {validated_idno}')
         
         is_valid_fname, validated_fname = validate_input(firstname, 'name', 1, 50)
         if not is_valid_fname:
-            flash(f'Invalid first name: {validated_fname}', 'error')
-            return redirect(url_for('admin_users'))
+            return error_response(f'Invalid first name: {validated_fname}')
         
         is_valid_lname, validated_lname = validate_input(lastname, 'name', 1, 50)
         if not is_valid_lname:
-            flash(f'Invalid last name: {validated_lname}', 'error')
-            return redirect(url_for('admin_users'))
+            return error_response(f'Invalid last name: {validated_lname}')
         
         is_valid_role, validated_role = validate_input(role, 'role')
         if not is_valid_role:
-            flash(f'Invalid role: {validated_role}', 'error')
-            return redirect(url_for('admin_users'))
+            return error_response(f'Invalid role: {validated_role}')
         
         # Validate password strength only if NOT using default password
         # Default passwords (ID numbers) are allowed without validation
@@ -811,24 +1006,39 @@ def create_user():
             from security_config import validate_password_strength
             is_valid_password, password_message = validate_password_strength(password)
             if not is_valid_password:
-                flash(password_message, 'error')
-                return redirect(url_for('admin_users'))
+                return error_response(password_message)
+        
+        # Role-specific required fields (any visible dropdown/textbox must be filled)
+        if validated_role == 'faculty':
+            if not dept_id:
+                return error_response('Department is required for faculty users')
+            if not position:
+                return error_response('Position is required for faculty users')
+            # Validate position: letters and spaces only (no numbers or symbols)
+            import re
+            if not re.fullmatch(r"[A-Za-zÑñ ]+", position.strip()):
+                return error_response('Position may only contain letters and spaces (no numbers or special characters)')
+        elif validated_role == 'student':
+            if not dept_id:
+                return error_response('Department is required for students')
+            if not course_id:
+                return error_response('Course is required for students')
+            if not year_level:
+                return error_response('Year level is required for students')
         
         # Validate department ID if provided
         if dept_id:
             try:
                 dept_id = int(dept_id)
             except ValueError:
-                flash('Invalid department ID', 'error')
-                return redirect(url_for('admin_users'))
+                return error_response('Invalid department ID')
         
         # Validate course ID for students
         if validated_role == 'student' and course_id:
             try:
                 course_id = int(course_id)
             except ValueError:
-                flash('Invalid course ID', 'error')
-                return redirect(url_for('admin_users'))
+                return error_response('Invalid course ID')
         
         # Password is already set from form data or default
         
@@ -837,9 +1047,8 @@ def create_user():
         # Check if user already exists
         existing_user = conn.execute('SELECT idno FROM user WHERE idno = ?', (validated_idno,)).fetchone()
         if existing_user:
-            flash('User ID already exists', 'error')
             conn.close()
-            return redirect(url_for('admin_users'))
+            return error_response('User ID already exists')
         
         # Hash password before storing
         hashed_password = hash_password(password)
@@ -856,10 +1065,9 @@ def create_user():
         # Insert role-specific data
         if validated_role == 'student' and course_id:
             if not year_level:
-                flash('Year level is required for students', 'error')
                 conn.rollback()
                 conn.close()
-                return redirect(url_for('admin_users'))
+                return error_response('Year level is required for students')
             
             cursor.execute('''
                 INSERT INTO student (year_level, course_id, user_id)
@@ -897,9 +1105,13 @@ def create_user():
             except Exception as notification_error:
                 print(f"Warning: Failed to create welcome notification: {notification_error}")
         
+        if is_ajax:
+            return jsonify({'success': True, 'message': 'User created successfully'})
         flash('User created successfully', 'success')
         
     except Exception as e:
+        if is_ajax:
+            return jsonify({'success': False, 'message': f'Error creating user: {str(e)}'}), 500
         flash(f'Error creating user: {str(e)}', 'error')
     
     return redirect(url_for('admin_users'))
@@ -920,18 +1132,47 @@ def edit_user(user_id):
             year_level = request.form.get('year_level')
             course_id = request.form.get('course_id')
             position = request.form.get('position')
-            is_active = request.form.get('is_active', '0')
             
             if not all([firstname, lastname, role]):
                 flash('Please fill in all required fields', 'error')
                 conn.close()
                 return redirect(url_for('edit_user', user_id=user_id))
+
+            # Role-specific required validations for updates
+            if role == 'student':
+                if not dept_id:
+                    flash('Department is required for students', 'error')
+                    conn.close()
+                    return redirect(url_for('edit_user', user_id=user_id))
+                if not year_level:
+                    flash('Year level is required for students', 'error')
+                    conn.close()
+                    return redirect(url_for('edit_user', user_id=user_id))
+                if not course_id:
+                    flash('Course is required for students', 'error')
+                    conn.close()
+                    return redirect(url_for('edit_user', user_id=user_id))
+            elif role == 'faculty':
+                if not dept_id:
+                    flash('Department is required for faculty', 'error')
+                    conn.close()
+                    return redirect(url_for('edit_user', user_id=user_id))
+                if not position:
+                    flash('Position is required for faculty', 'error')
+                    conn.close()
+                    return redirect(url_for('edit_user', user_id=user_id))
+                # Validate position: letters and spaces only (no numbers or symbols)
+                import re
+                if not re.fullmatch(r"[A-Za-zÑñ ]+", position.strip()):
+                    flash('Position may only contain letters and spaces (no numbers or special characters)', 'error')
+                    conn.close()
+                    return redirect(url_for('edit_user', user_id=user_id))
             
-            # Update user
+            # Update basic user fields (keep existing active/inactive status unchanged)
             conn.execute('''
-                UPDATE user SET firstname = ?, lastname = ?, role = ?, dept_id = ?, is_active = ?
+                UPDATE user SET firstname = ?, lastname = ?, role = ?, dept_id = ?
                 WHERE user_id = ?
-            ''', (firstname, lastname, role, dept_id, is_active, user_id))
+            ''', (firstname, lastname, role, dept_id, user_id))
             
             # Update role-specific data
             if role == 'student' and course_id:
@@ -962,10 +1203,14 @@ def edit_user(user_id):
                     ''', (position, user_id))
             
             conn.commit()
-            flash('User updated successfully', 'success')
+            # Use redirect with flag to trigger toast instead of in-page banner
+            conn.close()
+            return redirect(url_for('edit_user', user_id=user_id, updated='1'))
             
         except Exception as e:
             flash(f'Error updating user: {str(e)}', 'error')
+            conn.close()
+            return redirect(url_for('edit_user', user_id=user_id))
     
     # Get user data
     user = conn.execute('''
@@ -1486,6 +1731,26 @@ def edit_class(class_id):
                 conn.close()
                 return redirect(url_for('edit_class', class_id=class_id))
             
+            # Validate time ordering: end_time must be after start_time
+            def _parse_time(val):
+                for fmt in ("%H:%M", "%H:%M:%S"):
+                    try:
+                        return datetime.strptime(val, fmt)
+                    except Exception:
+                        continue
+                return None
+            
+            parsed_start = _parse_time(start_time)
+            parsed_end = _parse_time(end_time)
+            if not parsed_start or not parsed_end:
+                flash('Invalid time format. Please use HH:MM (24-hour) values.', 'error')
+                conn.close()
+                return redirect(url_for('edit_class', class_id=class_id))
+            if parsed_end <= parsed_start:
+                flash('End time must be later than start time', 'error')
+                conn.close()
+                return redirect(url_for('edit_class', class_id=class_id))
+            
             # Check if EDP code already exists (excluding current class)
             existing_class = conn.execute('SELECT class_id FROM class WHERE edpcode = ? AND class_id != ?', (edpcode, class_id)).fetchone()
             if existing_class:
@@ -1889,6 +2154,26 @@ def edit_event(event_id):
             
             if not all([event_name, event_date, start_time, end_time, faculty_id]):
                 flash('Please fill in all required fields', 'error')
+                conn.close()
+                return redirect(url_for('edit_event', event_id=event_id))
+            
+            # Validate time ordering
+            def _parse_time(val):
+                for fmt in ("%H:%M", "%H:%M:%S"):
+                    try:
+                        return datetime.strptime(val, fmt)
+                    except Exception:
+                        continue
+                return None
+            
+            parsed_start = _parse_time(start_time)
+            parsed_end = _parse_time(end_time)
+            if not parsed_start or not parsed_end:
+                flash('Invalid time format. Please use HH:MM (24-hour) values.', 'error')
+                conn.close()
+                return redirect(url_for('edit_event', event_id=event_id))
+            if parsed_end <= parsed_start:
+                flash('End time must be later than start time', 'error')
                 conn.close()
                 return redirect(url_for('edit_event', event_id=event_id))
             
@@ -5040,6 +5325,9 @@ def api_faculty_events():
     
     conn = get_db_connection()
     
+    # Deactivate events that have ended
+    deactivate_ended_events(conn)
+    
     # First get the faculty_id for the current user
     faculty = conn.execute('''
         SELECT f.faculty_id FROM faculty f
@@ -5050,15 +5338,16 @@ def api_faculty_events():
         conn.close()
         return jsonify([])
     
-    # Get events where this faculty is the ORGANIZER (only organizers can take attendance, only active events)
-    # Faculty participants will see events in their "My Classes/Events" but cannot take attendance
+    # Get events where this faculty is the ORGANIZER (only organizers can take attendance)
+    # Only show active events that are scheduled for today
+    today = date.today().strftime('%Y-%m-%d')
     events = conn.execute('''
         SELECT e.event_id, e.event_name, e.description, e.event_date, 
                e.start_time, e.end_time, e.room
         FROM event e
-        WHERE e.faculty_id = ? AND e.is_active = 1
+        WHERE e.faculty_id = ? AND e.is_active = 1 AND DATE(e.event_date) = ?
         ORDER BY e.event_date DESC
-    ''', (faculty['faculty_id'],)).fetchall()
+    ''', (faculty['faculty_id'], today)).fetchall()
     
     conn.close()
     return jsonify([dict(record) for record in events])
@@ -5091,11 +5380,18 @@ def api_event_faculty(event_id):
     
     conn = get_db_connection()
     
-    # Check if current user is the organizer
-    event = conn.execute('SELECT faculty_id FROM event WHERE event_id = ?', (event_id,)).fetchone()
+    # Deactivate events that have ended
+    deactivate_ended_events(conn)
+    
+    # Check if current user is the organizer and event is active and scheduled for today
+    today = date.today().strftime('%Y-%m-%d')
+    event = conn.execute('''
+        SELECT faculty_id FROM event 
+        WHERE event_id = ? AND is_active = 1 AND DATE(event_date) = ?
+    ''', (event_id, today)).fetchone()
     if not event:
         conn.close()
-        return jsonify({'error': 'Event not found'}), 404
+        return jsonify({'error': 'Event not found, not active, or not scheduled for today'}), 404
     
     # Get current user's faculty_id
     current_faculty = conn.execute('''
@@ -5150,11 +5446,18 @@ def api_event_attendance_mark():
         
         conn = get_db_connection()
         
-        # Get event and check if current user is the organizer
-        event = conn.execute('SELECT faculty_id FROM event WHERE event_id = ?', (event_id,)).fetchone()
+        # Deactivate events that have ended
+        deactivate_ended_events(conn)
+        
+        # Get event and check if current user is the organizer and event is active and scheduled for today
+        today = date.today().strftime('%Y-%m-%d')
+        event = conn.execute('''
+            SELECT faculty_id FROM event 
+            WHERE event_id = ? AND is_active = 1 AND DATE(event_date) = ?
+        ''', (event_id, today)).fetchone()
         if not event:
             conn.close()
-            return jsonify({'success': False, 'message': 'Event not found'}), 404
+            return jsonify({'success': False, 'message': 'Event not found, not active, or not scheduled for today'}), 404
         
         # Get current user's faculty_id
         current_faculty = conn.execute('''
@@ -5254,18 +5557,28 @@ def api_event_attendance_today():
     
     conn = get_db_connection()
     
+    # Deactivate events that have ended
+    deactivate_ended_events(conn)
+    
     # Check if user is organizer or admin
     is_admin = session.get('role') == 'admin'
     is_organizer = False
     
+    today = date.today().strftime('%Y-%m-%d')
     if not is_admin:
-        event = conn.execute('SELECT faculty_id FROM event WHERE event_id = ?', (event_id,)).fetchone()
+        event = conn.execute('''
+            SELECT faculty_id FROM event 
+            WHERE event_id = ? AND is_active = 1 AND DATE(event_date) = ?
+        ''', (event_id, today)).fetchone()
         if event:
             current_faculty = conn.execute('''
                 SELECT f.faculty_id FROM faculty f WHERE f.user_id = ?
             ''', (session['user_id'],)).fetchone()
             if current_faculty:
                 is_organizer = event['faculty_id'] == current_faculty['faculty_id']
+        else:
+            conn.close()
+            return jsonify({'error': 'Event not found, not active, or not scheduled for today'}), 404
     
     # Only organizer or admin can see full attendance list
     if not is_admin and not is_organizer:
@@ -5340,19 +5653,32 @@ def api_event_attendance_override():
         
         conn = get_db_connection()
         
+        # Deactivate events that have ended
+        deactivate_ended_events(conn)
+        
+        # Check if event is active and scheduled for today
+        today = date.today().strftime('%Y-%m-%d')
+        event = conn.execute('''
+            SELECT faculty_id FROM event 
+            WHERE event_id = ? AND is_active = 1 AND DATE(event_date) = ?
+        ''', (event_id, today)).fetchone()
+        if not event:
+            conn.close()
+            return jsonify({'success': False, 'message': 'Event not found, not active, or not scheduled for today'}), 404
+        
         # Get user info
         user = conn.execute('SELECT * FROM user WHERE user_id = ?', (user_id,)).fetchone()
         if not user:
             conn.close()
             return jsonify({'success': False, 'message': 'User not found'}), 404
         
-        today = datetime.now().strftime('%Y-%m-%d')
+        today_str = datetime.now().strftime('%Y-%m-%d')
         
         # Check if attendance exists for today
         existing = conn.execute('''
             SELECT event_attend_id FROM event_attendance 
             WHERE event_id = ? AND user_id = ? AND DATE(attendance_time) = ?
-        ''', (event_id, user_id, today)).fetchone()
+        ''', (event_id, user_id, today_str)).fetchone()
         
         if existing:
             # Update existing
@@ -5434,13 +5760,39 @@ def delete_event(event_id):
         return redirect(url_for('login'))
     
     conn = get_db_connection()
+    admin_user_id = session['user_id']
     
     try:
+        # Get event info before deactivating (to notify facilitator)
+        event_info = conn.execute('''
+            SELECT e.event_name, e.faculty_id, f.user_id as facilitator_user_id
+            FROM event e
+            LEFT JOIN faculty f ON e.faculty_id = f.faculty_id
+            WHERE e.event_id = ?
+        ''', (event_id,)).fetchone()
+        
         # Deactivate the event instead of deleting
         conn.execute('UPDATE event SET is_active = 0 WHERE event_id = ?', (event_id,))
         
         conn.commit()
         flash('Event deactivated successfully', 'success')
+        
+        # Notify admin and facilitator
+        if event_info and NOTIFICATIONS_AVAILABLE:
+            try:
+                event_name = event_info.get('event_name', f'Event #{event_id}')
+                
+                # Notify the admin who deactivated it
+                admin_message = f"You have manually deactivated the event '{event_name}'."
+                create_notification(admin_user_id, admin_message, 'event_deactivated')
+                
+                # Notify the facilitator (faculty who created the event)
+                facilitator_user_id = event_info.get('facilitator_user_id')
+                if facilitator_user_id:
+                    facilitator_message = f"Your event '{event_name}' has been manually deactivated by an administrator."
+                    create_notification(facilitator_user_id, facilitator_message, 'event_deactivated')
+            except Exception as notify_err:
+                print(f"Warning: failed to create notifications for event deactivation: {notify_err}")
         
     except Exception as e:
         flash(f'Error deactivating event: {str(e)}', 'error')
@@ -5491,13 +5843,15 @@ def admin_attendance():
         SELECT
             SUM(CASE WHEN attendance_status = 'present' THEN 1 ELSE 0 END) AS present_count,
             SUM(CASE WHEN attendance_status = 'late' THEN 1 ELSE 0 END) AS late_count,
-            SUM(CASE WHEN attendance_status = 'absent' THEN 1 ELSE 0 END) AS absent_count
+            SUM(CASE WHEN attendance_status = 'absent' THEN 1 ELSE 0 END) AS absent_count,
+            SUM(CASE WHEN attendance_status = 'excuse' THEN 1 ELSE 0 END) AS excuse_count
         FROM attendance
     ''').fetchone()
     
     present_count = stats['present_count'] or 0
     late_count = stats['late_count'] or 0
     absent_count = stats['absent_count'] or 0
+    excuse_count = stats['excuse_count'] or 0
     
     # Load all attendance records for client-side pagination
     attendance_records = conn.execute('''
@@ -5522,8 +5876,6 @@ def admin_attendance():
         ORDER BY a.attendance_date DESC, u.lastname, u.firstname
     ''').fetchall()
     
-    attendance_rate = ((present_count + late_count) / total_records * 100) if total_records > 0 else 0
-    
     conn.close()
     
     return render_template('admin_attendance.html', 
@@ -5532,7 +5884,7 @@ def admin_attendance():
                          present_count=present_count,
                          late_count=late_count,
                          absent_count=absent_count,
-                         attendance_rate=round(attendance_rate, 1))
+                         excuse_count=excuse_count)
 
 @app.route('/reports')
 def admin_reports():
@@ -5555,7 +5907,7 @@ def api_admin_reports(report_type):
         conn = get_db_connection()
         
         if report_type == 'class':
-            # Class attendance summary
+            # Class attendance summary (now includes excuses)
             data = conn.execute('''
                 SELECT 
                     DATE(a.attendance_date) as date,
@@ -5563,7 +5915,7 @@ def api_admin_reports(report_type):
                     COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) as present,
                     COUNT(CASE WHEN a.attendance_status = 'absent' THEN 1 END) as absent,
                     COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late,
-                    ROUND(COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) * 100.0 / COUNT(*), 1) as rate
+                    COUNT(CASE WHEN a.attendance_status = 'excuse' THEN 1 END) as excuse
                 FROM attendance a
                 JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
                 JOIN class c ON sc.class_id = c.class_id
@@ -5581,7 +5933,7 @@ def api_admin_reports(report_type):
                     COUNT(CASE WHEN ea.status = 'present' THEN 1 END) as present,
                     COUNT(CASE WHEN ea.status = 'absent' THEN 1 END) as absent,
                     COUNT(CASE WHEN ea.status = 'late' THEN 1 END) as late,
-                    ROUND(COUNT(CASE WHEN ea.status = 'present' THEN 1 END) * 100.0 / COUNT(*), 1) as rate
+                    COUNT(CASE WHEN ea.status = 'excuse' THEN 1 END) as excuse
                 FROM event_attendance ea
                 JOIN event e ON ea.event_id = e.event_id
                 WHERE DATE(ea.attendance_time) BETWEEN ? AND ?
@@ -5590,7 +5942,7 @@ def api_admin_reports(report_type):
             ''', (date_from, date_to)).fetchall()
             
         elif report_type == 'absence':
-            # Absence patterns
+            # Absence patterns (now also fetch excuses for completeness)
             data = conn.execute('''
                 SELECT 
                     u.lastname || ', ' || u.firstname as name,
@@ -5598,19 +5950,19 @@ def api_admin_reports(report_type):
                     0 as present,
                     COUNT(CASE WHEN a.attendance_status = 'absent' THEN 1 END) as absent,
                     COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late,
-                    0 as rate
+                    COUNT(CASE WHEN a.attendance_status = 'excuse' THEN 1 END) as excuse
                 FROM attendance a
                 JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
                 JOIN student s ON sc.student_id = s.student_id
                 JOIN user u ON s.user_id = u.user_id
                 WHERE DATE(a.attendance_date) BETWEEN ? AND ?
-                    AND a.attendance_status IN ('absent', 'late')
+                    AND a.attendance_status IN ('absent', 'late', 'excuse')
                 GROUP BY u.user_id, DATE(a.attendance_date)
                 ORDER BY date DESC, name
             ''', (date_from, date_to)).fetchall()
             
         elif report_type == 'monthly':
-            # Monthly summary
+            # Monthly summary (includes excuses)
             data = conn.execute('''
                 SELECT 
                     strftime('%Y-%m', a.attendance_date) as date,
@@ -5618,7 +5970,7 @@ def api_admin_reports(report_type):
                     COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) as present,
                     COUNT(CASE WHEN a.attendance_status = 'absent' THEN 1 END) as absent,
                     COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late,
-                    ROUND(COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) * 100.0 / COUNT(*), 1) as rate
+                    COUNT(CASE WHEN a.attendance_status = 'excuse' THEN 1 END) as excuse
                 FROM attendance a
                 WHERE DATE(a.attendance_date) BETWEEN ? AND ?
                 GROUP BY strftime('%Y-%m', a.attendance_date)
@@ -5627,7 +5979,7 @@ def api_admin_reports(report_type):
         else:
             return jsonify({'success': False, 'error': 'Invalid report type'}), 400
         
-        # Convert to list of dicts
+        # Convert to list of dicts (now includes excuse)
         details = []
         for row in data:
             details.append({
@@ -5636,27 +5988,29 @@ def api_admin_reports(report_type):
                 'present': row['present'],
                 'absent': row['absent'],
                 'late': row['late'],
-                'rate': row['rate']
+                'excuse': row['excuse']
             })
         
-        # Calculate summary
+        # Calculate summary (include excuse)
         total_present = sum(d['present'] for d in details)
         total_absent = sum(d['absent'] for d in details)
         total_late = sum(d['late'] for d in details)
-        total = total_present + total_absent + total_late
-        attendance_rate = round(total_present * 100.0 / total, 1) if total > 0 else 0
+        total_excuse = sum(d['excuse'] for d in details)
+        total = total_present + total_absent + total_late + total_excuse
         
-        # Generate trend data
+        # Generate trend data (include excuse)
         trend_labels = []
         trend_present = []
         trend_absent = []
         trend_late = []
+        trend_excuse = []
         
         for d in details[:10]:  # Last 10 entries for trend
             trend_labels.insert(0, d['date'])
             trend_present.insert(0, d['present'])
             trend_absent.insert(0, d['absent'])
             trend_late.insert(0, d['late'])
+            trend_excuse.insert(0, d['excuse'])
         
         conn.close()
         
@@ -5666,13 +6020,14 @@ def api_admin_reports(report_type):
                 'total_present': total_present,
                 'total_absent': total_absent,
                 'total_late': total_late,
-                'attendance_rate': attendance_rate
+                'total_excuse': total_excuse
             },
             'trend': {
                 'labels': trend_labels,
                 'present': trend_present,
                 'absent': trend_absent,
-                'late': trend_late
+                'late': trend_late,
+                'excuse': trend_excuse
             },
             'details': details
         })
@@ -5697,14 +6052,15 @@ def export_reports(fmt):
         # but allow date range to be optional (no range = all data).
         params = []
         if report_type == 'class':
-            # Class attendance summary
+            # Class attendance summary (includes excuse)
             query = '''
                 SELECT 
                     DATE(a.attendance_date) as date,
                     c.class_name as name,
                     COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) as present,
                     COUNT(CASE WHEN a.attendance_status = 'absent' THEN 1 END) as absent,
-                    COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late
+                    COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late,
+                    COUNT(CASE WHEN a.attendance_status = 'excuse' THEN 1 END) as excuse
                 FROM attendance a
                 JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
                 JOIN class c ON sc.class_id = c.class_id
@@ -5720,14 +6076,15 @@ def export_reports(fmt):
             data = conn.execute(query, params).fetchall()
         
         elif report_type == 'event':
-            # Event attendance summary
+            # Event attendance summary (includes excuse)
             query = '''
                 SELECT 
                     DATE(ea.attendance_time) as date,
                     e.event_name as name,
                     COUNT(CASE WHEN ea.status = 'present' THEN 1 END) as present,
                     COUNT(CASE WHEN ea.status = 'absent' THEN 1 END) as absent,
-                    COUNT(CASE WHEN ea.status = 'late' THEN 1 END) as late
+                    COUNT(CASE WHEN ea.status = 'late' THEN 1 END) as late,
+                    COUNT(CASE WHEN ea.status = 'excuse' THEN 1 END) as excuse
                 FROM event_attendance ea
                 JOIN event e ON ea.event_id = e.event_id
                 WHERE 1=1
@@ -5742,19 +6099,20 @@ def export_reports(fmt):
             data = conn.execute(query, params).fetchall()
         
         elif report_type == 'absence':
-            # Absence patterns
+            # Absence patterns (includes excuse)
             query = '''
                 SELECT 
                     u.lastname || ', ' || u.firstname as name,
                     DATE(a.attendance_date) as date,
                     0 as present,
                     COUNT(CASE WHEN a.attendance_status = 'absent' THEN 1 END) as absent,
-                    COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late
+                    COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late,
+                    COUNT(CASE WHEN a.attendance_status = 'excuse' THEN 1 END) as excuse
                 FROM attendance a
                 JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
                 JOIN student s ON sc.student_id = s.student_id
                 JOIN user u ON s.user_id = u.user_id
-                WHERE a.attendance_status IN ('absent', 'late')
+                WHERE a.attendance_status IN ('absent', 'late', 'excuse')
             '''
             if date_from:
                 query += ' AND DATE(a.attendance_date) >= ?'
@@ -5766,14 +6124,15 @@ def export_reports(fmt):
             data = conn.execute(query, params).fetchall()
         
         elif report_type == 'monthly':
-            # Monthly summary
+            # Monthly summary (includes excuse)
             query = '''
                 SELECT 
                     strftime('%Y-%m', a.attendance_date) as date,
                     'Monthly Total' as name,
                     COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) as present,
                     COUNT(CASE WHEN a.attendance_status = 'absent' THEN 1 END) as absent,
-                    COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late
+                    COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late,
+                    COUNT(CASE WHEN a.attendance_status = 'excuse' THEN 1 END) as excuse
                 FROM attendance a
                 WHERE 1=1
             '''
@@ -5799,10 +6158,10 @@ def export_reports(fmt):
             
             output = io.StringIO()
             writer = csv.writer(output)
-            writer.writerow(['Date', 'Class/Event', 'Present', 'Absent', 'Late'])
+            writer.writerow(['Date', 'Class/Event', 'Present', 'Absent', 'Late', 'Excuse'])
             
             for row in data:
-                writer.writerow([row['date'], row['name'], row['present'], row['absent'], row['late']])
+                writer.writerow([row['date'], row['name'], row['present'], row['absent'], row['late'], row['excuse']])
             
             response = app.make_response(output.getvalue())
             response.headers['Content-Type'] = 'text/csv'
@@ -5828,7 +6187,7 @@ def export_reports(fmt):
                 ws.append([])
                 
                 # Column headers
-                headers = ['Date', 'Class/Event', 'Present', 'Absent', 'Late']
+                headers = ['Date', 'Class/Event', 'Present', 'Absent', 'Late', 'Excuse']
                 ws.append(headers)
                 
                 # Style header row
@@ -5849,7 +6208,8 @@ def export_reports(fmt):
                         row['name'],
                         row['present'],
                         row['absent'],
-                        row['late']
+                        row['late'],
+                        row['excuse']
                     ])
                 
                 # Set column widths
@@ -5858,6 +6218,7 @@ def export_reports(fmt):
                 ws.column_dimensions['C'].width = 12  # Present
                 ws.column_dimensions['D'].width = 12  # Absent
                 ws.column_dimensions['E'].width = 12  # Late
+                ws.column_dimensions['F'].width = 12  # Excuse
                 
                 # Save to BytesIO
                 output = BytesIO()
@@ -5908,15 +6269,16 @@ def export_reports(fmt):
                 elements.append(Paragraph(f'Report Type: {report_type.title()}', styles['Normal']))
                 elements.append(Spacer(1, 20))
                 
-                # Table data
-                table_data = [['Date', 'Class/Event', 'Present', 'Absent', 'Late']]
+                # Table data (now includes Excuse)
+                table_data = [['Date', 'Class/Event', 'Present', 'Absent', 'Late', 'Excuse']]
                 for row in data:
                     table_data.append([
                         str(row['date']),
                         row['name'],
                         str(row['present']),
                         str(row['absent']),
-                        str(row['late'])
+                        str(row['late']),
+                        str(row['excuse'])
                     ])
                 
                 table = Table(table_data)
@@ -6507,6 +6869,9 @@ def faculty_my_classes():
         flash('Faculty record not found', 'error')
         return redirect(url_for('faculty_dashboard'))
     
+    # Deactivate events that have ended before showing the list
+    deactivate_ended_events(conn)
+    
     # Get classes assigned to this faculty with student counts (only active classes)
     classes = conn.execute('''
         SELECT c.*, 
@@ -6591,6 +6956,12 @@ def faculty_class_view(class_id):
         flash('Class not found or access denied', 'error')
         return redirect(url_for('faculty_my_classes'))
     
+    # Check if class is scheduled for today
+    if not is_class_scheduled_today(class_info, conn):
+        conn.close()
+        flash('This class is not scheduled for today. You can only access classes on their scheduled days.', 'error')
+        return redirect(url_for('faculty_my_classes'))
+    
     # Get enrolled students (exclude deactivated users)
     students = conn.execute('''
         SELECT u.idno, u.firstname, u.lastname, s.student_id, s.year_level, 
@@ -6659,6 +7030,9 @@ def faculty_event_view(event_id):
         conn.close()
         flash('Faculty record not found', 'error')
         return redirect(url_for('faculty_dashboard'))
+    
+    # Deactivate events that have ended before checking access
+    deactivate_ended_events(conn)
     
     # Get event details - check if faculty is organizer OR assigned to this event (only active events)
     event_info = conn.execute('''
@@ -6978,6 +7352,11 @@ def faculty_class_details(type, id):
             conn.close()
             return jsonify({'error': 'Class not found or access denied'}), 404
         
+        # Check if class is scheduled for today
+        if not is_class_scheduled_today(class_info, conn):
+            conn.close()
+            return jsonify({'error': 'This class is not scheduled for today. You can only access classes on their scheduled days.'}), 403
+        
         # Get enrolled students
         students = conn.execute('''
             SELECT u.idno, u.firstname, u.lastname, s.year_level, c.course_name
@@ -7001,15 +7380,19 @@ def faculty_class_details(type, id):
         })
         
     elif type == 'event':
-        # Get event details (only active events)
+        # Deactivate events that have ended
+        deactivate_ended_events(conn)
+        
+        # Get event details (only active events scheduled for today)
+        today = date.today().strftime('%Y-%m-%d')
         event_info = conn.execute('''
             SELECT * FROM event 
-            WHERE event_id = ? AND faculty_id = ? AND is_active = 1
-        ''', (id, faculty['faculty_id'])).fetchone()
+            WHERE event_id = ? AND faculty_id = ? AND is_active = 1 AND DATE(event_date) = ?
+        ''', (id, faculty['faculty_id'], today)).fetchone()
         
         if not event_info:
             conn.close()
-            return jsonify({'error': 'Event not found or access denied'}), 404
+            return jsonify({'error': 'Event not found, access denied, or event is not scheduled for today'}), 404
         
         # Get event attendees
         attendees = conn.execute('''
@@ -7051,6 +7434,10 @@ def attendance():
     
     # Get classes and events for faculty
     conn = get_db_connection()
+    
+    # Deactivate events that have ended
+    deactivate_ended_events(conn)
+    
     classes = []
     events = []
     
@@ -7064,6 +7451,9 @@ def attendance():
     faculty_info = None
     selected_class_id = request.args.get('class_id')
     selected_event_id = request.args.get('event_id')
+    
+    # Get today's date for filtering events
+    today = date.today().strftime('%Y-%m-%d')
 
     if session.get('role') == 'faculty':
         # Get faculty info
@@ -7083,14 +7473,15 @@ def attendance():
                 ORDER BY c.class_name
             ''', (faculty_info['faculty_id'],)).fetchall()
             
-            # Get events where this faculty is the ORGANIZER (only organizers can take attendance, only active events)
+            # Get events where this faculty is the ORGANIZER (only organizers can take attendance)
+            # Only show active events that are scheduled for today
             events = conn.execute('''
                 SELECT e.event_id, e.event_name, e.description, e.event_date, 
                        e.start_time, e.end_time, e.room
                 FROM event e
-                WHERE e.faculty_id = ? AND e.is_active = 1
+                WHERE e.faculty_id = ? AND e.is_active = 1 AND DATE(e.event_date) = ?
                 ORDER BY e.event_date DESC
-            ''', (faculty_info['faculty_id'],)).fetchall()
+            ''', (faculty_info['faculty_id'], today)).fetchall()
     elif session.get('role') == 'admin':
         # Admin can see all classes and events (only active)
         classes = conn.execute('''
@@ -7100,6 +7491,7 @@ def attendance():
             ORDER BY c.class_name
         ''').fetchall()
         
+        # Admin can see all active events (not filtered by date for admin view)
         events = conn.execute('''
             SELECT e.event_id, e.event_name, e.description, e.event_date,
                    e.start_time, e.end_time, e.room
@@ -7719,12 +8111,90 @@ def api_save_settings():
         return jsonify({'success': False, 'message': 'Unauthorized'}), 401
     
     try:
-        settings = request.get_json()
+        new_settings = request.get_json()
+        
+        # Get old settings to compare what changed
+        old_settings = settings_manager.get_all_settings()
         
         # Update settings using settings manager
-        success = settings_manager.update_settings(settings)
+        success = settings_manager.update_settings(new_settings)
         
         if success:
+            # Determine which settings categories were changed
+            changed_categories = []
+            
+            # Attendance Rules
+            attendance_keys = ['late_threshold_minutes', 'grace_period_minutes', 
+                             'minimum_attendance_percent', 'auto_mark_absent']
+            if any(old_settings.get(key) != new_settings.get(key) for key in attendance_keys if key in new_settings):
+                changed_categories.append('Attendance Rules')
+            
+            # Security Management
+            security_keys = ['session_timeout_seconds', 'max_login_attempts', 
+                           'lockout_duration_minutes', 'password_min_length',
+                           'password_require_special', 'password_require_number', 
+                           'password_require_uppercase']
+            if any(old_settings.get(key) != new_settings.get(key) for key in security_keys if key in new_settings):
+                changed_categories.append('Security Management')
+            
+            # Database Settings
+            database_keys = ['enable_auto_backup', 'backup_frequency', 
+                           'backup_retention_days', 'enable_logging', 
+                           'log_retention_days']
+            if any(old_settings.get(key) != new_settings.get(key) for key in database_keys if key in new_settings):
+                changed_categories.append('Database Settings')
+            
+            # Create notifications for users when settings change
+            if changed_categories and NOTIFICATIONS_AVAILABLE:
+                try:
+                    conn = get_db_connection()
+                    admin_user_id = session['user_id']
+                    
+                    # Notify the admin who made the changes
+                    if len(changed_categories) == 1:
+                        admin_message = f"You have successfully updated the {changed_categories[0]} settings."
+                    elif len(changed_categories) == 2:
+                        admin_message = f"You have successfully updated the {changed_categories[0]} and {changed_categories[1]} settings."
+                    else:
+                        categories_str = ', '.join(changed_categories[:-1]) + f', and {changed_categories[-1]}'
+                        admin_message = f"You have successfully updated the {categories_str} settings."
+                    
+                    create_notification(admin_user_id, admin_message, 'settings_updated')
+                    
+                    # Notify all students if attendance rules changed
+                    if 'Attendance Rules' in changed_categories:
+                        students = conn.execute('''
+                            SELECT user_id FROM user
+                            WHERE role = 'student' AND is_active = 1
+                        ''').fetchall()
+                        
+                        student_message = "System attendance rules have been updated. Please check the new late threshold, grace period, and minimum attendance requirements."
+                        
+                        for student in students:
+                            try:
+                                create_notification(student['user_id'], student_message, 'system_update')
+                            except Exception as notify_err:
+                                print(f"Warning: failed to notify student {student['user_id']}: {notify_err}")
+                    
+                    # Notify all users (students and faculty) if security settings changed
+                    if 'Security Management' in changed_categories:
+                        all_users = conn.execute('''
+                            SELECT user_id FROM user
+                            WHERE role IN ('student', 'faculty') AND is_active = 1
+                        ''').fetchall()
+                        
+                        security_message = "System security settings have been updated. Changes may affect session timeout, login attempts, or password requirements."
+                        
+                        for user in all_users:
+                            try:
+                                create_notification(user['user_id'], security_message, 'system_update')
+                            except Exception as notify_err:
+                                print(f"Warning: failed to notify user {user['user_id']}: {notify_err}")
+                    
+                    conn.close()
+                except Exception as notify_err:
+                    print(f"Warning: failed to create settings change notification: {notify_err}")
+            
             return jsonify({'success': True, 'message': 'Settings saved successfully'})
         else:
             return jsonify({'success': False, 'error': 'Failed to save settings'}), 500

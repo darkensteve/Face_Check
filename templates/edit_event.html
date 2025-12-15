@@ -98,20 +98,6 @@
                 </div>
             </header>
             
-            <!-- Flash Messages -->
-            {% with messages = get_flashed_messages(with_categories=true) %}
-                {% if messages %}
-                    <div class="px-6 py-4">
-                        {% for category, message in messages %}
-                            <div class="alert alert-{{ 'error' if category == 'error' else 'success' }} bg-{{ 'red' if category == 'error' else 'green' }}-50 border border-{{ 'red' if category == 'error' else 'green' }}-200 text-{{ 'red' if category == 'error' else 'green' }}-800 px-4 py-3 rounded-lg mb-4">
-                                <i class="fas fa-{{ 'exclamation-circle' if category == 'error' else 'check-circle' }} mr-2"></i>
-                                {{ message }}
-                            </div>
-                        {% endfor %}
-                    </div>
-                {% endif %}
-            {% endwith %}
-            
             <!-- Main Content Area -->
             <main class="flex-1 overflow-y-auto p-6">
                 <div class="max-w-4xl mx-auto">
@@ -197,5 +183,69 @@
             </main>
         </div>
     </div>
+
+    <!-- Success Toast -->
+    <div id="editEventSuccessToast" class="fixed top-4 right-4 bg-green-500 text-white px-6 py-4 rounded-lg shadow-lg hidden z-50">
+        <div class="flex items-center">
+            <i class="fas fa-check-circle mr-3 text-xl"></i>
+            <div>
+                <p class="font-semibold">Event Updated Successfully</p>
+                <p class="text-sm text-green-100" id="editEventSuccessMessage"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Toast -->
+    <div id="editEventErrorToast" class="fixed top-4 right-4 bg-red-500 text-white px-6 py-4 rounded-lg shadow-lg hidden z-50">
+        <div class="flex items-center">
+            <i class="fas fa-exclamation-circle mr-3 text-xl"></i>
+            <div>
+                <p class="font-semibold">Update Failed</p>
+                <p class="text-sm text-red-100" id="editEventErrorMessage"></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        {# Capture first success/error flash to show as toast #}
+        {% set ns = namespace(first_success='', first_error='') %}
+        {% for category, message in get_flashed_messages(with_categories=true) %}
+            {% if category == 'success' and not ns.first_success %}
+                {% set ns.first_success = message %}
+            {% endif %}
+            {% if category == 'error' and not ns.first_error %}
+                {% set ns.first_error = message %}
+            {% endif %}
+        {% endfor %}
+        const initialEditEventSuccess = {{ ns.first_success|tojson }};
+        const initialEditEventError = {{ ns.first_error|tojson }};
+
+        function showEditEventSuccessToast(message) {
+            const toast = document.getElementById('editEventSuccessToast');
+            const msgEl = document.getElementById('editEventSuccessMessage');
+            if (!toast || !msgEl) return;
+            msgEl.textContent = message || 'Event updated successfully.';
+            toast.classList.remove('hidden');
+            setTimeout(() => toast.classList.add('hidden'), 4000);
+        }
+
+        function showEditEventErrorToast(message) {
+            const toast = document.getElementById('editEventErrorToast');
+            const msgEl = document.getElementById('editEventErrorMessage');
+            if (!toast || !msgEl) return;
+            msgEl.textContent = message || 'There was a problem updating the event.';
+            toast.classList.remove('hidden');
+            setTimeout(() => toast.classList.add('hidden'), 5000);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            if (initialEditEventSuccess) {
+                showEditEventSuccessToast(initialEditEventSuccess);
+            }
+            if (initialEditEventError) {
+                showEditEventErrorToast(initialEditEventError);
+            }
+        });
+    </script>
 </body>
 </html>

@@ -162,6 +162,26 @@
                             <h2 class="text-2xl font-bold text-gray-800">Dashboard</h2>
                             <p class="text-gray-600">System overview and statistics</p>
                         </div>
+                        <!-- Notification Bell -->
+                        <div class="relative">
+                            <button id="notificationBtn" class="relative p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-full transition">
+                                <i class="fas fa-bell text-xl"></i>
+                                <span id="notificationBadge" class="hidden absolute top-0 right-0 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white bg-red-600 rounded-full"></span>
+                            </button>
+                            <!-- Notification Dropdown -->
+                            <div id="notificationDropdown" class="hidden absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+                                <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+                                    <h3 class="text-sm font-semibold text-gray-900">Notifications</h3>
+                                    <button id="markAllReadBtn" class="text-xs text-blue-600 hover:text-blue-800">Mark all read</button>
+                                </div>
+                                <div id="notificationList" class="max-h-96 overflow-y-auto">
+                                    <div class="px-4 py-8 text-center text-gray-500">
+                                        <i class="fas fa-bell-slash text-3xl mb-2"></i>
+                                        <p class="text-sm">No notifications</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </header>
@@ -399,6 +419,129 @@ document.addEventListener('DOMContentLoaded', () => {
     rangeSelect?.addEventListener('change', (event) => {
         initializeRecentChart(event.target.value);
     });
+
+    // Notification System
+    let notificationDropdownOpen = false;
+
+    async function loadNotifications() {
+        try {
+            const response = await fetch('/api/notifications/unread-count');
+            const data = await response.json();
+            
+            if (data.success && data.count > 0) {
+                document.getElementById('notificationBadge').textContent = data.count;
+                document.getElementById('notificationBadge').classList.remove('hidden');
+            } else {
+                document.getElementById('notificationBadge').classList.add('hidden');
+            }
+        } catch (error) {
+            console.error('Error loading notifications:', error);
+        }
+    }
+
+    async function loadNotificationList() {
+        try {
+            const response = await fetch('/api/notifications');
+            const data = await response.json();
+            
+            const listContainer = document.getElementById('notificationList');
+            
+            if (data.success && data.notifications.length > 0) {
+                listContainer.innerHTML = data.notifications.map(notif => `
+                    <div class="px-4 py-3 border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${notif.is_read ? 'opacity-60' : ''}" data-id="${notif.notification_id}">
+                        <p class="text-sm text-gray-800">${notif.message}</p>
+                        <p class="text-xs text-gray-500 mt-1">${formatDate(notif.created_at)}</p>
+                    </div>
+                `).join('');
+                
+                // Add click handlers to mark as read
+                listContainer.querySelectorAll('[data-id]').forEach(item => {
+                    item.addEventListener('click', async function() {
+                        const notifId = this.getAttribute('data-id');
+                        if (!this.classList.contains('opacity-60')) {
+                            await markNotificationRead(notifId);
+                            this.classList.add('opacity-60');
+                            loadNotifications(); // Update badge
+                        }
+                    });
+                });
+            } else {
+                listContainer.innerHTML = `
+                    <div class="px-4 py-8 text-center text-gray-500">
+                        <i class="fas fa-bell-slash text-3xl mb-2"></i>
+                        <p class="text-sm">No notifications</p>
+                    </div>
+                `;
+            }
+        } catch (error) {
+            console.error('Error loading notification list:', error);
+        }
+    }
+
+    async function markNotificationRead(notificationId) {
+        try {
+            await fetch(`/api/notifications/mark-read/${notificationId}`, { method: 'POST' });
+        } catch (error) {
+            console.error('Error marking notification as read:', error);
+        }
+    }
+
+    async function markAllNotificationsRead() {
+        try {
+            const response = await fetch('/api/notifications/mark-all-read', { method: 'POST' });
+            if (response.ok) {
+                loadNotificationList();
+                loadNotifications();
+            }
+        } catch (error) {
+            console.error('Error marking all notifications as read:', error);
+        }
+    }
+
+    function formatDate(dateString) {
+        const date = new Date(dateString);
+        const now = new Date();
+        const diffInSeconds = Math.floor((now - date) / 1000);
+        
+        if (diffInSeconds < 60) return 'Just now';
+        if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+        if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+        return `${Math.floor(diffInSeconds / 86400)}d ago`;
+    }
+
+    document.getElementById('notificationBtn').addEventListener('click', function(e) {
+        e.stopPropagation();
+        notificationDropdownOpen = !notificationDropdownOpen;
+        const dropdown = document.getElementById('notificationDropdown');
+        
+        if (notificationDropdownOpen) {
+            dropdown.classList.remove('hidden');
+            loadNotificationList();
+        } else {
+            dropdown.classList.add('hidden');
+        }
+    });
+
+    document.getElementById('markAllReadBtn')?.addEventListener('click', function(e) {
+        e.stopPropagation();
+        markAllNotificationsRead();
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', function(e) {
+        const dropdown = document.getElementById('notificationDropdown');
+        const btn = document.getElementById('notificationBtn');
+        if (notificationDropdownOpen && !dropdown.contains(e.target) && !btn.contains(e.target)) {
+            dropdown.classList.add('hidden');
+            notificationDropdownOpen = false;
+        }
+    });
+
+    // Load notifications on page load
+    loadNotifications();
+    
+    // Refresh notifications every 30 seconds
+    setInterval(loadNotifications, 30000);
 });
 </script>
 </body>

@@ -101,19 +101,6 @@
             
             <!-- Main Content Area -->
             <main class="flex-1 overflow-y-auto p-6">
-                <!-- Flash Messages -->
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                    {% if messages %}
-                        {% for category, message in messages %}
-                            <div class="mb-4 p-4 rounded-lg {% if category == 'error' %}bg-red-100 text-red-700 border border-red-200{% else %}bg-green-100 text-green-700 border border-green-200{% endif %}">
-                                <div class="flex items-center">
-                                    <i class="fas {% if category == 'error' %}fa-exclamation-circle{% else %}fa-check-circle{% endif %} mr-2"></i>
-                                    {{ message }}
-                                </div>
-                            </div>
-                        {% endfor %}
-                    {% endif %}
-                {% endwith %}
 
                 <!-- Edit User Form -->
                 <div class="bg-white rounded-lg shadow overflow-hidden">
@@ -217,7 +204,38 @@
         </div>
     </div>
 
+    <!-- Success Message Toast: Edit User -->
+    <div id="editUserSuccessToast" class="fixed top-4 right-4 bg-green-500 text-white px-6 py-4 rounded-lg shadow-lg hidden z-50">
+        <div class="flex items-center">
+            <i class="fas fa-check-circle mr-3 text-xl"></i>
+            <div>
+                <p class="font-semibold">User Updated Successfully!</p>
+                <p class="text-sm text-green-100" id="editUserSuccessMessage"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Message Toast: Edit User -->
+    <div id="editUserErrorToast" class="fixed top-4 right-4 bg-red-500 text-white px-6 py-4 rounded-lg shadow-lg hidden z-50">
+        <div class="flex items-center">
+            <i class="fas fa-exclamation-circle mr-3 text-xl"></i>
+            <div>
+                <p class="font-semibold">Update Failed</p>
+                <p class="text-sm text-red-100" id="editUserErrorMessage"></p>
+            </div>
+        </div>
+    </div>
+
     <script>
+        {# Capture first flash error (if any) into a JS-friendly variable without using break #}
+        {% set ns = namespace(first_error='') %}
+        {% for category, message in get_flashed_messages(with_categories=true) %}
+            {% if category == 'error' and not ns.first_error %}
+                {% set ns.first_error = message %}
+            {% endif %}
+        {% endfor %}
+        const initialEditErrorMessage = {{ ns.first_error|tojson }};
+
         function toggleRoleFields() {
             const role = document.querySelector('select[name="role"]').value;
             const studentFields = document.getElementById('studentFields');
@@ -237,9 +255,6 @@
             const deptSelect = document.getElementById('deptSelect');
             const courseSelect = document.getElementById('courseSelect');
             const selectedDeptId = deptSelect.value;
-            
-            // Reset course selection
-            courseSelect.value = '';
             
             // Show/hide course options based on selected department
             const courseOptions = courseSelect.querySelectorAll('option');
@@ -261,7 +276,43 @@
         // Initialize course filtering on page load
         document.addEventListener('DOMContentLoaded', function() {
             filterCourses();
+            // Show success toast if redirected with ?updated=1
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('updated') === '1') {
+                showEditUserSuccessToast('User updated successfully.');
+                // Clean the URL so the toast doesn’t reappear on refresh
+                urlParams.delete('updated');
+                const newUrl = `${window.location.pathname}${urlParams.toString() ? '?' + urlParams.toString() : ''}`;
+                window.history.replaceState({}, document.title, newUrl);
+            }
+
+            // Show error toast if there was an error flash
+            if (initialEditErrorMessage) {
+                showEditUserErrorToast(initialEditErrorMessage);
+            }
         });
+
+        function showEditUserSuccessToast(message) {
+            const toast = document.getElementById('editUserSuccessToast');
+            const messageEl = document.getElementById('editUserSuccessMessage');
+            if (!toast || !messageEl) return;
+            messageEl.textContent = message || 'User updated successfully.';
+            toast.classList.remove('hidden');
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 4000);
+        }
+
+        function showEditUserErrorToast(message) {
+            const toast = document.getElementById('editUserErrorToast');
+            const messageEl = document.getElementById('editUserErrorMessage');
+            if (!toast || !messageEl) return;
+            messageEl.textContent = message || 'There was a problem updating the user.';
+            toast.classList.remove('hidden');
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 5000);
+        }
     </script>
 </body>
 </html>

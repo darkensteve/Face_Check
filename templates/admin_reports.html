@@ -201,12 +201,12 @@
 
                     <div class="bg-white rounded-xl shadow-lg p-6">
                         <div class="flex items-center">
-                            <div class="p-3 bg-blue-100 rounded-lg">
-                                <i class="fas fa-percentage text-blue-600 text-xl"></i>
+                            <div class="p-3 bg-purple-100 rounded-lg">
+                                <i class="fas fa-file-alt text-purple-600 text-xl"></i>
                             </div>
                             <div class="ml-4">
-                                <p class="text-sm font-medium text-gray-600">Attendance Rate</p>
-                                <p class="text-2xl font-bold text-gray-900" id="attendanceRate">0%</p>
+                                <p class="text-sm font-medium text-gray-600">Excuses</p>
+                                <p class="text-2xl font-bold text-gray-900" id="totalExcuse">0</p>
                             </div>
                         </div>
                     </div>
@@ -229,6 +229,14 @@
                     </div>
                 </div>
 
+                <!-- Monthly Attendance Chart -->
+                <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Monthly Attendance Summary</h3>
+                    <div style="max-width: 600px; margin: 0 auto;">
+                        <canvas id="monthlyAttendanceChart"></canvas>
+                    </div>
+                </div>
+
                 <!-- Detailed Reports Table -->
                 <div class="bg-white rounded-xl shadow-lg">
                     <div class="px-6 py-4 border-b border-gray-200">
@@ -244,7 +252,7 @@
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Present</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Absent</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Late</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rate</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Excuse</th>
                                     </tr>
                                 </thead>
                                 <tbody class="bg-white divide-y divide-gray-200" id="reportTableBody">
@@ -277,6 +285,7 @@
     <script>
         let trendChart = null;
         let distributionChart = null;
+        let monthlyChart = null;
         let allReportData = [];
         let reportCurrentPage = 1;
         const reportRowsPerPage = 10;
@@ -313,6 +322,12 @@
                         borderColor: 'rgb(234, 179, 8)',
                         backgroundColor: 'rgba(234, 179, 8, 0.1)',
                         tension: 0.4
+                    }, {
+                        label: 'Excuse',
+                        data: [],
+                        borderColor: 'rgb(168, 85, 247)',
+                        backgroundColor: 'rgba(168, 85, 247, 0.1)',
+                        tension: 0.4
                     }]
                 },
                 options: {
@@ -331,13 +346,14 @@
             distributionChart = new Chart(distCtx, {
                 type: 'doughnut',
                 data: {
-                    labels: ['Present', 'Absent', 'Late'],
+                    labels: ['Present', 'Absent', 'Late', 'Excuse'],
                     datasets: [{
-                        data: [0, 0, 0],
+                        data: [0, 0, 0, 0],
                         backgroundColor: [
                             'rgb(34, 197, 94)',
                             'rgb(239, 68, 68)',
-                            'rgb(234, 179, 8)'
+                            'rgb(234, 179, 8)',
+                            'rgb(168, 85, 247)'
                         ]
                     }]
                 },
@@ -348,6 +364,50 @@
                         legend: {
                             position: 'bottom'
                         }
+                    }
+                }
+            });
+
+            // Monthly Attendance Chart
+            const monthlyCtx = document.getElementById('monthlyAttendanceChart').getContext('2d');
+            monthlyChart = new Chart(monthlyCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Present',
+                        data: [],
+                        backgroundColor: 'rgba(34, 197, 94, 0.8)',
+                        borderColor: 'rgb(34, 197, 94)',
+                        borderWidth: 1
+                    }, {
+                        label: 'Absent',
+                        data: [],
+                        backgroundColor: 'rgba(239, 68, 68, 0.8)',
+                        borderColor: 'rgb(239, 68, 68)',
+                        borderWidth: 1
+                    }, {
+                        label: 'Late',
+                        data: [],
+                        backgroundColor: 'rgba(234, 179, 8, 0.8)',
+                        borderColor: 'rgb(234, 179, 8)',
+                        borderWidth: 1
+                    }, {
+                        label: 'Excuse',
+                        data: [],
+                        backgroundColor: 'rgba(168, 85, 247, 0.8)',
+                        borderColor: 'rgb(168, 85, 247)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: { position: 'bottom' }
+                    },
+                    scales: {
+                        y: { beginAtZero: true }
                     }
                 }
             });
@@ -399,6 +459,13 @@
                         backgroundColor: isBarChart ? 'rgba(234, 179, 8, 0.8)' : 'rgba(234, 179, 8, 0.1)',
                         borderWidth: isBarChart ? 1 : undefined,
                         tension: isBarChart ? undefined : 0.4
+                    }, {
+                        label: 'Excuse',
+                        data: [],
+                        borderColor: 'rgb(168, 85, 247)',
+                        backgroundColor: isBarChart ? 'rgba(168, 85, 247, 0.8)' : 'rgba(168, 85, 247, 0.1)',
+                        borderWidth: isBarChart ? 1 : undefined,
+                        tension: isBarChart ? undefined : 0.4
                     }]
                 },
                 options: {
@@ -422,6 +489,35 @@
             trendChart = new Chart(trendCtx, chartConfig);
         }
 
+        async function loadMonthlyChart(dateFrom, dateTo) {
+            const params = new URLSearchParams();
+            if (dateFrom) params.append('date_from', dateFrom);
+            if (dateTo) params.append('date_to', dateTo);
+            params.append('report_type', 'monthly');
+
+            try {
+                const response = await fetch(`/api/admin/reports/monthly?${params.toString()}`);
+                const data = await response.json();
+                if (!data.success || !monthlyChart) return;
+
+                const details = data.details || [];
+                const labels = details.map(d => d.date).reverse();
+                const present = details.map(d => d.present).reverse();
+                const absent = details.map(d => d.absent).reverse();
+                const late = details.map(d => d.late).reverse();
+                const excuse = details.map(d => d.excuse).reverse();
+
+                monthlyChart.data.labels = labels;
+                monthlyChart.data.datasets[0].data = present;
+                monthlyChart.data.datasets[1].data = absent;
+                monthlyChart.data.datasets[2].data = late;
+                monthlyChart.data.datasets[3].data = excuse;
+                monthlyChart.update();
+            } catch (err) {
+                console.error('Error loading monthly chart:', err);
+            }
+        }
+
         async function applyFilters() {
             const dateFrom = document.getElementById('dateFrom').value;
             const dateTo = document.getElementById('dateTo').value;
@@ -438,6 +534,8 @@
                     updateSummaryCards(data);
                     updateCharts(data);
                     updateTable(data);
+                    // Also load monthly summary chart using same date range
+                    await loadMonthlyChart(dateFrom, dateTo);
                 }
             } catch (error) {
                 console.error('Error loading report data:', error);
@@ -448,7 +546,7 @@
             document.getElementById('totalPresent').textContent = data.summary?.total_present || 0;
             document.getElementById('totalAbsent').textContent = data.summary?.total_absent || 0;
             document.getElementById('totalLate').textContent = data.summary?.total_late || 0;
-            document.getElementById('attendanceRate').textContent = (data.summary?.attendance_rate || 0) + '%';
+            document.getElementById('totalExcuse').textContent = data.summary?.total_excuse || 0;
         }
 
         function updateCharts(data) {
@@ -458,6 +556,7 @@
                 trendChart.data.datasets[0].data = data.trend.present || [];
                 trendChart.data.datasets[1].data = data.trend.absent || [];
                 trendChart.data.datasets[2].data = data.trend.late || [];
+                trendChart.data.datasets[3].data = data.trend.excuse || [];
                 trendChart.update();
             }
 
@@ -466,10 +565,13 @@
                 distributionChart.data.datasets[0].data = [
                     data.summary.total_present || 0,
                     data.summary.total_absent || 0,
-                    data.summary.total_late || 0
+                    data.summary.total_late || 0,
+                    data.summary.total_excuse || 0
                 ];
                 distributionChart.update();
             }
+
+            // Monthly chart gets updated separately via loadMonthlyChart
         }
 
         function updateTable(data) {
@@ -519,7 +621,7 @@
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-semibold">${row.present}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-semibold">${row.absent}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-yellow-600 font-semibold">${row.late}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${row.rate}%</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-purple-600 font-semibold">${row.excuse}</td>
                 `;
                 tbody.appendChild(tr);
             }
