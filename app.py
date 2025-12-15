@@ -7143,8 +7143,15 @@ def faculty_attendance_records():
     if class_page < 1:
         class_page = 1
     
-    # Date filter for class attendance
-    class_date_filter = request.args.get('class_date', type=str)
+    # Date filter for class attendance (supports legacy single-date param)
+    class_date_from = request.args.get('class_date_from', type=str)
+    class_date_to = request.args.get('class_date_to', type=str)
+    legacy_class_date = request.args.get('class_date', type=str)
+    if legacy_class_date:
+        if not class_date_from:
+            class_date_from = legacy_class_date
+        if not class_date_to:
+            class_date_to = legacy_class_date
 
     if not selected_class_id and classes:
         selected_class_id = classes[0]['class_id']
@@ -7159,9 +7166,15 @@ def faculty_attendance_records():
         offset = (class_page - 1) * class_page_size
         query_params = [faculty_id, selected_class_id]
         date_filter_clause = ''
-        if class_date_filter:
-            date_filter_clause = 'AND DATE(a.attendance_date) = ?'
-            query_params.append(class_date_filter)
+        if class_date_from and class_date_to:
+            date_filter_clause = 'AND DATE(a.attendance_date) BETWEEN ? AND ?'
+            query_params.extend([class_date_from, class_date_to])
+        elif class_date_from:
+            date_filter_clause = 'AND DATE(a.attendance_date) >= ?'
+            query_params.append(class_date_from)
+        elif class_date_to:
+            date_filter_clause = 'AND DATE(a.attendance_date) <= ?'
+            query_params.append(class_date_to)
         
         query_params.extend([class_page_size + 1, offset])
         
@@ -7214,15 +7227,48 @@ def faculty_attendance_records():
             })
 
     # Event attendance for events this faculty organizes or is assigned to
-    # Date filter for event attendance
-    event_date_filter = request.args.get('event_date', type=str)
-    
+    # Filters for event attendance (supports legacy single-date param)
+    event_date_from = request.args.get('event_date_from', type=str)
+    event_date_to = request.args.get('event_date_to', type=str)
+    legacy_event_date = request.args.get('event_date', type=str)
+    if legacy_event_date:
+        if not event_date_from:
+            event_date_from = legacy_event_date
+        if not event_date_to:
+            event_date_to = legacy_event_date
+    event_id_filter = request.args.get('event_id', type=int)
+
     event_query_params = [faculty_id, faculty_id]
-    event_date_filter_clause = ''
-    if event_date_filter:
-        event_date_filter_clause = 'AND DATE(ea.attendance_time) = ?'
-        event_query_params.append(event_date_filter)
-    
+    event_filter_clauses = []
+    if event_date_from and event_date_to:
+        event_filter_clauses.append('AND DATE(ea.attendance_time) BETWEEN ? AND ?')
+        event_query_params.extend([event_date_from, event_date_to])
+    elif event_date_from:
+        event_filter_clauses.append('AND DATE(ea.attendance_time) >= ?')
+        event_query_params.append(event_date_from)
+    elif event_date_to:
+        event_filter_clauses.append('AND DATE(ea.attendance_time) <= ?')
+        event_query_params.append(event_date_to)
+
+    if event_id_filter:
+        event_filter_clauses.append('AND e.event_id = ?')
+        event_query_params.append(event_id_filter)
+
+    event_filter_sql = ' '.join(event_filter_clauses)
+
+    event_options = conn.execute('''
+        SELECT e.event_id, e.event_name, DATE(e.event_date) AS event_date
+        FROM event e
+        WHERE e.is_active = 1
+          AND (
+                e.faculty_id = ?
+                OR e.event_id IN (
+                    SELECT ef.event_id FROM event_faculty ef WHERE ef.faculty_id = ?
+              )
+          )
+        ORDER BY e.event_date DESC
+    ''', (faculty_id, faculty_id)).fetchall()
+
     event_rows = conn.execute(f'''
         SELECT 
             ea.event_attend_id,
@@ -7243,7 +7289,7 @@ def faculty_attendance_records():
                     SELECT ef.event_id FROM event_faculty ef WHERE ef.faculty_id = ?
               )
           )
-          {event_date_filter_clause}
+          {event_filter_sql}
         ORDER BY e.event_date DESC, ea.attendance_time DESC
     ''', tuple(event_query_params)).fetchall()
 
@@ -7270,7 +7316,27 @@ def faculty_attendance_records():
         })
 
     # Faculty member's own attendance to any events
-    my_rows = conn.execute('''
+    my_event_date_from = request.args.get('my_event_date_from', type=str)
+    my_event_date_to = request.args.get('my_event_date_to', type=str)
+    my_event_id_filter = request.args.get('my_event_id', type=int)
+
+    my_filter_clause = ''
+    my_query_params = [user_id]
+    if my_event_date_from and my_event_date_to:
+        my_filter_clause += 'AND DATE(e.event_date) BETWEEN ? AND ? '
+        my_query_params.extend([my_event_date_from, my_event_date_to])
+    elif my_event_date_from:
+        my_filter_clause += 'AND DATE(e.event_date) >= ? '
+        my_query_params.append(my_event_date_from)
+    elif my_event_date_to:
+        my_filter_clause += 'AND DATE(e.event_date) <= ? '
+        my_query_params.append(my_event_date_to)
+
+    if my_event_id_filter:
+        my_filter_clause += 'AND e.event_id = ? '
+        my_query_params.append(my_event_id_filter)
+
+    my_rows = conn.execute(f'''
         SELECT 
             e.event_name,
             DATE(e.event_date) AS event_date,
@@ -7279,7 +7345,16 @@ def faculty_attendance_records():
         FROM event_attendance ea
         JOIN event e ON ea.event_id = e.event_id
         WHERE ea.user_id = ?
+          {my_filter_clause}
         ORDER BY e.event_date DESC, ea.attendance_time DESC
+    ''', tuple(my_query_params)).fetchall()
+
+    my_event_options = conn.execute('''
+        SELECT DISTINCT e.event_id, e.event_name, DATE(e.event_date) AS event_date
+        FROM event_attendance ea
+        JOIN event e ON ea.event_id = e.event_id
+        WHERE ea.user_id = ?
+        ORDER BY e.event_date DESC
     ''', (user_id,)).fetchall()
 
     my_event_attendance = []
@@ -7312,9 +7387,17 @@ def faculty_attendance_records():
         class_page_size=class_page_size,
         class_has_next=class_has_next,
         class_has_prev=class_has_prev,
-        class_date_filter=class_date_filter,
+        class_date_from=class_date_from,
+        class_date_to=class_date_to,
         event_attendance=event_attendance,
-        event_date_filter=event_date_filter,
+        event_date_from=event_date_from,
+        event_date_to=event_date_to,
+        event_id_filter=event_id_filter,
+        event_options=event_options,
+        my_event_id_filter=my_event_id_filter,
+        my_event_options=my_event_options,
+        my_event_date_from=my_event_date_from,
+        my_event_date_to=my_event_date_to,
         my_event_attendance=my_event_attendance,
     )
 
