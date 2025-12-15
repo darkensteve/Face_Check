@@ -7617,6 +7617,24 @@ def faculty_reports():
             JOIN faculty f ON u.user_id = f.user_id
             WHERE u.user_id = ?
         ''', (session['user_id'],)).fetchone()
+
+        classes = conn.execute('''
+            SELECT class_id, class_name, edpcode
+            FROM class
+            WHERE faculty_id = ? AND is_active = 1
+            ORDER BY class_name
+        ''', (faculty['faculty_id'],)).fetchall()
+
+        events = conn.execute('''
+            SELECT e.event_id, e.event_name, DATE(e.event_date) AS event_date
+            FROM event e
+            WHERE e.is_active = 1 AND (
+                    e.faculty_id = ?
+                OR  e.event_id IN (SELECT ef.event_id FROM event_faculty ef WHERE ef.faculty_id = ?)
+            )
+            ORDER BY e.event_date DESC
+        ''', (faculty['faculty_id'], faculty['faculty_id'])).fetchall()
+
         conn.close()
         
         if not faculty:
@@ -7630,7 +7648,7 @@ def faculty_reports():
             'profile_picture': faculty['profile_picture']
         }
         
-        return render_template('faculty/faculty_reports.html', faculty_info=faculty_info)
+        return render_template('faculty/faculty_reports.html', faculty_info=faculty_info, classes=classes, events=events)
     
     # Allow admin access
     if session.get('role') == 'admin':
@@ -7659,7 +7677,14 @@ def api_faculty_reports_summary():
     if not faculty:
         conn.close()
         return jsonify([])
-    rows = conn.execute('''
+    class_id = request.args.get('class_id', type=int)
+    class_filter_clause = ''
+    params = [start, end, faculty['faculty_id']]
+    if class_id:
+        class_filter_clause = 'AND c.class_id = ?'
+        params.append(class_id)
+
+    rows = conn.execute(f'''
         SELECT c.class_name, c.edpcode,
                COUNT(a.attendance_id) AS present_count,
                COUNT(DISTINCT sc.student_id) AS unique_students
@@ -7668,9 +7693,10 @@ def api_faculty_reports_summary():
         LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
             AND DATE(a.attendance_date) BETWEEN ? AND ?
         WHERE c.faculty_id = ?
+          {class_filter_clause}
         GROUP BY c.class_id
         ORDER BY c.class_name
-    ''', (start, end, faculty['faculty_id'])).fetchall()
+    ''', tuple(params)).fetchall()
     conn.close()
     return jsonify([{
         'class_name': r['class_name'],
@@ -7700,7 +7726,14 @@ def api_faculty_reports_absence_patterns():
     if not faculty:
         conn.close()
         return jsonify([])
-    rows = conn.execute('''
+    class_id = request.args.get('class_id', type=int)
+    class_filter_clause = ''
+    params = [start, end, faculty['faculty_id']]
+    if class_id:
+        class_filter_clause = 'AND c.class_id = ?'
+        params.append(class_id)
+
+    rows = conn.execute(f'''
         SELECT (u.firstname || ' ' || u.lastname) AS student_name,
                c.class_name,
                SUM(CASE WHEN a.attendance_status = 'present' THEN 1 ELSE 0 END) AS present_count,
@@ -7712,11 +7745,12 @@ def api_faculty_reports_absence_patterns():
         LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
             AND DATE(a.attendance_date) BETWEEN ? AND ?
         WHERE c.faculty_id = ?
+          {class_filter_clause}
         GROUP BY sc.student_id, c.class_id
         HAVING present_count >= 0
         ORDER BY absent_count DESC, student_name
         LIMIT 200
-    ''', (start, end, faculty['faculty_id'])).fetchall()
+    ''', tuple(params)).fetchall()
     conn.close()
     return jsonify([{
         'student_name': r['student_name'],
@@ -7746,17 +7780,29 @@ def api_faculty_reports_events_summary():
     if not faculty:
         conn.close()
         return jsonify([])
-    rows = conn.execute('''
+    event_id = request.args.get('event_id', type=int)
+    event_filter_clause = ''
+    params = [faculty['faculty_id'], faculty['faculty_id'], start, end]
+    if event_id:
+        event_filter_clause = 'AND e.event_id = ?'
+        params.append(event_id)
+
+    rows = conn.execute(f'''
         SELECT e.event_name,
                DATE(e.event_date) AS event_date,
                COUNT(CASE WHEN ea.status = 'present' THEN 1 END) AS present_count,
                COUNT(DISTINCT ea.user_id) AS unique_attendees
         FROM event e
         LEFT JOIN event_attendance ea ON e.event_id = ea.event_id
-        WHERE e.faculty_id = ? AND DATE(e.event_date) BETWEEN ? AND ?
+        WHERE (
+                e.faculty_id = ?
+            OR  e.event_id IN (SELECT ef.event_id FROM event_faculty ef WHERE ef.faculty_id = ?)
+        )
+          AND DATE(e.event_date) BETWEEN ? AND ?
+          {event_filter_clause}
         GROUP BY e.event_id
         ORDER BY e.event_date DESC
-    ''', (faculty['faculty_id'], start, end)).fetchall()
+    ''', tuple(params)).fetchall()
     conn.close()
     return jsonify([{
         'event_name': r['event_name'],
@@ -7786,7 +7832,14 @@ def api_faculty_reports_events_absence():
     if not faculty:
         conn.close()
         return jsonify([])
-    rows = conn.execute('''
+    event_id = request.args.get('event_id', type=int)
+    event_filter_clause = ''
+    params = [faculty['faculty_id'], faculty['faculty_id'], start, end]
+    if event_id:
+        event_filter_clause = 'AND e.event_id = ?'
+        params.append(event_id)
+
+    rows = conn.execute(f'''
         SELECT (u.firstname || ' ' || u.lastname) AS attendee_name,
                e.event_name,
                SUM(CASE WHEN ea.status = 'present' THEN 1 ELSE 0 END) AS present_count,
@@ -7794,12 +7847,17 @@ def api_faculty_reports_events_absence():
         FROM event_attendance ea
         JOIN event e ON ea.event_id = e.event_id
         JOIN user u ON ea.user_id = u.user_id
-        WHERE e.faculty_id = ? AND DATE(e.event_date) BETWEEN ? AND ?
+        WHERE (
+                e.faculty_id = ?
+            OR  e.event_id IN (SELECT ef.event_id FROM event_faculty ef WHERE ef.faculty_id = ?)
+        )
+          AND DATE(e.event_date) BETWEEN ? AND ?
+          {event_filter_clause}
         GROUP BY ea.user_id, e.event_id
         HAVING present_count >= 0 OR absent_count > 0
         ORDER BY absent_count DESC, attendee_name
         LIMIT 200
-    ''', (faculty['faculty_id'], start, end)).fetchall()
+    ''', tuple(params)).fetchall()
     conn.close()
     return jsonify([{
         'attendee_name': r['attendee_name'],

@@ -82,7 +82,7 @@
                         <h2 class="text-2xl font-bold text-gray-800">Reports & Analytics</h2>
                         <p class="text-gray-600">Generate class attendance summaries and insights</p>
                     </div>
-                    <div class="flex items-center space-x-3">
+                    <div class="flex flex-wrap items-center gap-3">
                         <div class="relative">
                             <input id="startDate" type="date" class="border rounded-lg px-3 py-2 pr-8 text-sm" />
                             <i class="fas fa-calendar absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none"></i>
@@ -103,8 +103,17 @@
                 <!-- Summaries -->
                 <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
                     <div class="bg-white rounded-xl shadow p-4">
-                        <div class="flex items-center justify-between mb-3">
+                        <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
                             <h3 class="text-lg font-semibold text-gray-900">Class Attendance Summaries</h3>
+                            <div>
+                                <label for="classFilter" class="block text-xs font-semibold text-gray-600 mb-1">Class</label>
+                                <select id="classFilter" class="border rounded-lg px-3 py-2 pr-8 text-sm min-w-[180px]">
+                                    <option value="">All classes</option>
+                                    {% for cls in classes %}
+                                    <option value="{{ cls.class_id }}">{{ cls.class_name }}{% if cls.edpcode %} ({{ cls.edpcode }}){% endif %}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
                         </div>
                         <div class="overflow-x-auto">
                             <table class="min-w-full divide-y divide-gray-200 text-xs">
@@ -121,8 +130,17 @@
                     </div>
 
                     <div class="bg-white rounded-xl shadow p-4">
-                        <div class="flex items-center justify-between mb-3">
+                        <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
                             <h3 class="text-lg font-semibold text-gray-900">Event Attendance Summaries</h3>
+                            <div>
+                                <label for="eventFilter" class="block text-xs font-semibold text-gray-600 mb-1">Event</label>
+                                <select id="eventFilter" class="border rounded-lg px-3 py-2 pr-8 text-sm min-w-[180px]">
+                                    <option value="">All events</option>
+                                    {% for evt in events %}
+                                    <option value="{{ evt.event_id }}">{{ evt.event_name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
                         </div>
                         <div class="overflow-x-auto">
                             <table class="min-w-full divide-y divide-gray-200 text-xs">
@@ -198,10 +216,19 @@
             document.getElementById('endDate').value = fmtDate(end);
         }
 
-        async function loadSummaries() {
+        function currentFilters() {
             const start = document.getElementById('startDate').value;
             const end = document.getElementById('endDate').value;
-            const res = await fetch(`/api/faculty/reports/summary?start=${start}&end=${end}`);
+            const classId = document.getElementById('classFilter').value;
+            const eventId = document.getElementById('eventFilter').value;
+            return { start, end, classId, eventId };
+        }
+
+        async function loadSummaries() {
+            const { start, end, classId } = currentFilters();
+            const params = new URLSearchParams({ start, end });
+            if (classId) params.append('class_id', classId);
+            const res = await fetch(`/api/faculty/reports/summary?${params.toString()}`);
             const data = await res.json();
             const tbody = document.getElementById('summaryBody');
             tbody.innerHTML = '';
@@ -217,9 +244,10 @@
         }
 
         async function loadAbsencePatterns() {
-            const start = document.getElementById('startDate').value;
-            const end = document.getElementById('endDate').value;
-            const res = await fetch(`/api/faculty/reports/absence-patterns?start=${start}&end=${end}`);
+            const { start, end, classId } = currentFilters();
+            const params = new URLSearchParams({ start, end });
+            if (classId) params.append('class_id', classId);
+            const res = await fetch(`/api/faculty/reports/absence-patterns?${params.toString()}`);
             const data = await res.json();
             const tbody = document.getElementById('absenceBody');
             tbody.innerHTML = '';
@@ -236,9 +264,10 @@
         }
 
         async function loadEventSummaries() {
-            const start = document.getElementById('startDate').value;
-            const end = document.getElementById('endDate').value;
-            const res = await fetch(`/api/faculty/reports/events/summary?start=${start}&end=${end}`);
+            const { start, end, eventId } = currentFilters();
+            const params = new URLSearchParams({ start, end });
+            if (eventId) params.append('event_id', eventId);
+            const res = await fetch(`/api/faculty/reports/events/summary?${params.toString()}`);
             const data = await res.json();
             const tbody = document.getElementById('eventSummaryBody');
             tbody.innerHTML = '';
@@ -254,9 +283,10 @@
         }
 
         async function loadEventAbsencePatterns() {
-            const start = document.getElementById('startDate').value;
-            const end = document.getElementById('endDate').value;
-            const res = await fetch(`/api/faculty/reports/events/absence-patterns?start=${start}&end=${end}`);
+            const { start, end, eventId } = currentFilters();
+            const params = new URLSearchParams({ start, end });
+            if (eventId) params.append('event_id', eventId);
+            const res = await fetch(`/api/faculty/reports/events/absence-patterns?${params.toString()}`);
             const data = await res.json();
             const tbody = document.getElementById('eventAbsenceBody');
             tbody.innerHTML = '';
