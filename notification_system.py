@@ -216,7 +216,18 @@ def auto_mark_absent():
     """
     Auto-mark students as absent if they haven't marked attendance during their scheduled class time
     Auto-mark faculty as absent if they haven't marked attendance for events
-    This checks if the class is scheduled TODAY and if the class time has ended
+    
+    IMPORTANT TIMING LOGIC:
+    - This function checks if the class is scheduled TODAY
+    - It only marks absent AFTER the class end time has passed
+    - The attendance timestamp is set to the class end time (not current time)
+    - This is independent of when the faculty starts the camera
+    
+    Example:
+    - Class scheduled: 11:00 AM - 12:00 PM
+    - Current time: 12:05 PM
+    - Student never marked attendance
+    - Result: Marked absent with timestamp of 12:00 PM (end time)
     """
     try:
         # Check if auto-mark is enabled
@@ -230,6 +241,12 @@ def auto_mark_absent():
         today = datetime.now().strftime('%Y-%m-%d')
         current_datetime = datetime.now()
         current_weekday = current_datetime.strftime('%A')  # Monday, Tuesday, etc.
+        
+        print(f"\n{'='*60}")
+        print(f"[AUTO-ABSENT] Starting auto-mark absent check")
+        print(f"[AUTO-ABSENT] Current time: {current_datetime}")
+        print(f"[AUTO-ABSENT] Today: {today} ({current_weekday})")
+        print(f"{'='*60}\n")
         
         # ========== PART 1: Auto-mark students absent for classes ==========
         # Get enrollments with class schedule including days (only active classes)
@@ -258,30 +275,39 @@ def auto_mark_absent():
             class_days = enrollment['class_days']
             start_time = enrollment['start_time']
             end_time = enrollment['end_time']
+            class_name = enrollment['class_name']
+            
+            print(f"[AUTO-ABSENT DEBUG] Checking enrollment: class={class_name}, student_id={student_id}, days={class_days}, end_time={end_time}")
             
             # Check if class is scheduled today
             if not class_days or current_weekday not in class_days:
+                print(f"[AUTO-ABSENT DEBUG] Skipping {class_name}: Not scheduled today (today={current_weekday}, class_days={class_days})")
                 continue  # Skip if class is not scheduled today
             
-            # Check if class has ended for today
-            class_ended = False
+            # Determine today's scheduled end datetime for this class
+            scheduled_end_dt = None
             if end_time:
                 try:
-                    # Parse end time (handle both HH:MM:SS and HH:MM formats)
-                    if ':' in str(end_time):
-                        time_parts = str(end_time).split(':')
-                        end_hour = int(time_parts[0])
-                        end_minute = int(time_parts[1]) if len(time_parts) > 1 else 0
-                        
-                        # Compare with current time
-                        if current_datetime.hour > end_hour or (current_datetime.hour == end_hour and current_datetime.minute >= end_minute):
-                            class_ended = True
-                except:
-                    pass
+                    from datetime import datetime as dt
+                    end_str = str(end_time).split()[0] if ' ' in str(end_time) else str(end_time)
+                    # Handle both HH:MM:SS and HH:MM
+                    if len(end_str.split(':')) == 3:
+                        end_t = dt.strptime(end_str, '%H:%M:%S').time()
+                    else:
+                        end_t = dt.strptime(end_str, '%H:%M').time()
+                    scheduled_end_dt = datetime.combine(current_datetime.date(), end_t)
+                except Exception:
+                    scheduled_end_dt = None
             
-            # Only mark absent if class has ended
-            if not class_ended:
+            # Only mark absent if we have a valid scheduled end time and the class has ended
+            if not scheduled_end_dt:
+                print(f"[AUTO-ABSENT DEBUG] Skipping {class_name}: Could not parse end time ({end_time})")
                 continue
+            if current_datetime < scheduled_end_dt:
+                print(f"[AUTO-ABSENT DEBUG] Skipping {class_name}: Class not ended yet (current={current_datetime}, end={scheduled_end_dt})")
+                continue
+            
+            print(f"[AUTO-ABSENT DEBUG] Class {class_name} has ended. Checking attendance...")
             
             # Check if attendance is already marked for today
             existing = conn.execute('''
@@ -290,13 +316,16 @@ def auto_mark_absent():
             ''', (studentclass_id, today)).fetchone()
             
             if not existing:
-                # Mark as absent
-                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                # Mark as absent, using the scheduled end time as the attendance time
+                absent_time = scheduled_end_dt.strftime('%Y-%m-%d %H:%M:%S')
                 conn.execute('''
                     INSERT INTO attendance (attendance_date, attendance_status, studentclass_id)
                     VALUES (?, 'absent', ?)
-                ''', (current_time, studentclass_id))
+                ''', (absent_time, studentclass_id))
                 marked_count += 1
+                print(f"[AUTO-ABSENT] MARKED student_id={student_id} absent for {class_name} at {absent_time}")
+            else:
+                print(f"[AUTO-ABSENT DEBUG] Student {student_id} already has attendance record for today")
                 
                 # Create notification for the student
                 class_name = enrollment['class_name']
@@ -334,23 +363,24 @@ def auto_mark_absent():
             event_name = event['event_name']
             end_time = event['end_time']
             
-            # Check if event has ended
-            event_ended = False
+            # Determine today's scheduled end datetime for this event
+            event_scheduled_end_dt = None
             if end_time:
                 try:
-                    if ':' in str(end_time):
-                        time_parts = str(end_time).split(':')
-                        end_hour = int(time_parts[0])
-                        end_minute = int(time_parts[1]) if len(time_parts) > 1 else 0
-                        
-                        if current_datetime.hour > end_hour or (current_datetime.hour == end_hour and current_datetime.minute >= end_minute):
-                            event_ended = True
-                except:
-                    event_ended = current_datetime.hour >= 17
+                    from datetime import datetime as dt
+                    end_str = str(end_time).split()[0] if ' ' in str(end_time) else str(end_time)
+                    if len(end_str.split(':')) == 3:
+                        end_t = dt.strptime(end_str, '%H:%M:%S').time()
+                    else:
+                        end_t = dt.strptime(end_str, '%H:%M').time()
+                    event_scheduled_end_dt = datetime.combine(current_datetime.date(), end_t)
+                except Exception:
+                    event_scheduled_end_dt = None
             else:
-                event_ended = current_datetime.hour >= 17
+                # No end time; fall back to considering 5PM as end-of-day for events
+                event_scheduled_end_dt = current_datetime.replace(hour=17, minute=0, second=0, microsecond=0)
             
-            if not event_ended:
+            if not event_scheduled_end_dt or current_datetime < event_scheduled_end_dt:
                 continue
             
             # Get only faculty members assigned to this event (via event_faculty table)
@@ -373,12 +403,12 @@ def auto_mark_absent():
                 ''', (event_id, user_id, today)).fetchone()
                 
                 if not existing:
-                    # Mark as absent
-                    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    # Mark as absent, using the scheduled end time as attendance_time
+                    absent_time = event_scheduled_end_dt.strftime('%Y-%m-%d %H:%M:%S')
                     conn.execute('''
                         INSERT INTO event_attendance (event_id, user_id, status, attendance_time)
                         VALUES (?, ?, 'absent', ?)
-                    ''', (event_id, user_id, current_time))
+                    ''', (event_id, user_id, absent_time))
                     faculty_marked += 1
                     
                     # Create notification for the faculty

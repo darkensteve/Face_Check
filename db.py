@@ -82,6 +82,7 @@ def create_database():
                 end_time TIME,
                 room VARCHAR(10),
                 faculty_id INTEGER NOT NULL,
+                is_active BOOLEAN DEFAULT 1,
                 FOREIGN KEY (faculty_id) REFERENCES faculty(faculty_id)
             )
         """)
@@ -131,6 +132,7 @@ def create_database():
                 end_time TIME,
                 room VARCHAR(20),
                 faculty_id INTEGER NOT NULL,
+                is_active BOOLEAN DEFAULT 1,
                 FOREIGN KEY (faculty_id) REFERENCES faculty(faculty_id)
             )
         """)

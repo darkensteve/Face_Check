@@ -897,15 +897,25 @@
                                         `${personId}:${selectedClass.class_id}`;
                         alreadyMarked.add(markedKey);
                         
-                        // Add to attendance table
-                        addAttendanceRecord(personName, personId, new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }), 'present');
+                        // Get the actual status from backend (present, late, or absent)
+                        const actualStatus = result.attendance_status || 'present';
+                        const timeStr = result.time || new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
                         
-                        // Show success notification
-                        showNotification(`Attendance marked for ${personName}`, 'success');
+                        // Add to attendance table with correct status
+                        addAttendanceRecord(personName, personId, timeStr, actualStatus);
                         
-                        // Update status
-                        document.getElementById('recognitionStatus').textContent = `Marked present: ${personName}`;
-                        document.getElementById('recognitionIndicator').className = 'w-3 h-3 bg-green-400 rounded-full';
+                        // Show appropriate notification based on status
+                        if (actualStatus === 'late') {
+                            showNotification(`${personName} marked as LATE`, 'warning');
+                        } else {
+                            showNotification(`Attendance marked for ${personName}`, 'success');
+                        }
+                        
+                        // Update status with correct message
+                        const statusText = actualStatus === 'late' ? 'LATE' : 'present';
+                        document.getElementById('recognitionStatus').textContent = `Marked ${statusText}: ${personName}`;
+                        document.getElementById('recognitionIndicator').className = actualStatus === 'late' ? 
+                            'w-3 h-3 bg-yellow-400 rounded-full' : 'w-3 h-3 bg-green-400 rounded-full';
                         
                         // Reset after 2 seconds
                         setTimeout(() => {
@@ -1292,6 +1302,15 @@
             // Load attendance data for this class
             loadAttendanceData();
             loadTodayMarked();
+            
+            // Set up periodic refresh to automatically show absent students when class ends
+            // Refresh every 30 seconds to ensure real-time updates
+            if (window.attendanceRefreshInterval) {
+                clearInterval(window.attendanceRefreshInterval);
+            }
+            window.attendanceRefreshInterval = setInterval(() => {
+                loadAttendanceData();
+            }, 30000); // Refresh every 30 seconds
         }
         
         // Select event
@@ -1327,6 +1346,14 @@
             loadEventFaculty();
             loadEventAttendanceData();
             loadTodayMarkedEvent();
+            
+            // Set up periodic refresh for event attendance
+            if (window.attendanceRefreshInterval) {
+                clearInterval(window.attendanceRefreshInterval);
+            }
+            window.attendanceRefreshInterval = setInterval(() => {
+                loadEventAttendanceData();
+            }, 30000); // Refresh every 30 seconds
         }
         
         // Load faculty participants for an event (similar to loading students for a class)

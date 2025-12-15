@@ -85,18 +85,28 @@
                 </a>
             </nav>
             
-            <!-- User Info -->
-            <div class="absolute bottom-0 w-64 p-6 border-t border-gray-700">
-                <div class="flex items-center">
+            <!-- User Info (dynamic, clickable) -->
+            <div class="absolute bottom-0 w-64 border-t border-gray-700">
+                <a href="{{ url_for('admin_profile') }}" class="flex items-center px-6 py-3 hover:bg-gray-700 transition duration-200">
+                    {% if current_admin and current_admin.admin_profile_picture %}
+                    <img src="{{ url_for('static', filename='profile_pictures/' + current_admin.admin_profile_picture) }}" 
+                         alt="{{ current_admin.firstname }} {{ current_admin.lastname }}" 
+                         class="w-8 h-8 rounded-full object-cover border-2 border-blue-600 mr-3">
+                    {% else %}
                     <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center mr-3">
-                        <i class="fas fa-user text-white text-sm"></i>
+                        <span class="text-white text-sm font-bold">
+                            {{ (current_admin.firstname[0] ~ current_admin.lastname[0]) if current_admin else 'A' }}
+                        </span>
                     </div>
+                    {% endif %}
                     <div>
-                        <div class="text-sm font-medium">Admin User</div>
+                        <div class="text-sm font-medium">
+                            {{ (current_admin.firstname ~ ' ' ~ current_admin.lastname) if current_admin else 'Admin User' }}
+                        </div>
                         <div class="text-xs text-gray-400">Administrator</div>
                     </div>
-                </div>
-                <a href="{{ url_for('logout') }}" class="mt-3 flex items-center text-gray-300 hover:text-white transition duration-200">
+                </a>
+                <a href="{{ url_for('logout') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-sign-out-alt mr-2"></i>
                     Logout
                 </a>
@@ -119,20 +129,6 @@
                     </div>
                 </div>
             </header>
-            
-            <!-- Flash Messages -->
-            {% with messages = get_flashed_messages(with_categories=true) %}
-                {% if messages %}
-                    <div class="px-6 py-4">
-                        {% for category, message in messages %}
-                            <div class="alert alert-{{ 'error' if category == 'error' else 'success' }} bg-{{ 'red' if category == 'error' else 'green' }}-50 border border-{{ 'red' if category == 'error' else 'green' }}-200 text-{{ 'red' if category == 'error' else 'green' }}-800 px-4 py-3 rounded-lg mb-4">
-                                <i class="fas fa-{{ 'exclamation-circle' if category == 'error' else 'check-circle' }} mr-2"></i>
-                                {{ message }}
-                            </div>
-                        {% endfor %}
-                    </div>
-                {% endif %}
-            {% endwith %}
             
             <!-- Main Content Area -->
             <main class="flex-1 overflow-y-auto p-6">
@@ -296,7 +292,7 @@
             </main>
         </div>
     </div>
-
+    
     <!-- Deactivate Class Confirmation Modal -->
     <div id="deactivateClassModal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden z-50">
         <div class="flex items-center justify-center min-h-screen p-4">
@@ -335,9 +331,70 @@
             </div>
         </div>
     </div>
+
+    <!-- Success Toast: Class Management -->
+    <div id="classSuccessToast" class="fixed top-4 right-4 bg-green-500 text-white px-6 py-4 rounded-lg shadow-lg hidden z-50">
+        <div class="flex items-center">
+            <i class="fas fa-check-circle mr-3 text-xl"></i>
+            <div>
+                <p class="font-semibold">Action Completed Successfully</p>
+                <p class="text-sm text-green-100" id="classSuccessMessage"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Toast: Class Management -->
+    <div id="classErrorToast" class="fixed top-4 right-4 bg-red-500 text-white px-6 py-4 rounded-lg shadow-lg hidden z-50">
+        <div class="flex items-center">
+            <i class="fas fa-exclamation-circle mr-3 text-xl"></i>
+            <div>
+                <p class="font-semibold">Action Failed</p>
+                <p class="text-sm text-red-100" id="classErrorMessage"></p>
+            </div>
+        </div>
+    </div>
 </body>
 <script>
+// Capture first success and error flash messages for toasts
+{% set ns = namespace(first_success='', first_error='') %}
+{% for category, message in get_flashed_messages(with_categories=true) %}
+    {% if category == 'success' and not ns.first_success %}
+        {% set ns.first_success = message %}
+    {% endif %}
+    {% if category == 'error' and not ns.first_error %}
+        {% set ns.first_error = message %}
+    {% endif %}
+{% endfor %}
+const initialClassSuccess = {{ ns.first_success|tojson }};
+const initialClassError = {{ ns.first_error|tojson }};
+
+function showClassSuccessToast(message) {
+    const toast = document.getElementById('classSuccessToast');
+    const msgEl = document.getElementById('classSuccessMessage');
+    if (!toast || !msgEl) return;
+    msgEl.textContent = message || 'Operation completed successfully.';
+    toast.classList.remove('hidden');
+    setTimeout(() => toast.classList.add('hidden'), 4000);
+}
+
+function showClassErrorToast(message) {
+    const toast = document.getElementById('classErrorToast');
+    const msgEl = document.getElementById('classErrorMessage');
+    if (!toast || !msgEl) return;
+    msgEl.textContent = message || 'There was a problem performing this action.';
+    toast.classList.remove('hidden');
+    setTimeout(() => toast.classList.add('hidden'), 5000);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+    // Show toast if we have flash messages
+    if (initialClassSuccess) {
+        showClassSuccessToast(initialClassSuccess);
+    }
+    if (initialClassError) {
+        showClassErrorToast(initialClassError);
+    }
+
     const classRows = Array.from(document.querySelectorAll('.class-row'));
     const rowsPerPage = 10;
     let currentPage = 1;

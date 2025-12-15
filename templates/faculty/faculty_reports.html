@@ -115,7 +115,7 @@
                                 </select>
                             </div>
                         </div>
-                        <div class="overflow-x-auto">
+                        <div class="overflow-x-auto" style="min-height: 200px;">
                             <table class="min-w-full divide-y divide-gray-200 text-xs">
                                 <thead class="bg-gray-50">
                                     <tr>
@@ -126,6 +126,11 @@
                                 </thead>
                                 <tbody id="summaryBody" class="bg-white divide-y divide-gray-100"></tbody>
                             </table>
+                        </div>
+                        <div class="flex items-center justify-between mt-3">
+                            <button id="summaryPrevBtn" onclick="changeSummaryPage(-1)" class="px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed">Previous</button>
+                            <span id="summaryPageInfo" class="text-xs text-gray-600"></span>
+                            <button id="summaryNextBtn" onclick="changeSummaryPage(1)" class="px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
                         </div>
                     </div>
 
@@ -142,7 +147,7 @@
                                 </select>
                             </div>
                         </div>
-                        <div class="overflow-x-auto">
+                        <div class="overflow-x-auto" style="min-height: 200px;">
                             <table class="min-w-full divide-y divide-gray-200 text-xs">
                                 <thead class="bg-gray-50">
                                     <tr>
@@ -154,6 +159,11 @@
                                 <tbody id="eventSummaryBody" class="bg-white divide-y divide-gray-100"></tbody>
                             </table>
                         </div>
+                        <div class="flex items-center justify-between mt-3">
+                            <button id="eventSummaryPrevBtn" onclick="changeEventSummaryPage(-1)" class="px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed">Previous</button>
+                            <span id="eventSummaryPageInfo" class="text-xs text-gray-600"></span>
+                            <button id="eventSummaryNextBtn" onclick="changeEventSummaryPage(1)" class="px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
+                        </div>
                     </div>
                 </div>
 
@@ -163,7 +173,7 @@
                         <div class="flex items-center justify-between mb-3">
                             <h3 class="text-lg font-semibold text-gray-900">Class Absence Patterns</h3>
                         </div>
-                        <div class="overflow-x-auto">
+                        <div class="overflow-x-auto" style="min-height: 200px;">
                             <table class="min-w-full divide-y divide-gray-200 text-xs">
                                 <thead class="bg-gray-50">
                                     <tr>
@@ -176,13 +186,18 @@
                                 <tbody id="absenceBody" class="bg-white divide-y divide-gray-100"></tbody>
                             </table>
                         </div>
+                        <div class="flex items-center justify-between mt-3">
+                            <button id="classPrevBtn" onclick="changeClassPage(-1)" class="px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed">Previous</button>
+                            <span id="classPageInfo" class="text-xs text-gray-600"></span>
+                            <button id="classNextBtn" onclick="changeClassPage(1)" class="px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
+                        </div>
                     </div>
 
                     <div class="bg-white rounded-xl shadow p-4">
                         <div class="flex items-center justify-between mb-3">
                             <h3 class="text-lg font-semibold text-gray-900">Event Absence Patterns</h3>
                         </div>
-                        <div class="overflow-x-auto">
+                        <div class="overflow-x-auto" style="min-height: 200px;">
                             <table class="min-w-full divide-y divide-gray-200 text-xs">
                                 <thead class="bg-gray-50">
                                     <tr>
@@ -194,6 +209,11 @@
                                 </thead>
                                 <tbody id="eventAbsenceBody" class="bg-white divide-y divide-gray-100"></tbody>
                             </table>
+                        </div>
+                        <div class="flex items-center justify-between mt-3">
+                            <button id="eventPrevBtn" onclick="changeEventPage(-1)" class="px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed">Previous</button>
+                            <span id="eventPageInfo" class="text-xs text-gray-600"></span>
+                            <button id="eventNextBtn" onclick="changeEventPage(1)" class="px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
                         </div>
                     </div>
                 </div>
@@ -224,15 +244,23 @@
             return { start, end, classId, eventId };
         }
 
+        let summaryPage = 1;
+        let summaryTotal = 0;
+
         async function loadSummaries() {
             const { start, end, classId } = currentFilters();
-            const params = new URLSearchParams({ start, end });
+            const params = new URLSearchParams({ start, end, page: summaryPage });
             if (classId) params.append('class_id', classId);
             const res = await fetch(`/api/faculty/reports/summary?${params.toString()}`);
-            const data = await res.json();
+            const response = await res.json();
             const tbody = document.getElementById('summaryBody');
             tbody.innerHTML = '';
-            data.forEach(row => {
+            
+            summaryTotal = response.total;
+            const totalPages = Math.ceil(response.total / response.per_page);
+            
+            // Render data rows
+            response.data.forEach(row => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${row.class_name}</td>
@@ -241,17 +269,48 @@
                 `;
                 tbody.appendChild(tr);
             });
+            
+            // Add empty rows to maintain consistent height (5 rows total)
+            const emptyRowsNeeded = 5 - response.data.length;
+            for (let i = 0; i < emptyRowsNeeded; i++) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-400">&nbsp;</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-400">&nbsp;</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-400">&nbsp;</td>
+                `;
+                tbody.appendChild(tr);
+            }
+            
+            // Update pagination controls
+            document.getElementById('summaryPageInfo').textContent = `Page ${response.page} of ${totalPages || 1}`;
+            document.getElementById('summaryPrevBtn').disabled = response.page <= 1;
+            document.getElementById('summaryNextBtn').disabled = response.page >= totalPages;
         }
+
+        function changeSummaryPage(delta) {
+            summaryPage += delta;
+            if (summaryPage < 1) summaryPage = 1;
+            loadSummaries();
+        }
+
+        let classAbsencePage = 1;
+        let classAbsenceTotal = 0;
 
         async function loadAbsencePatterns() {
             const { start, end, classId } = currentFilters();
-            const params = new URLSearchParams({ start, end });
+            const params = new URLSearchParams({ start, end, page: classAbsencePage });
             if (classId) params.append('class_id', classId);
             const res = await fetch(`/api/faculty/reports/absence-patterns?${params.toString()}`);
-            const data = await res.json();
+            const response = await res.json();
             const tbody = document.getElementById('absenceBody');
             tbody.innerHTML = '';
-            data.forEach(row => {
+            
+            classAbsenceTotal = response.total;
+            const totalPages = Math.ceil(response.total / response.per_page);
+            
+            // Render data rows
+            response.data.forEach(row => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${row.student_name}</td>
@@ -261,45 +320,132 @@
                 `;
                 tbody.appendChild(tr);
             });
+            
+            // Add empty rows to maintain consistent height (5 rows total)
+            const emptyRowsNeeded = 5 - response.data.length;
+            for (let i = 0; i < emptyRowsNeeded; i++) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-400">&nbsp;</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-400">&nbsp;</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-400">&nbsp;</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-400">&nbsp;</td>
+                `;
+                tbody.appendChild(tr);
+            }
+            
+            // Update pagination controls
+            document.getElementById('classPageInfo').textContent = `Page ${response.page} of ${totalPages || 1}`;
+            document.getElementById('classPrevBtn').disabled = response.page <= 1;
+            document.getElementById('classNextBtn').disabled = response.page >= totalPages;
         }
+
+        function changeClassPage(delta) {
+            classAbsencePage += delta;
+            if (classAbsencePage < 1) classAbsencePage = 1;
+            loadAbsencePatterns();
+        }
+
+        let eventSummaryPage = 1;
+        let eventSummaryTotal = 0;
 
         async function loadEventSummaries() {
             const { start, end, eventId } = currentFilters();
-            const params = new URLSearchParams({ start, end });
+            const params = new URLSearchParams({ start, end, page: eventSummaryPage });
             if (eventId) params.append('event_id', eventId);
             const res = await fetch(`/api/faculty/reports/events/summary?${params.toString()}`);
-            const data = await res.json();
+            const response = await res.json();
             const tbody = document.getElementById('eventSummaryBody');
             tbody.innerHTML = '';
-            data.forEach(row => {
+            
+            eventSummaryTotal = response.total;
+            const totalPages = Math.ceil(response.total / response.per_page);
+            
+            // Render data rows
+            response.data.forEach(row => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.event_name}</td>
-                    <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.event_date}</td>
-                    <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.present_count}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${row.event_name}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${row.event_date}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${row.present_count}</td>
                 `;
                 tbody.appendChild(tr);
             });
+            
+            // Add empty rows to maintain consistent height (5 rows total)
+            const emptyRowsNeeded = 5 - response.data.length;
+            for (let i = 0; i < emptyRowsNeeded; i++) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-400">&nbsp;</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-400">&nbsp;</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-400">&nbsp;</td>
+                `;
+                tbody.appendChild(tr);
+            }
+            
+            // Update pagination controls
+            document.getElementById('eventSummaryPageInfo').textContent = `Page ${response.page} of ${totalPages || 1}`;
+            document.getElementById('eventSummaryPrevBtn').disabled = response.page <= 1;
+            document.getElementById('eventSummaryNextBtn').disabled = response.page >= totalPages;
         }
+
+        function changeEventSummaryPage(delta) {
+            eventSummaryPage += delta;
+            if (eventSummaryPage < 1) eventSummaryPage = 1;
+            loadEventSummaries();
+        }
+
+        let eventAbsencePage = 1;
+        let eventAbsenceTotal = 0;
 
         async function loadEventAbsencePatterns() {
             const { start, end, eventId } = currentFilters();
-            const params = new URLSearchParams({ start, end });
+            const params = new URLSearchParams({ start, end, page: eventAbsencePage });
             if (eventId) params.append('event_id', eventId);
             const res = await fetch(`/api/faculty/reports/events/absence-patterns?${params.toString()}`);
-            const data = await res.json();
+            const response = await res.json();
             const tbody = document.getElementById('eventAbsenceBody');
             tbody.innerHTML = '';
-            data.forEach(row => {
+            
+            eventAbsenceTotal = response.total;
+            const totalPages = Math.ceil(response.total / response.per_page);
+            
+            // Render data rows
+            response.data.forEach(row => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.attendee_name}</td>
-                    <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.event_name}</td>
-                    <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.present_count}</td>
-                    <td class="px-4 py-2 whitespace-nowrap text-gray-900">${row.absent_count}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${row.attendee_name}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${row.event_name}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${row.present_count}</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">${row.absent_count}</td>
                 `;
                 tbody.appendChild(tr);
             });
+            
+            // Add empty rows to maintain consistent height (5 rows total)
+            const emptyRowsNeeded = 5 - response.data.length;
+            for (let i = 0; i < emptyRowsNeeded; i++) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-400">&nbsp;</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-400">&nbsp;</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-400">&nbsp;</td>
+                    <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-400">&nbsp;</td>
+                `;
+                tbody.appendChild(tr);
+            }
+            
+            // Update pagination controls
+            document.getElementById('eventPageInfo').textContent = `Page ${response.page} of ${totalPages || 1}`;
+            document.getElementById('eventPrevBtn').disabled = response.page <= 1;
+            document.getElementById('eventNextBtn').disabled = response.page >= totalPages;
+        }
+
+        function changeEventPage(delta) {
+            eventAbsencePage += delta;
+            if (eventAbsencePage < 1) eventAbsencePage = 1;
+            loadEventAbsencePatterns();
         }
 
         async function exportReports(fmt) {
@@ -337,6 +483,12 @@
         }
 
         document.getElementById('applyFilters').addEventListener('click', async () => {
+            // Reset pagination when applying new filters
+            summaryPage = 1;
+            eventSummaryPage = 1;
+            classAbsencePage = 1;
+            eventAbsencePage = 1;
+            
             await Promise.all([
                 loadSummaries(),
                 loadAbsencePatterns(),

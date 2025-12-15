@@ -134,18 +134,28 @@
                 </a>
             </nav>
             
-            <!-- User Info -->
-            <div class="absolute bottom-0 w-64 p-6 border-t border-gray-700">
-                <div class="flex items-center">
+            <!-- User Info (dynamic, clickable) -->
+            <div class="absolute bottom-0 w-64 border-t border-gray-700">
+                <a href="{{ url_for('admin_profile') }}" class="flex items-center px-6 py-3 hover:bg-gray-700 transition duration-200">
+                    {% if current_admin and current_admin.admin_profile_picture %}
+                    <img src="{{ url_for('static', filename='profile_pictures/' + current_admin.admin_profile_picture) }}" 
+                         alt="{{ current_admin.firstname }} {{ current_admin.lastname }}" 
+                         class="w-8 h-8 rounded-full object-cover border-2 border-blue-600 mr-3">
+                    {% else %}
                     <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center mr-3">
-                        <i class="fas fa-user text-white text-sm"></i>
+                        <span class="text-white text-sm font-bold">
+                            {{ (current_admin.firstname[0] ~ current_admin.lastname[0]) if current_admin else 'A' }}
+                        </span>
                     </div>
+                    {% endif %}
                     <div>
-                        <div class="text-sm font-medium">Admin User</div>
+                        <div class="text-sm font-medium">
+                            {{ (current_admin.firstname ~ ' ' ~ current_admin.lastname) if current_admin else 'Admin User' }}
+                        </div>
                         <div class="text-xs text-gray-400">Administrator</div>
                     </div>
-                </div>
-                <a href="{{ url_for('logout') }}" class="mt-3 flex items-center text-gray-300 hover:text-white transition duration-200">
+                </a>
+                <a href="{{ url_for('logout') }}" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-sign-out-alt mr-2"></i>
                     Logout
                 </a>

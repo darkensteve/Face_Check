@@ -157,13 +157,37 @@ def get_db_connection():
         # Ensure expected schema exists (idempotent)
         try:
             cur = conn.cursor()
+            
+            # Add attendance_image column to faculty table if missing
             cur.execute("PRAGMA table_info(faculty)")
             columns = [row[1] for row in cur.fetchall()]
             if 'attendance_image' not in columns:
                 cur.execute("ALTER TABLE faculty ADD COLUMN attendance_image VARCHAR(255)")
                 conn.commit()
-        except Exception:
-            # Ignore if PRAGMA/ALTER not applicable; app may still function without this column
+            
+            # Add is_active column to class table if missing
+            cur.execute("PRAGMA table_info(class)")
+            class_columns = [row[1] for row in cur.fetchall()]
+            if 'is_active' not in class_columns:
+                cur.execute("ALTER TABLE class ADD COLUMN is_active BOOLEAN DEFAULT 1")
+                # Set all existing classes to active
+                cur.execute("UPDATE class SET is_active = 1 WHERE is_active IS NULL")
+                conn.commit()
+                print("✅ Added is_active column to class table and activated all existing classes")
+            
+            # Add is_active column to event table if missing
+            cur.execute("PRAGMA table_info(event)")
+            event_columns = [row[1] for row in cur.fetchall()]
+            if 'is_active' not in event_columns:
+                cur.execute("ALTER TABLE event ADD COLUMN is_active BOOLEAN DEFAULT 1")
+                # Set all existing events to active
+                cur.execute("UPDATE event SET is_active = 1 WHERE is_active IS NULL")
+                conn.commit()
+                print("✅ Added is_active column to event table and activated all existing events")
+                
+        except Exception as e:
+            # Ignore if PRAGMA/ALTER not applicable; app may still function
+            print(f"Schema migration note: {e}")
             pass
         return conn
     except sqlite3.Error as e:
@@ -886,6 +910,32 @@ def dashboard():
                          start_date=start_date,
                          end_date=end_date)
 
+@app.context_processor
+def inject_current_admin():
+    """Inject the currently logged-in admin into templates as current_admin."""
+    current_admin = None
+    if 'user_id' in session and session.get('role') == 'admin':
+        conn = get_db_connection()
+        # Ensure admin has optional profile picture column
+        try:
+            conn.execute('ALTER TABLE user ADD COLUMN admin_profile_picture VARCHAR(255)')
+            conn.commit()
+        except Exception:
+            pass  # Column already exists
+
+        current_admin = conn.execute(
+            '''
+            SELECT u.*, d.dept_name
+            FROM user u
+            LEFT JOIN department d ON u.dept_id = d.dept_id
+            WHERE u.user_id = ?
+            ''',
+            (session['user_id'],)
+        ).fetchone()
+        conn.close()
+
+    return dict(current_admin=current_admin)
+
 # User Management Routes
 @app.route('/admin/users')
 def admin_users():
@@ -1447,13 +1497,15 @@ def admin_user_profile(user_id):
             
         elif role == 'faculty':
             faculty_info = conn.execute('''
-                SELECT f.faculty_id, f.position
+                SELECT f.faculty_id, f.position, f.profile_picture, f.attendance_image
                 FROM faculty f
                 WHERE f.user_id = ?
             ''', (user_id,)).fetchone()
             
             if faculty_info:
                 profile_data['position'] = faculty_info['position']
+                profile_data['profile_picture'] = faculty_info['profile_picture']
+                profile_data['attendance_image'] = faculty_info['attendance_image']
                 
                 # Get classes taught
                 classes = conn.execute('''
@@ -1641,46 +1693,73 @@ def create_class():
             end_time = request.form.get('end_time')
             room = request.form.get('room')
             faculty_id = request.form.get('faculty_id')
-            days = request.form.getlist('days')  # Multiple days can be selected
+            selected_days = request.form.getlist('days')  # Multiple days can be selected
+
+            error = None
             
             # Validate required fields including at least one schedule day
             if not all([class_name, edpcode, start_time, end_time, room, faculty_id]):
-                flash('Please fill in all required fields', 'error')
-                return redirect(url_for('create_class'))
-
+                error = 'Please fill in all required fields'
+            elif not edpcode.isdigit():
             # Enforce numeric-only EDP code server-side
-            if not edpcode.isdigit():
-                flash('EDP Code must contain numbers only', 'error')
-                return redirect(url_for('create_class'))
-            
-            if not days:
-                flash('Please select at least one day of the week for the class schedule', 'error')
-                return redirect(url_for('create_class'))
+                error = 'EDP Code must contain numbers only'
+            elif not selected_days:
+                error = 'Please select at least one day of the week for the class schedule'
             
             conn = get_db_connection()
             
-            # Check if EDP code already exists
-            existing_class = conn.execute('SELECT class_id FROM class WHERE edpcode = ?', (edpcode,)).fetchone()
+            # Check if EDP code already exists (only if all basic fields are valid)
+            if not error:
+                existing_class = conn.execute(
+                    'SELECT class_id FROM class WHERE edpcode = ?', (edpcode,)
+                ).fetchone()
             if existing_class:
-                flash('EDP Code already exists', 'error')
+                    error = 'EDP Code already exists'
+
+            if error:
+                # Show error and re-render form with previously entered values
+                flash(error, 'error')
+                faculty = conn.execute(
+                    '''
+                    SELECT f.faculty_id, u.firstname, u.lastname, d.dept_name
+                    FROM faculty f
+                    JOIN user u ON f.user_id = u.user_id
+                    LEFT JOIN department d ON u.dept_id = d.dept_id
+                    WHERE u.is_active = 1
+                    ORDER BY u.firstname, u.lastname
+                    '''
+                ).fetchall()
+                days = conn.execute('SELECT * FROM days ORDER BY day_id').fetchall()
                 conn.close()
-                return redirect(url_for('create_class'))
+                return render_template(
+                    'create_class.html',
+                    faculty=faculty,
+                    days=days,
+                    form=request.form,
+                    selected_days=selected_days,
+                )
             
-            # Insert class
+            # No validation errors – proceed with insert
             cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO class (class_name, edpcode, start_time, end_time, room, faculty_id)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (class_name, edpcode, start_time, end_time, room, faculty_id))
+            cursor.execute(
+                '''
+                INSERT INTO class (class_name, edpcode, start_time, end_time, room, faculty_id, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, 1)
+                ''',
+                (class_name, edpcode, start_time, end_time, room, faculty_id),
+            )
             
             class_id = cursor.lastrowid
             
             # Insert class days
-            for day_id in days:
-                cursor.execute('''
+            for day_id in selected_days:
+                cursor.execute(
+                    '''
                     INSERT INTO class_days (class_id, day_id)
                     VALUES (?, ?)
-                ''', (class_id, day_id))
+                    ''',
+                    (class_id, day_id),
+                )
             
             conn.commit()
             conn.close()
@@ -1690,9 +1769,9 @@ def create_class():
             
         except Exception as e:
             flash(f'Error creating class: {str(e)}', 'error')
-            return redirect(url_for('create_class'))
+            # Fall through to re-render form with whatever was entered
     
-    # GET request - show form
+    # GET request or error during POST - show form
     conn = get_db_connection()
     faculty = conn.execute('''
         SELECT f.faculty_id, u.firstname, u.lastname, d.dept_name
@@ -1706,7 +1785,14 @@ def create_class():
     days = conn.execute('SELECT * FROM days ORDER BY day_id').fetchall()
     conn.close()
     
-    return render_template('create_class.html', faculty=faculty, days=days)
+    # When arriving via GET, form/selected_days may not exist; template guards for that
+    return render_template(
+        'create_class.html',
+        faculty=faculty,
+        days=days,
+        form=request.form if request.method == 'POST' else None,
+        selected_days=request.form.getlist('days') if request.method == 'POST' else [],
+    )
 
 @app.route('/admin/classes/<int:class_id>/edit', methods=['GET', 'POST'])
 def edit_class(class_id):
@@ -2107,11 +2193,11 @@ def create_event():
             
             conn = get_db_connection()
             
-            # Insert event
+            # Insert event with is_active = 1 by default
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO event (event_name, description, event_date, start_time, end_time, room, faculty_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO event (event_name, description, event_date, start_time, end_time, room, faculty_id, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1)
             ''', (event_name, description, event_date, start_time, end_time, room, faculty_id))
             
             event_id = cursor.lastrowid
@@ -2779,6 +2865,12 @@ def view_class_attendance(class_id):
     """View attendance records for a specific class"""
     if 'user_id' not in session or session['role'] != 'student':
         return redirect(url_for('login'))
+    
+    # Auto-mark absent students for classes that have ended
+    try:
+        auto_mark_absent()
+    except Exception as e:
+        print(f"Error in auto-mark absent: {e}")
     
     conn = get_db_connection()
     
@@ -3688,6 +3780,88 @@ def api_faculty_upload_profile_picture():
         print(f"Error uploading faculty profile picture: {e}")
         return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
+@app.route('/api/admin/upload-profile-picture', methods=['POST'])
+def api_admin_upload_profile_picture():
+    """Handle profile picture uploads for admins"""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    if 'profile_picture' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+
+    file = request.files['profile_picture']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+
+    allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+    file_ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
+    if file_ext not in allowed_extensions:
+        return jsonify({'error': 'Invalid file type. Allowed: PNG, JPG, JPEG, GIF, WEBP'}), 400
+
+    try:
+        conn = get_db_connection()
+
+        # Ensure admin_profile_picture column exists
+        try:
+            conn.execute('ALTER TABLE user ADD COLUMN admin_profile_picture VARCHAR(255)')
+            conn.commit()
+        except Exception:
+            pass
+
+        admin = conn.execute(
+            '''
+            SELECT user_id, idno, admin_profile_picture
+            FROM user
+            WHERE user_id = ? AND role = 'admin'
+            ''',
+            (session['user_id'],)
+        ).fetchone()
+
+        if not admin:
+            conn.close()
+            return jsonify({'error': 'Admin not found'}), 404
+
+        profile_pics_dir = Path('static/profile_pictures')
+        profile_pics_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        filename = f"admin_{admin['idno']}_{timestamp}.{file_ext}"
+        filepath = profile_pics_dir / filename
+
+        # Delete old profile picture if present
+        if admin['admin_profile_picture']:
+            old_filepath = profile_pics_dir / admin['admin_profile_picture']
+            if old_filepath.exists():
+                try:
+                    old_filepath.unlink()
+                except Exception as e:
+                    print(f"Warning: Could not delete old admin profile picture: {e}")
+
+        file.save(str(filepath))
+
+        conn.execute(
+            '''
+            UPDATE user
+            SET admin_profile_picture = ?
+            WHERE user_id = ?
+            ''',
+            (filename, admin['user_id'])
+        )
+        conn.commit()
+        conn.close()
+
+        return jsonify(
+            {
+                'success': True,
+                'message': 'Profile picture uploaded successfully',
+                'filename': filename,
+            }
+        ), 200
+
+    except Exception as e:
+        print(f"Error uploading admin profile picture: {e}")
+        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
+
 def calculate_ear(eye_landmarks):
     """Calculate Eye Aspect Ratio (EAR) for blink detection"""
     import numpy as np 
@@ -4343,6 +4517,10 @@ def api_attendance_mark():
             return jsonify({'success': False, 'message': 'Already marked today'})
 
         # Determine attendance status based on class schedule and late threshold
+        # IMPORTANT: Status is determined by SCHEDULED CLASS TIME, not when camera starts
+        # - Present: Marked within late_threshold_minutes after class start time
+        # - Late: Marked after late_threshold_minutes from class start time
+        # - Absent: Not marked by class end time (handled by auto_mark_absent())
         from settings_helper import get_late_threshold
         late_threshold_minutes = get_late_threshold()
 
@@ -4372,13 +4550,14 @@ def api_attendance_mark():
                         scheduled_time = None
 
                 if scheduled_time:
-                    # Combine today's date with scheduled time
+                    # Combine today's date with scheduled class start time
                     scheduled_datetime = datetime.combine(current_datetime.date(), scheduled_time)
 
-                    # Calculate time difference in minutes
+                    # Calculate time difference in minutes from scheduled start time
                     time_diff_minutes = (current_datetime - scheduled_datetime).total_seconds() / 60
 
-                    # Check if student is late (arrived after schedule + threshold)
+                    # Check if student is late (arrived after start_time + threshold)
+                    # Example: Class at 11:00 AM, threshold 15 min -> Late if marked after 11:15 AM
                     if time_diff_minutes > late_threshold_minutes:
                         attendance_status = 'late'
                         print(f"Student is late: arrived {time_diff_minutes:.1f} minutes after scheduled time (threshold: {late_threshold_minutes} min)")
@@ -4520,12 +4699,10 @@ def api_today_attendance():
     if not class_id:
         return jsonify([])
     
-    # Auto-mark absent students if enabled and it's end of day (after 6 PM)
-    # Only run once per request to avoid multiple calls
+    # Auto-mark absent students immediately when their class time has ended
+    # This runs every time attendance is fetched to ensure real-time updates
     try:
-        current_hour = datetime.now().hour
-        if current_hour >= 18:  # After 6 PM, consider it end of day
-            auto_mark_absent()
+        auto_mark_absent()
     except Exception as e:
         print(f"Error in auto-mark absent: {e}")
     
@@ -6853,6 +7030,64 @@ def faculty_profile():
                          today_attendance=today_stats['today_count'] if today_stats else 0,
                          total_students=total_students['total'] if total_students else 0)
 
+@app.route('/admin/profile')
+def admin_profile():
+    """Admin profile page similar to student/faculty profile."""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return redirect(url_for('login'))
+
+    conn = get_db_connection()
+
+    # Ensure admin_profile_picture column exists
+    try:
+        conn.execute('ALTER TABLE user ADD COLUMN admin_profile_picture VARCHAR(255)')
+        conn.commit()
+    except Exception:
+        pass
+
+    admin = conn.execute(
+        '''
+        SELECT u.*, d.dept_name
+        FROM user u
+        LEFT JOIN department d ON u.dept_id = d.dept_id
+        WHERE u.user_id = ?
+        ''',
+        (session['user_id'],),
+    ).fetchone()
+
+    conn.close()
+
+    return render_template('admin_profile.html', admin=admin)
+
+@app.route('/admin/profile/update_name', methods=['POST'])
+def update_admin_name():
+    """Allow the currently logged-in admin to update their first and last name."""
+    if 'user_id' not in session or session.get('role') != 'admin':
+        return redirect(url_for('login'))
+
+    firstname = request.form.get('firstname', '').strip()
+    lastname = request.form.get('lastname', '').strip()
+
+    if not firstname or not lastname:
+        flash('First name and last name are required.', 'error')
+        return redirect(url_for('admin_profile'))
+
+    conn = get_db_connection()
+    conn.execute(
+        '''
+        UPDATE user
+        SET firstname = ?, lastname = ?
+        WHERE user_id = ?
+        ''',
+        (firstname, lastname, session['user_id']),
+    )
+    conn.commit()
+    conn.close()
+
+    session['username'] = f"{firstname} {lastname}"
+    flash('Profile updated successfully.', 'success')
+    return redirect(url_for('admin_profile'))
+
 @app.route('/faculty/profile/update_name', methods=['POST'])
 def update_faculty_name():
     """Allow the currently logged-in faculty to update their first and last name."""
@@ -7000,12 +7235,6 @@ def faculty_class_view(class_id):
         flash('Class not found or access denied', 'error')
         return redirect(url_for('faculty_my_classes'))
     
-    # Check if class is scheduled for today
-    if not is_class_scheduled_today(class_info, conn):
-        conn.close()
-        flash('This class is not scheduled for today. You can only access classes on their scheduled days.', 'error')
-        return redirect(url_for('faculty_my_classes'))
-    
     # Get enrolled students (exclude deactivated users)
     students = conn.execute('''
         SELECT u.idno, u.firstname, u.lastname, s.student_id, s.year_level, 
@@ -7147,6 +7376,12 @@ def faculty_attendance_records():
     if 'user_id' not in session or session['role'] != 'faculty':
         return redirect(url_for('login'))
 
+    # Auto-mark absent students for classes that have ended
+    try:
+        auto_mark_absent()
+    except Exception as e:
+        print(f"Error in auto-mark absent: {e}")
+
     conn = get_db_connection()
 
     # Ensure profile_picture column exists
@@ -7181,8 +7416,8 @@ def faculty_attendance_records():
         ORDER BY class_name
     ''', (faculty_id,)).fetchall()
 
-    # Handle selected class (optional, via query param)
-    selected_class_id = request.args.get('class_id', type=int)
+    # Handle selected class (optional, via query param; empty means "All classes")
+    selected_class_id = request.args.get('class_id', default=None, type=int)
     class_page = request.args.get('page', 1, type=int) or 1
     if class_page < 1:
         class_page = 1
@@ -7197,18 +7432,19 @@ def faculty_attendance_records():
         if not class_date_to:
             class_date_to = legacy_class_date
 
-    if not selected_class_id and classes:
-        selected_class_id = classes[0]['class_id']
-
     class_attendance = []
     class_page_size = 10
     class_has_next = False
     class_has_prev = False
 
-    if selected_class_id:
-        # Detailed attendance for the selected class
+    if classes:
+        # Detailed attendance for the selected class (or all classes if none selected)
         offset = (class_page - 1) * class_page_size
-        query_params = [faculty_id, selected_class_id]
+        query_params = [faculty_id]
+        class_filter_clause = ''
+        if selected_class_id:
+            class_filter_clause = 'AND c.class_id = ?'
+            query_params.append(selected_class_id)
         date_filter_clause = ''
         if class_date_from and class_date_to:
             date_filter_clause = 'AND DATE(a.attendance_date) BETWEEN ? AND ?'
@@ -7237,7 +7473,7 @@ def faculty_attendance_records():
             JOIN user u ON s.user_id = u.user_id
             JOIN class c ON sc.class_id = c.class_id
             WHERE c.faculty_id = ?
-              AND c.class_id = ?
+              {class_filter_clause}
               {date_filter_clause}
             ORDER BY a.attendance_date DESC
             LIMIT ? OFFSET ?
@@ -7709,6 +7945,10 @@ def api_faculty_reports_summary():
         return jsonify({'error': 'Access denied'}), 403
     start = request.args.get('start')
     end = request.args.get('end')
+    page = request.args.get('page', 1, type=int)
+    per_page = 5
+    offset = (page - 1) * per_page
+    
     if not start or not end:
         today = datetime.now().strftime('%Y-%m-%d')
         start = today
@@ -7720,13 +7960,30 @@ def api_faculty_reports_summary():
     ''', (session['user_id'],)).fetchone()
     if not faculty:
         conn.close()
-        return jsonify([])
+        return jsonify({'data': [], 'total': 0, 'page': page, 'per_page': per_page})
     class_id = request.args.get('class_id', type=int)
     class_filter_clause = ''
     params = [start, end, faculty['faculty_id']]
     if class_id:
         class_filter_clause = 'AND c.class_id = ?'
         params.append(class_id)
+
+    # Get total count
+    count_query = f'''
+        SELECT COUNT(*) as total
+        FROM (
+            SELECT c.class_id
+            FROM class c
+            JOIN student_class sc ON sc.class_id = c.class_id
+            WHERE c.faculty_id = ?
+              {class_filter_clause}
+            GROUP BY c.class_id
+        )
+    '''
+    count_params = [faculty['faculty_id']]
+    if class_id:
+        count_params.append(class_id)
+    total = conn.execute(count_query, tuple(count_params)).fetchone()['total']
 
     rows = conn.execute(f'''
         SELECT c.class_name, c.edpcode,
@@ -7740,14 +7997,20 @@ def api_faculty_reports_summary():
           {class_filter_clause}
         GROUP BY c.class_id
         ORDER BY c.class_name
-    ''', tuple(params)).fetchall()
+        LIMIT ? OFFSET ?
+    ''', tuple(params + [per_page, offset])).fetchall()
     conn.close()
-    return jsonify([{
-        'class_name': r['class_name'],
-        'edpcode': r['edpcode'] if 'edpcode' in r.keys() else None,
-        'present_count': r['present_count'] or 0,
-        'unique_students': r['unique_students'] or 0
-    } for r in rows])
+    return jsonify({
+        'data': [{
+            'class_name': r['class_name'],
+            'edpcode': r['edpcode'] if 'edpcode' in r.keys() else None,
+            'present_count': r['present_count'] or 0,
+            'unique_students': r['unique_students'] or 0
+        } for r in rows],
+        'total': total,
+        'page': page,
+        'per_page': per_page
+    })
 
 @app.route('/api/faculty/reports/absence-patterns')
 def api_faculty_reports_absence_patterns():
@@ -7758,6 +8021,10 @@ def api_faculty_reports_absence_patterns():
         return jsonify({'error': 'Access denied'}), 403
     start = request.args.get('start')
     end = request.args.get('end')
+    page = request.args.get('page', 1, type=int)
+    per_page = 5
+    offset = (page - 1) * per_page
+    
     if not start or not end:
         today = datetime.now().strftime('%Y-%m-%d')
         start = today
@@ -7769,13 +8036,31 @@ def api_faculty_reports_absence_patterns():
     ''', (session['user_id'],)).fetchone()
     if not faculty:
         conn.close()
-        return jsonify([])
+        return jsonify({'data': [], 'total': 0, 'page': page, 'per_page': per_page})
     class_id = request.args.get('class_id', type=int)
     class_filter_clause = ''
     params = [start, end, faculty['faculty_id']]
     if class_id:
         class_filter_clause = 'AND c.class_id = ?'
         params.append(class_id)
+
+    # Get total count
+    count_query = f'''
+        SELECT COUNT(*) as total
+        FROM (
+            SELECT sc.student_id, c.class_id
+            FROM class c
+            JOIN student_class sc ON sc.class_id = c.class_id
+            JOIN student s ON sc.student_id = s.student_id
+            JOIN user u ON s.user_id = u.user_id
+            LEFT JOIN attendance a ON a.studentclass_id = sc.studentclass_id
+                AND DATE(a.attendance_date) BETWEEN ? AND ?
+            WHERE c.faculty_id = ?
+              {class_filter_clause}
+            GROUP BY sc.student_id, c.class_id
+        )
+    '''
+    total = conn.execute(count_query, tuple(params)).fetchone()['total']
 
     rows = conn.execute(f'''
         SELECT (u.firstname || ' ' || u.lastname) AS student_name,
@@ -7793,15 +8078,20 @@ def api_faculty_reports_absence_patterns():
         GROUP BY sc.student_id, c.class_id
         HAVING present_count >= 0
         ORDER BY absent_count DESC, student_name
-        LIMIT 200
-    ''', tuple(params)).fetchall()
+        LIMIT ? OFFSET ?
+    ''', tuple(params + [per_page, offset])).fetchall()
     conn.close()
-    return jsonify([{
-        'student_name': r['student_name'],
-        'class_name': r['class_name'],
-        'present_count': r['present_count'] or 0,
-        'absent_count': r['absent_count'] or 0
-    } for r in rows])
+    return jsonify({
+        'data': [{
+            'student_name': r['student_name'],
+            'class_name': r['class_name'],
+            'present_count': r['present_count'] or 0,
+            'absent_count': r['absent_count'] or 0
+        } for r in rows],
+        'total': total,
+        'page': page,
+        'per_page': per_page
+    })
 
 @app.route('/api/faculty/reports/events/summary')
 def api_faculty_reports_events_summary():
@@ -7812,6 +8102,10 @@ def api_faculty_reports_events_summary():
         return jsonify({'error': 'Access denied'}), 403
     start = request.args.get('start')
     end = request.args.get('end')
+    page = request.args.get('page', 1, type=int)
+    per_page = 5
+    offset = (page - 1) * per_page
+    
     if not start or not end:
         today = datetime.now().strftime('%Y-%m-%d')
         start = today
@@ -7823,13 +8117,30 @@ def api_faculty_reports_events_summary():
     ''', (session['user_id'],)).fetchone()
     if not faculty:
         conn.close()
-        return jsonify([])
+        return jsonify({'data': [], 'total': 0, 'page': page, 'per_page': per_page})
     event_id = request.args.get('event_id', type=int)
     event_filter_clause = ''
     params = [faculty['faculty_id'], faculty['faculty_id'], start, end]
     if event_id:
         event_filter_clause = 'AND e.event_id = ?'
         params.append(event_id)
+
+    # Get total count
+    count_query = f'''
+        SELECT COUNT(*) as total
+        FROM (
+            SELECT e.event_id
+            FROM event e
+            WHERE (
+                    e.faculty_id = ?
+                OR  e.event_id IN (SELECT ef.event_id FROM event_faculty ef WHERE ef.faculty_id = ?)
+            )
+              AND DATE(e.event_date) BETWEEN ? AND ?
+              {event_filter_clause}
+            GROUP BY e.event_id
+        )
+    '''
+    total = conn.execute(count_query, tuple(params)).fetchone()['total']
 
     rows = conn.execute(f'''
         SELECT e.event_name,
@@ -7846,14 +8157,20 @@ def api_faculty_reports_events_summary():
           {event_filter_clause}
         GROUP BY e.event_id
         ORDER BY e.event_date DESC
-    ''', tuple(params)).fetchall()
+        LIMIT ? OFFSET ?
+    ''', tuple(params + [per_page, offset])).fetchall()
     conn.close()
-    return jsonify([{
-        'event_name': r['event_name'],
-        'event_date': r['event_date'],
-        'present_count': r['present_count'] or 0,
-        'unique_attendees': r['unique_attendees'] or 0
-    } for r in rows])
+    return jsonify({
+        'data': [{
+            'event_name': r['event_name'],
+            'event_date': r['event_date'],
+            'present_count': r['present_count'] or 0,
+            'unique_attendees': r['unique_attendees'] or 0
+        } for r in rows],
+        'total': total,
+        'page': page,
+        'per_page': per_page
+    })
 
 @app.route('/api/faculty/reports/events/absence-patterns')
 def api_faculty_reports_events_absence():
@@ -7864,6 +8181,10 @@ def api_faculty_reports_events_absence():
         return jsonify({'error': 'Access denied'}), 403
     start = request.args.get('start')
     end = request.args.get('end')
+    page = request.args.get('page', 1, type=int)
+    per_page = 5
+    offset = (page - 1) * per_page
+    
     if not start or not end:
         today = datetime.now().strftime('%Y-%m-%d')
         start = today
@@ -7875,13 +8196,32 @@ def api_faculty_reports_events_absence():
     ''', (session['user_id'],)).fetchone()
     if not faculty:
         conn.close()
-        return jsonify([])
+        return jsonify({'data': [], 'total': 0, 'page': page, 'per_page': per_page})
     event_id = request.args.get('event_id', type=int)
     event_filter_clause = ''
     params = [faculty['faculty_id'], faculty['faculty_id'], start, end]
     if event_id:
         event_filter_clause = 'AND e.event_id = ?'
         params.append(event_id)
+
+    # Get total count
+    count_query = f'''
+        SELECT COUNT(*) as total
+        FROM (
+            SELECT ea.user_id, e.event_id
+            FROM event_attendance ea
+            JOIN event e ON ea.event_id = e.event_id
+            JOIN user u ON ea.user_id = u.user_id
+            WHERE (
+                    e.faculty_id = ?
+                OR  e.event_id IN (SELECT ef.event_id FROM event_faculty ef WHERE ef.faculty_id = ?)
+            )
+              AND DATE(e.event_date) BETWEEN ? AND ?
+              {event_filter_clause}
+            GROUP BY ea.user_id, e.event_id
+        )
+    '''
+    total = conn.execute(count_query, tuple(params)).fetchone()['total']
 
     rows = conn.execute(f'''
         SELECT (u.firstname || ' ' || u.lastname) AS attendee_name,
@@ -7900,15 +8240,20 @@ def api_faculty_reports_events_absence():
         GROUP BY ea.user_id, e.event_id
         HAVING present_count >= 0 OR absent_count > 0
         ORDER BY absent_count DESC, attendee_name
-        LIMIT 200
-    ''', tuple(params)).fetchall()
+        LIMIT ? OFFSET ?
+    ''', tuple(params + [per_page, offset])).fetchall()
     conn.close()
-    return jsonify([{
-        'attendee_name': r['attendee_name'],
-        'event_name': r['event_name'],
-        'present_count': r['present_count'] or 0,
-        'absent_count': r['absent_count'] or 0
-    } for r in rows])
+    return jsonify({
+        'data': [{
+            'attendee_name': r['attendee_name'],
+            'event_name': r['event_name'],
+            'present_count': r['present_count'] or 0,
+            'absent_count': r['absent_count'] or 0
+        } for r in rows],
+        'total': total,
+        'page': page,
+        'per_page': per_page
+    })
 
 @app.route('/attendance_reports/export/<fmt>')
 def faculty_reports_export(fmt):
