@@ -278,29 +278,29 @@
                         </div>
                         
                         <!-- Attendance Table -->
-                        <div class="border border-gray-200 rounded-lg">
-                            <table class="min-w-full divide-y divide-gray-200">
+                        <div class="border border-gray-200 rounded-lg overflow-x-auto">
+                            <table class="w-full divide-y divide-gray-200 table-fixed">
                                 <thead class="bg-gradient-to-r from-gray-50 to-gray-100">
                                     <tr>
-                                        <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                        <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider" style="width: 40%;">
                                             <div class="flex items-center">
                                                 <i id="personIcon" class="fas fa-user-graduate mr-2 text-gray-500"></i>
                                                 <span id="personLabel">Student</span>
                                             </div>
                                         </th>
-                                        <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                        <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider" style="width: 20%;">
                                             <div class="flex items-center">
                                                 <i class="fas fa-clock mr-2 text-gray-500"></i>
                                                 Time
                                             </div>
                                         </th>
-                                        <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                        <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider" style="width: 20%;">
                                             <div class="flex items-center">
                                                 <i class="fas fa-flag mr-2 text-gray-500"></i>
                                                 Status
                                             </div>
                                         </th>
-                                        <th class="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                        <th class="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider" style="width: 20%;">
                                             <div class="flex items-center justify-center">
                                                 <i class="fas fa-tools mr-2 text-gray-500"></i>
                                                 Action
@@ -1033,15 +1033,15 @@
             const actionButtons = getActionButtons(studentId, status);
             
             return `
-                <td class="px-6 py-4 whitespace-nowrap">
+                <td class="px-6 py-4 whitespace-nowrap" style="max-width: 300px;">
                     <div class="flex items-center">
                         <div class="flex-shrink-0 h-10 w-10">
                             <div class="h-10 w-10 rounded-full bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center">
                                 <i class="fas fa-user text-blue-600"></i>
                             </div>
                         </div>
-                        <div class="ml-4">
-                            <div class="text-sm font-semibold text-gray-900">${studentName}</div>
+                        <div class="ml-4 overflow-hidden flex-1 min-w-0">
+                            <div class="text-sm font-semibold text-gray-900 truncate">${studentName}</div>
                         </div>
                     </div>
                 </td>
