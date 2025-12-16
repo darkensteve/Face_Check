@@ -40,6 +40,50 @@ except ImportError as e:
 # Import settings manager
 from config_settings import settings_manager
 
+
+def format_days_display(days_string):
+    """
+    Format days for display:
+    - More than 2 days: use initials (e.g., "MTWThF")
+    - Exactly 2 days: add space after comma (e.g., "Monday, Friday")
+    - 1 day: keep as is
+    """
+    if not days_string:
+        return days_string
+    
+    days_list = [d.strip() for d in days_string.split(',')]
+    
+    if len(days_list) > 2:
+        # Use initials: M, T, W, Th, F, Sa, Su
+        day_initials = {
+            'Monday': 'M', 'Tuesday': 'T', 'Wednesday': 'W', 'Thursday': 'Th',
+            'Friday': 'F', 'Saturday': 'Sa', 'Sunday': 'Su'
+        }
+        return ''.join([day_initials.get(day, day[0]) for day in days_list])
+    elif len(days_list) == 2:
+        # Add space after comma for exactly 2 days
+        return ', '.join(days_list)
+    else:
+        # Keep as is for 1 day
+        return days_string
+
+
+def convert_numpy_types(obj):
+    """
+    Recursively convert NumPy types to native Python types for JSON serialization.
+    """
+    if isinstance(obj, dict):
+        return {key: convert_numpy_types(value) for key, value in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [convert_numpy_types(item) for item in obj]
+    elif hasattr(obj, 'item'):  # NumPy scalar types have .item() method
+        return obj.item()
+    elif hasattr(obj, 'tolist'):  # NumPy arrays have .tolist() method
+        return obj.tolist()
+    else:
+        return obj
+
+
 # Import notification system
 try:
     from notification_system import (
@@ -874,6 +918,11 @@ def login():
             session['role'] = user['role']
             session['firstname'] = user['firstname']
             session['lastname'] = user['lastname']
+            # Keep a ready-to-use display name for dashboards and headers
+            full_name = ' '.join(
+                part.strip() for part in [user['firstname'], user['lastname']] if part and part.strip()
+            )
+            session['username'] = full_name if full_name else user['idno']
             
             if user['role'] == 'admin':
                 return redirect(url_for('dashboard'))
@@ -1481,7 +1530,7 @@ def admin_user_profile(user_id):
                 for item in classes:
                     schedule_parts = []
                     if item['days']:
-                        schedule_parts.append(item['days'])
+                        schedule_parts.append(format_days_display(item['days']))
                     if item['start_time'] and item['end_time']:
                         schedule_parts.append(f"{format_time(item['start_time'])} - {format_time(item['end_time'])}")
                     classes_list.append({
@@ -1538,7 +1587,7 @@ def admin_user_profile(user_id):
                 for item in classes:
                     schedule_parts = []
                     if item['days']:
-                        schedule_parts.append(item['days'])
+                        schedule_parts.append(format_days_display(item['days']))
                     if item['start_time'] and item['end_time']:
                         schedule_parts.append(f"{format_time(item['start_time'])} - {format_time(item['end_time'])}")
                     classes_list.append({
@@ -1657,6 +1706,11 @@ def admin_classes():
         # Create formatted class dict
         formatted_class = dict(class_item)
         formatted_class['formatted_time'] = time_str
+        
+        # Format days for display
+        if class_item['days']:
+            formatted_class['days'] = format_days_display(class_item['days'])
+        
         classes.append(formatted_class)
     
     # Get all faculty for assignment
@@ -1669,7 +1723,13 @@ def admin_classes():
         ORDER BY u.firstname, u.lastname
     ''').fetchall()
 
-    departments = conn.execute('SELECT dept_id, dept_name FROM department ORDER BY dept_name').fetchall()
+    # Get unique departments (avoid duplicates by using MIN(dept_id) for each dept_name)
+    departments = conn.execute('''
+        SELECT MIN(dept_id) as dept_id, dept_name 
+        FROM department 
+        GROUP BY dept_name
+        ORDER BY dept_name
+    ''').fetchall()
     
     conn.close()
     return render_template('admin_classes.html',
@@ -2119,15 +2179,52 @@ def admin_events():
     
     conn = get_db_connection()
     
-    # Get all events with faculty info (including deactivated for admin view)
-    events = conn.execute('''
+    # Optional filters
+    search = request.args.get('search', '').strip()
+    dept_filter = request.args.get('dept', '').strip()
+    status_filter = request.args.get('status', '').strip()  # 'active', 'inactive', or ''
+    
+    # Build query with filters
+    base_query = '''
         SELECT e.*, u.firstname, u.lastname, d.dept_name
         FROM event e
         JOIN faculty f ON e.faculty_id = f.faculty_id
         JOIN user u ON f.user_id = u.user_id
         LEFT JOIN department d ON u.dept_id = d.dept_id
-        ORDER BY e.is_active DESC, e.event_date DESC
-    ''').fetchall()
+    '''
+    
+    conditions = []
+    params = []
+    
+    # Search filter
+    if search:
+        conditions.append('''(
+            e.event_name LIKE ? OR 
+            e.description LIKE ? OR 
+            u.firstname LIKE ? OR 
+            u.lastname LIKE ?
+        )''')
+        search_param = f'%{search}%'
+        params.extend([search_param, search_param, search_param, search_param])
+    
+    # Department filter
+    if dept_filter:
+        conditions.append('u.dept_id = ?')
+        params.append(int(dept_filter))
+    
+    # Status filter
+    if status_filter == 'active':
+        conditions.append('e.is_active = 1')
+    elif status_filter == 'inactive':
+        conditions.append('e.is_active = 0')
+    
+    # Combine query
+    if conditions:
+        base_query += ' WHERE ' + ' AND '.join(conditions)
+    
+    base_query += ' ORDER BY e.is_active DESC, e.event_date DESC'
+    
+    events = conn.execute(base_query, params).fetchall()
     
     # Get all faculty for assignment
     faculty = conn.execute('''
@@ -2139,8 +2236,22 @@ def admin_events():
         ORDER BY u.firstname, u.lastname
     ''').fetchall()
     
+    # Get all departments for filter dropdown (avoid duplicates by using MIN(dept_id) for each dept_name)
+    departments = conn.execute('''
+        SELECT MIN(dept_id) as dept_id, dept_name 
+        FROM department 
+        GROUP BY dept_name
+        ORDER BY dept_name
+    ''').fetchall()
+    
     conn.close()
-    return render_template('admin_events.html', events=events, faculty=faculty)
+    return render_template('admin_events.html', 
+                           events=events, 
+                           faculty=faculty,
+                           departments=departments,
+                           search=search,
+                           selected_dept=dept_filter,
+                           selected_status=status_filter)
 
 @app.route('/admin/events/create', methods=['GET', 'POST'])
 def create_event():
@@ -2749,7 +2860,9 @@ def student_dashboard():
     for item in upcoming_raw or []:
         schedule_parts = []
         if item['days']:
-            schedule_parts.append(item['days'])
+            # Format days for display
+            formatted_days = format_days_display(item['days'])
+            schedule_parts.append(formatted_days)
         if item['start_time'] and item['end_time']:
             schedule_parts.append(f"{format_time(item['start_time'])} - {format_time(item['end_time'])}")
         upcoming_classes.append({
@@ -2839,7 +2952,7 @@ def my_classes():
             'class_id': class_item['class_id'],
             'class_name': class_item['class_name'],
             'edpcode': class_item['edpcode'],
-            'days': class_item['days'],
+            'days': format_days_display(class_item['days']) if class_item['days'] else '',
             'time': time_str,
             'room': class_item['room'],
             'faculty_firstname': class_item['faculty_firstname'],
@@ -2915,6 +3028,11 @@ def view_class_attendance(class_id):
         conn.close()
         flash('Class not found', 'error')
         return redirect(url_for('my_classes'))
+    
+    # Format class_info as a dict and format days
+    class_info = dict(class_info)
+    if class_info.get('days'):
+        class_info['days'] = format_days_display(class_info['days'])
     
     # Get attendance records for this student in this class
     attendance_records = conn.execute('''
@@ -3051,13 +3169,10 @@ def student_profile():
             except:
                 time_str = f"{class_item['start_time']} - {class_item['end_time']}"
         
-        # Format days - get them ordered properly
+        # Format days for display
         days_str = ''
         if class_item['days']:
-            days_list = [day.strip() for day in class_item['days'].split(',')]
-            # Sort days by day_id order (we'll need to get day order from database)
-            # For now, just format nicely
-            days_str = ', '.join(sorted(days_list))
+            days_str = format_days_display(class_item['days'])
         
         # Build complete schedule string
         schedule_parts = []
@@ -3303,7 +3418,7 @@ def faculty_dashboard():
         upcoming_classes.append({
             'class_name': class_item['class_name'],
             'room': class_item['room'] or 'TBA',
-            'days': ', '.join(days_list) if days_list else 'No schedule set',
+            'days': format_days_display(class_item['days']) if class_item['days'] else 'No schedule set',
             'time_range': format_time_range(class_item['start_time'], class_item['end_time']),
             'next_occurrence': next_occurrence,
             'next_label': next_occurrence.strftime('%a, %b %d') if next_occurrence else 'Schedule pending',
@@ -4074,8 +4189,8 @@ def process_face_recognition(image_path, attendance_type='class', class_id=None,
         
         # Check if match is good enough (tolerance from face_recog_test.py)
         # Lower tolerance = more strict matching = fewer false positives
-        # 0.5 is a good balance between accuracy and false rejections
-        MATCH_TOLERANCE = 0.5
+        # 0.6 allows more lenient matching for better detection in good conditions
+        MATCH_TOLERANCE = 0.6
         print(f"Best match: {best_match['firstname'] if best_match else 'None'}")
         print(f"Best distance: {best_distance}")
         print(f"Tolerance: {MATCH_TOLERANCE}")
@@ -4149,7 +4264,8 @@ def process_face_recognition(image_path, attendance_type='class', class_id=None,
             }
 
         # Enforce liveness/anti-spoofing before accepting any match
-        MIN_LIVE_CONFIDENCE = 0.42
+        # Block only when 70-100% confident it's a spoof (i.e., liveness confidence < 30%)
+        MIN_LIVE_CONFIDENCE = 0.30
         if ANTI_SPOOFING_AVAILABLE:
             if not anti_result.get('is_live') or anti_result.get('confidence', 0) < MIN_LIVE_CONFIDENCE:
                 print("Anti-spoofing blocked attempt (not live)")
@@ -4164,8 +4280,8 @@ def process_face_recognition(image_path, attendance_type='class', class_id=None,
         if best_match and best_distance <= MATCH_TOLERANCE:
             confidence = int((1 - best_distance) * 100)  # Convert distance to confidence percentage
             
-            # Require minimum 50% confidence to accept the match
-            MIN_CONFIDENCE = 50
+            # Require minimum 30% confidence to accept the match (lowered for better detection)
+            MIN_CONFIDENCE = 30
             if confidence < MIN_CONFIDENCE:
                 print(f"Match rejected: confidence {confidence}% is below minimum {MIN_CONFIDENCE}%")
                 return _with_anti({
@@ -4235,7 +4351,39 @@ def api_anti_spoofing_analyze():
     if image is None:
         return jsonify({'success': False, 'message': 'Could not decode image'}), 400
     
-    result = anti_spoofing_detector.comprehensive_anti_spoofing_check(image)
+    # Detect face first to focus analysis on face region only
+    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    face_locations = face_recognition.face_locations(rgb, model='hog')
+    face_landmarks = None
+    
+    if face_locations:
+        # Get landmarks for better analysis
+        try:
+            face_landmarks_list = face_recognition.face_landmarks(rgb, face_locations)
+            if face_landmarks_list:
+                face_landmarks = face_landmarks_list[0]
+        except Exception:
+            pass
+        
+        # Run anti-spoofing on detected face region
+        result = anti_spoofing_detector.comprehensive_anti_spoofing_check(
+            image, 
+            face_landmarks, 
+            face_locations[0]
+        )
+    else:
+        # No face detected
+        result = {
+            'success': False,
+            'is_live': False,
+            'confidence': 0.0,
+            'details': 'No face detected in image',
+            'checks': {}
+        }
+    
+    # Convert NumPy types to Python types for JSON serialization
+    result = convert_numpy_types(result)
+    
     return jsonify(result)
 
 
@@ -4344,6 +4492,9 @@ def api_attendance_detect():
                 'timestamp': time.time()
             }
             session.modified = True
+        
+        # Convert NumPy types to Python types for JSON serialization
+        result = convert_numpy_types(result)
         
         return jsonify(result)
         
@@ -4503,18 +4654,31 @@ def api_attendance_mark():
         studentclass_id = student_class['studentclass_id']
         print(f"Found studentclass_id: {studentclass_id} for student_id: {student_id}")
 
-        # Check if already marked today
+        # Check if already marked today for this specific class
         today = datetime.now().strftime('%Y-%m-%d')
         print(f"Checking for existing attendance on {today}")
         existing = conn.execute('''
-            SELECT attendance_id FROM attendance 
-            WHERE studentclass_id = ? AND DATE(attendance_date) = ?
+            SELECT a.attendance_id, a.attendance_date, a.attendance_status,
+                   u.firstname, u.lastname
+            FROM attendance a
+            JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+            JOIN student s ON sc.student_id = s.student_id
+            JOIN user u ON s.user_id = u.user_id
+            WHERE a.studentclass_id = ? AND DATE(a.attendance_date) = ?
         ''', (studentclass_id, today)).fetchone()
 
         if existing:
-            print("Already marked today")
+            print(f"Already marked today at {existing['attendance_date']} with status {existing['attendance_status']}")
             conn.close()
-            return jsonify({'success': False, 'message': 'Already marked today'})
+            return jsonify({
+                'success': False, 
+                'message': f'Already marked today at {existing["attendance_date"]} ({existing["attendance_status"]})',
+                'existing_record': {
+                    'time': str(existing['attendance_date']),
+                    'status': existing['attendance_status'],
+                    'student_name': f"{existing['firstname']} {existing['lastname']}"
+                }
+            })
 
         # Determine attendance status based on class schedule and late threshold
         # IMPORTANT: Status is determined by SCHEDULED CLASS TIME, not when camera starts
@@ -4708,15 +4872,16 @@ def api_today_attendance():
     
     conn = get_db_connection()
     
+    # Optimized query with proper indexing hints
     attendance = conn.execute('''
         SELECT s.student_id, u.firstname, u.lastname, a.attendance_status, a.attendance_date
         FROM attendance a
-        JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
-        JOIN student s ON sc.student_id = s.student_id
-        JOIN user u ON s.user_id = u.user_id
-        WHERE DATE(a.attendance_date) = ? AND sc.class_id = ?
+        INNER JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
+        INNER JOIN student s ON sc.student_id = s.student_id
+        INNER JOIN user u ON s.user_id = u.user_id
+        WHERE sc.class_id = ? AND DATE(a.attendance_date) = ?
         ORDER BY a.attendance_date DESC
-    ''', (today, class_id)).fetchall()
+    ''', (class_id, today)).fetchall()
     
     # Format the data for frontend
     formatted_attendance = []
@@ -6865,7 +7030,7 @@ def faculty_student_profile(user_id):
     for item in classes:
         schedule_parts = []
         if item['days']:
-            schedule_parts.append(item['days'])
+            schedule_parts.append(format_days_display(item['days']))
         if item['start_time'] and item['end_time']:
             schedule_parts.append(f"{format_time(item['start_time'])} - {format_time(item['end_time'])}")
         classes_list.append({
@@ -6966,7 +7131,7 @@ def faculty_profile():
             except:
                 time_str = f"{class_item['start_time']} - {class_item['end_time']}"
         
-        days_str = class_item['days'] or 'Schedule not set'
+        days_str = format_days_display(class_item['days']) if class_item['days'] else 'Schedule not set'
         schedule = f"{days_str} • {time_str}" if time_str else days_str
         
         formatted_classes.append({
@@ -7152,7 +7317,7 @@ def faculty_my_classes():
     deactivate_ended_events(conn)
     
     # Get classes assigned to this faculty with student counts (only active classes)
-    classes = conn.execute('''
+    classes_raw = conn.execute('''
         SELECT c.*, 
                COUNT(DISTINCT sc.student_id) as student_count,
                GROUP_CONCAT(DISTINCT d.day_name) as days
@@ -7164,6 +7329,15 @@ def faculty_my_classes():
         GROUP BY c.class_id
         ORDER BY c.class_name
     ''', (faculty_info['faculty_id'],)).fetchall()
+    
+    # Format days for display
+    classes = []
+    for class_item in classes_raw:
+        formatted_class = dict(class_item)
+        if class_item['days']:
+            formatted_class['days_raw'] = class_item['days']  # Keep raw days for schedule checking
+            formatted_class['days'] = format_days_display(class_item['days'])  # Format for display
+        classes.append(formatted_class)
     
     # Get events assigned to this faculty with attendee counts (only active events)
     events = conn.execute('''
@@ -7234,6 +7408,11 @@ def faculty_class_view(class_id):
         conn.close()
         flash('Class not found or access denied', 'error')
         return redirect(url_for('faculty_my_classes'))
+    
+    # Format class_info as a dict and format days
+    class_info = dict(class_info)
+    if class_info.get('days'):
+        class_info['days'] = format_days_display(class_info['days'])
     
     # Get enrolled students (exclude deactivated users)
     students = conn.execute('''
@@ -7738,7 +7917,7 @@ def faculty_class_details(type, id):
             'start_time': class_info['start_time'],
             'end_time': class_info['end_time'],
             'room': class_info['room'],
-            'days': class_info['days'],
+            'days': format_days_display(class_info['days']) if class_info['days'] else '',
             'students': [dict(student) for student in students]
         })
         
@@ -8968,10 +9147,42 @@ def not_found(error):
 def internal_error(error):
     return render_template('500.html'), 500
 
+def create_performance_indices():
+    """Create database indices to improve query performance"""
+    conn = get_db_connection()
+    try:
+        # Index for attendance queries by date and studentclass
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_attendance_date 
+            ON attendance(studentclass_id, attendance_date)
+        ''')
+        
+        # Index for student_class lookups
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_student_class_lookup 
+            ON student_class(student_id, class_id)
+        ''')
+        
+        # Index for event attendance
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_event_attendance_date 
+            ON event_attendance(event_id, user_id, attendance_time)
+        ''')
+        
+        conn.commit()
+        print("Performance indices created successfully")
+    except Exception as e:
+        print(f"Note: Some indices may already exist - {e}")
+    finally:
+        conn.close()
+
 if __name__ == '__main__':
     # Create database if it doesn't exist
     if not os.path.exists('facecheck.db'):
         from db import create_database
         create_database()
+    
+    # Create performance indices
+    create_performance_indices()
     
     app.run(debug=True)

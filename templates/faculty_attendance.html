@@ -234,9 +234,16 @@
                     
                     <!-- Attendance Table Section -->
                     <div class="bg-white rounded-xl shadow-lg p-6">
-                        <div class="mb-4">
-                            <h3 class="text-lg font-semibold text-gray-900 mb-2">Today's Attendance</h3>
-                            <p class="text-sm text-gray-600">Real-time attendance tracking</p>
+                        <div class="mb-4 flex items-center justify-between">
+                            <div>
+                                <h3 class="text-lg font-semibold text-gray-900 mb-2">Today's Attendance</h3>
+                                <p class="text-sm text-gray-600">Real-time attendance tracking</p>
+                            </div>
+                            <button onclick="loadAttendanceData()" 
+                                    class="px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-sm transition-colors"
+                                    title="Refresh attendance records">
+                                <i class="fas fa-sync-alt mr-1"></i> Refresh
+                            </button>
                         </div>
                         
                         <!-- Attendance Stats -->
@@ -336,14 +343,15 @@
         let lastAntiNotification = 0; // Throttle anti-spoofing warning toasts
         
         // Face recognition parameters (from face_recog_test.py)
-        const MATCH_TOLERANCE = 0.62;
+        const MATCH_TOLERANCE = 0.70;
         const MAX_MISSED_DETECTIONS = 6;
         let selectedClass = null;
         let selectedEvent = null;
         let facultyClasses = [];
         let facultyEvents = [];
         let antiSpoofingManager = null;
-        const LIVE_CONFIDENCE_THRESHOLD = 0.42;
+        // Block only when 70-100% confident it's a spoof (i.e., liveness confidence < 30%)
+        const LIVE_CONFIDENCE_THRESHOLD = 0.30;
         
         const REDETECT_EVERY = 12;
         const RECOGNIZE_EVERY = 45;
@@ -925,13 +933,34 @@
                         }, 2000);
                     } else {
                         console.error('Attendance mark failed:', result.message);
-                        showNotification(`Failed to mark attendance: ${result.message}`, 'error');
+                        
+                        // If there's existing record info, show more details
+                        if (result.existing_record) {
+                            const existing = result.existing_record;
+                            showNotification(
+                                `${personName} already marked today at ${existing.time} (${existing.status})`, 
+                                'warning'
+                            );
+                            // Update UI to show existing record
+                            document.getElementById('recognitionStatus').textContent = 
+                                `${personName} - Already marked (${existing.status})`;
+                            document.getElementById('recognitionIndicator').className = 
+                                'w-3 h-3 bg-yellow-400 rounded-full';
+                        } else {
+                            showNotification(`Failed to mark attendance: ${result.message}`, 'error');
+                        }
                     }
                 } else {
                     let errorMessage = `HTTP Error ${response.status}`;
                     try {
                         const errJson = await response.json();
                         errorMessage = errJson.message || errorMessage;
+                        
+                        // Check for existing record in error response too
+                        if (errJson.existing_record) {
+                            const existing = errJson.existing_record;
+                            errorMessage = `Already marked today at ${existing.time} (${existing.status})`;
+                        }
                     } catch (err) {
                         const errorText = await response.text();
                         if (errorText) {
@@ -1125,25 +1154,46 @@
                 console.log('No class selected, cannot load attendance data');
                 return;
             }
+            
+            const tbody = document.getElementById('attendanceTableBody');
+            const noAttendanceMsg = document.getElementById('noAttendanceMessage');
+            
             try {
+                // Show loading state
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>Loading attendance records...</td></tr>';
+                noAttendanceMsg.style.display = 'none';
+                
+                console.log(`Fetching attendance for class ${selectedClass.class_id}...`);
+                const startTime = Date.now();
+                
                 // Only load today's attendance records (do not pre-load all students)
                 const attendanceResponse = await fetch(`/api/attendance/today?class_id=${selectedClass.class_id}`);
+                const loadTime = Date.now() - startTime;
+                console.log(`Attendance data loaded in ${loadTime}ms`);
+                
+                if (!attendanceResponse.ok) {
+                    throw new Error(`Server returned ${attendanceResponse.status}`);
+                }
+                
                 const attendanceRecords = await attendanceResponse.json();
-                // Clear existing table
-                const tbody = document.getElementById('attendanceTableBody');
+                
+                // Clear loading state
                 tbody.innerHTML = '';
+                
                 console.log('Loaded attendance records:', attendanceRecords);
                 if (attendanceRecords.length > 0) {
-                    document.getElementById('noAttendanceMessage').style.display = 'none';
+                    noAttendanceMsg.style.display = 'none';
                     attendanceRecords.forEach(record => {
                         addAttendanceRecord(record.student_name, record.student_id, record.time, record.status);
                     });
                 } else {
-                    document.getElementById('noAttendanceMessage').style.display = 'block';
+                    noAttendanceMsg.style.display = 'block';
                 }
                 updateAttendanceStats();
             } catch (error) {
                 console.error('Error loading attendance data:', error);
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center py-4 text-red-500"><i class="fas fa-exclamation-triangle mr-2"></i>Error loading attendance: ${error.message}</td></tr>`;
+                noAttendanceMsg.style.display = 'none';
             }
         }
 

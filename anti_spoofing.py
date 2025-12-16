@@ -271,6 +271,9 @@ class AntiSpoofingDetector:
             # Hard blocks ONLY for obvious spoofs or very unreliable conditions
             if strong_border or has_specular or low_light:
                 is_live = False
+                # Force very low confidence when screen reflection is detected (ensures notification trigger)
+                if has_specular:
+                    confidence = min(confidence, 0.15)  # Override confidence to guarantee anti-spoofing alert
             elif self.frame_count < min_frames_required:
                 # Too early - need more frames
                 is_live = False

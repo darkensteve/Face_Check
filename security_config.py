@@ -28,7 +28,7 @@ class SecurityConfig:
     TEMP_FOLDER = os.environ.get('TEMP_FOLDER', 'temp')
     
     # Face recognition settings
-    MATCH_TOLERANCE = float(os.environ.get('MATCH_TOLERANCE', '0.62'))
+    MATCH_TOLERANCE = float(os.environ.get('MATCH_TOLERANCE', '0.70'))
     
     # Database settings
     DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///facecheck.db')

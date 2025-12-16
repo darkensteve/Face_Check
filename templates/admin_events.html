@@ -113,7 +113,52 @@
                 <!-- Events Table -->
                 <div class="bg-white rounded-xl shadow-lg overflow-hidden">
                     <div class="px-6 py-4 border-b border-gray-200">
-                        <h3 class="text-lg font-semibold text-gray-900">All Events</h3>
+                        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                            <h3 class="text-lg font-semibold text-gray-900">All Events</h3>
+                            <form method="GET" action="{{ url_for('admin_events') }}" class="flex flex-col md:flex-row gap-3 md:items-center">
+                                <div class="relative">
+                                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <i class="fas fa-search text-gray-400 text-sm"></i>
+                                    </span>
+                                    <input
+                                        type="text"
+                                        name="search"
+                                        value="{{ search or '' }}"
+                                        placeholder="Search by event, or facilitator"
+                                        class="pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-64"
+                                    >
+                                </div>
+                                <div class="flex flex-col md:flex-row gap-3">
+                                    <select
+                                        name="dept"
+                                        class="py-2 px-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-[200px]"
+                                    >
+                                        <option value="">All Departments</option>
+                                        {% for dept in departments %}
+                                        <option value="{{ dept.dept_id }}" {% if selected_dept and selected_dept|int == dept.dept_id %}selected{% endif %}>
+                                            {{ dept.dept_name }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    <select
+                                        name="status"
+                                        class="py-2 px-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-[160px]"
+                                    >
+                                        <option value="" {% if not selected_status %}selected{% endif %}>All Statuses</option>
+                                        <option value="active" {% if selected_status == 'active' %}selected{% endif %}>Active</option>
+                                        <option value="inactive" {% if selected_status == 'inactive' %}selected{% endif %}>Deactivated</option>
+                                    </select>
+                                </div>
+                                <div class="flex gap-2">
+                                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition">
+                                        Apply
+                                    </button>
+                                    <a href="{{ url_for('admin_events') }}" class="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition">
+                                        Reset
+                                    </a>
+                                </div>
+                            </form>
+                        </div>
                     </div>
                     
                     {% if events %}
@@ -179,11 +224,9 @@
                                             <span class="text-gray-400 cursor-not-allowed" title="Edit (Read-only - Reactivate to edit)">
                                                 <i class="fas fa-edit text-lg"></i>
                                             </span>
-                                            <form method="POST" action="{{ url_for('reactivate_event', event_id=event.event_id) }}" class="inline" onsubmit="return confirm('Are you sure you want to reactivate this event?')">
-                                                <button type="submit" class="text-green-600 hover:text-green-900 transition-colors" title="Reactivate Event">
-                                                    <i class="fas fa-check-circle text-lg"></i>
-                                                </button>
-                                            </form>
+                                            <button type="button" onclick="openReactivateEventModal({{ event.event_id }}, '{{ event.event_name|e }}')" class="text-green-600 hover:text-green-900 transition-colors" title="Reactivate Event">
+                                                <i class="fas fa-check-circle text-lg"></i>
+                                            </button>
                                             {% endif %}
                                         </div>
                                     </td>
@@ -246,6 +289,45 @@
         </div>
     </div>
 
+    <!-- Reactivate Event Confirmation Modal -->
+    <div id="reactivateEventModal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold text-gray-900">Confirm Reactivation</h3>
+                    <button type="button" onclick="closeReactivateEventModal()" class="text-gray-400 hover:text-gray-600 transition">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="px-6 py-5 space-y-3">
+                    <div class="flex items-center justify-center w-16 h-16 mx-auto bg-green-100 rounded-full mb-4">
+                        <i class="fas fa-check-circle text-green-600 text-2xl"></i>
+                    </div>
+                    <p class="text-center text-gray-700 font-medium">
+                        Are you sure you want to reactivate this event?
+                    </p>
+                    <div class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                        <p class="text-xs uppercase tracking-wide text-gray-500 mb-1">Event Name</p>
+                        <p id="reactivateEventName" class="text-base font-semibold text-gray-900">—</p>
+                    </div>
+                    <p class="text-xs text-gray-500 text-center">
+                        The event will be restored and become available to faculty again.
+                    </p>
+                </div>
+                <div class="px-6 py-4 bg-gray-50 flex justify-end space-x-3">
+                    <button type="button" onclick="closeReactivateEventModal()" class="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition">
+                        Cancel
+                    </button>
+                    <form id="reactivateEventForm" method="POST" class="inline">
+                        <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                            OK
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         {# Capture first success/error flash to show as toast #}
         {% set ns = namespace(first_success='', first_error='') %}
@@ -299,13 +381,33 @@
             document.getElementById('deactivateEventModal').classList.add('hidden');
         }
 
-        // Close modal when clicking outside
+        function openReactivateEventModal(eventId, eventName) {
+            document.getElementById('reactivateEventName').textContent = eventName;
+            const form = document.getElementById('reactivateEventForm');
+            form.action = `/admin/events/${eventId}/reactivate`;
+            document.getElementById('reactivateEventModal').classList.remove('hidden');
+        }
+
+        function closeReactivateEventModal() {
+            document.getElementById('reactivateEventModal').classList.add('hidden');
+        }
+
+        // Close modals when clicking outside
         document.addEventListener('DOMContentLoaded', function() {
             const deactivateModal = document.getElementById('deactivateEventModal');
             if (deactivateModal) {
                 deactivateModal.addEventListener('click', function(e) {
                     if (e.target === deactivateModal) {
                         closeDeactivateEventModal();
+                    }
+                });
+            }
+            
+            const reactivateModal = document.getElementById('reactivateEventModal');
+            if (reactivateModal) {
+                reactivateModal.addEventListener('click', function(e) {
+                    if (e.target === reactivateModal) {
+                        closeReactivateEventModal();
                     }
                 });
             }

@@ -253,11 +253,9 @@
                                             <span class="text-gray-400 cursor-not-allowed" title="Edit (Read-only - Reactivate to edit)">
                                                 <i class="fas fa-edit text-lg"></i>
                                             </span>
-                                            <form method="POST" action="{{ url_for('reactivate_class', class_id=class.class_id) }}" class="inline" onsubmit="return confirm('Are you sure you want to reactivate this class?')">
-                                                <button type="submit" class="text-green-600 hover:text-green-900 transition-colors" title="Reactivate Class">
-                                                    <i class="fas fa-check-circle text-lg"></i>
-                                                </button>
-                                            </form>
+                                            <button type="button" onclick="openReactivateClassModal({{ class.class_id }}, '{{ class.class_name|e }}')" class="text-green-600 hover:text-green-900 transition-colors" title="Reactivate Class">
+                                                <i class="fas fa-check-circle text-lg"></i>
+                                            </button>
                                             {% endif %}
                                         </div>
                                     </td>
@@ -325,6 +323,45 @@
                     <form id="deactivateClassForm" method="POST" class="inline">
                         <button type="submit" class="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 transition">
                             Yes, Deactivate
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reactivate Class Confirmation Modal -->
+    <div id="reactivateClassModal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold text-gray-900">Confirm Reactivation</h3>
+                    <button type="button" onclick="closeReactivateClassModal()" class="text-gray-400 hover:text-gray-600 transition">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="px-6 py-5 space-y-3">
+                    <div class="flex items-center justify-center w-16 h-16 mx-auto bg-green-100 rounded-full mb-4">
+                        <i class="fas fa-check-circle text-green-600 text-2xl"></i>
+                    </div>
+                    <p class="text-center text-gray-700 font-medium">
+                        Are you sure you want to reactivate this class?
+                    </p>
+                    <div class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                        <p class="text-xs uppercase tracking-wide text-gray-500 mb-1">Class Name</p>
+                        <p id="reactivateClassName" class="text-base font-semibold text-gray-900">—</p>
+                    </div>
+                    <p class="text-xs text-gray-500 text-center">
+                        The class will be restored and become available to faculty and students again.
+                    </p>
+                </div>
+                <div class="px-6 py-4 bg-gray-50 flex justify-end space-x-3">
+                    <button type="button" onclick="closeReactivateClassModal()" class="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition">
+                        Cancel
+                    </button>
+                    <form id="reactivateClassForm" method="POST" class="inline">
+                        <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                            OK
                         </button>
                     </form>
                 </div>
@@ -469,13 +506,34 @@ function closeDeactivateClassModal() {
     document.getElementById('deactivateClassModal').classList.add('hidden');
 }
 
-// Close modal when clicking outside
+// Reactivate Class Modal Functions
+function openReactivateClassModal(classId, className) {
+    document.getElementById('reactivateClassName').textContent = className;
+    const form = document.getElementById('reactivateClassForm');
+    form.action = `/admin/classes/${classId}/reactivate`;
+    document.getElementById('reactivateClassModal').classList.remove('hidden');
+}
+
+function closeReactivateClassModal() {
+    document.getElementById('reactivateClassModal').classList.add('hidden');
+}
+
+// Close modals when clicking outside
 document.addEventListener('DOMContentLoaded', function() {
     const deactivateModal = document.getElementById('deactivateClassModal');
     if (deactivateModal) {
         deactivateModal.addEventListener('click', function(e) {
             if (e.target === deactivateModal) {
                 closeDeactivateClassModal();
+            }
+        });
+    }
+    
+    const reactivateModal = document.getElementById('reactivateClassModal');
+    if (reactivateModal) {
+        reactivateModal.addEventListener('click', function(e) {
+            if (e.target === reactivateModal) {
+                closeReactivateClassModal();
             }
         });
     }

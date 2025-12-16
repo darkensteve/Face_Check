@@ -181,7 +181,7 @@
                                        data-class-name="{{ class_info.class_name }}"
                                        data-start-time="{{ class_info.start_time }}"
                                        data-end-time="{{ class_info.end_time }}"
-                                       data-days="{{ class_info.days }}"
+                                       data-days="{{ class_info.days_raw or class_info.days }}"
                                        data-room="{{ class_info.room }}">
                                         <i class="fas fa-camera"></i>
                                     </a>
@@ -639,6 +639,22 @@
             }
         }
 
+        // Helper to format days for display
+        function formatDaysDisplay(daysStr) {
+            if (!daysStr) return 'Not specified';
+            const daysList = daysStr.split(',').map(d => d.trim());
+            if (daysList.length > 2) {
+                const initials = {
+                    'Monday': 'M', 'Tuesday': 'T', 'Wednesday': 'W', 'Thursday': 'Th',
+                    'Friday': 'F', 'Saturday': 'Sa', 'Sunday': 'Su'
+                };
+                return daysList.map(day => initials[day] || day[0]).join('');
+            } else if (daysList.length === 2) {
+                return daysList.join(', ');
+            }
+            return daysStr;
+        }
+
         // Show schedule modal
         function showScheduleModal(type, name, startTime, endTime, days, room, eventDate) {
             const modal = document.getElementById('scheduleModal');
@@ -647,6 +663,7 @@
             
             if (type === 'class') {
                 message.textContent = `This class is not scheduled at this time.`;
+                const formattedDays = formatDaysDisplay(days);
                 details.innerHTML = `
                     <div class="flex items-center mb-2">
                         <i class="fas fa-chalkboard text-blue-600 mr-2"></i>
@@ -654,7 +671,7 @@
                     </div>
                     <div class="flex items-center mb-2">
                         <i class="fas fa-calendar-week text-gray-600 mr-2"></i>
-                        <span>Days: ${days || 'Not specified'}</span>
+                        <span>Days: ${formattedDays}</span>
                     </div>
                     <div class="flex items-center mb-2">
                         <i class="fas fa-clock text-gray-600 mr-2"></i>
