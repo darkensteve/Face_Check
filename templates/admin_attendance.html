@@ -76,7 +76,7 @@
                 
                 <a href="/reports" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
                     <i class="fas fa-chart-bar mr-3"></i>
-                    Reports
+                    Reports & Analytics
                 </a>
                 
                 <a href="/settings" class="flex items-center px-6 py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition duration-200">
@@ -481,7 +481,7 @@
                 // Class filter
                 if (classFilter) {
                     const rowClass = row.getAttribute('data-class');
-                    if (!rowClass.includes(classFilter)) show = false;
+                    if (rowClass !== classFilter) show = false;
                 }
                 
                 return show;

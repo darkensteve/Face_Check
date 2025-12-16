@@ -1107,10 +1107,12 @@ def create_user():
             if not is_valid_password:
                 return error_response(password_message)
         
+        # Department is required for all roles
+        if not dept_id:
+            return error_response('Department is required for all users')
+        
         # Role-specific required fields (any visible dropdown/textbox must be filled)
         if validated_role == 'faculty':
-            if not dept_id:
-                return error_response('Department is required for faculty users')
             if not position:
                 return error_response('Position is required for faculty users')
             # Validate position: letters and spaces only (no numbers or symbols)
@@ -1118,8 +1120,6 @@ def create_user():
             if not re.fullmatch(r"[A-Za-zÑñ ]+", position.strip()):
                 return error_response('Position may only contain letters and spaces (no numbers or special characters)')
         elif validated_role == 'student':
-            if not dept_id:
-                return error_response('Department is required for students')
             if not course_id:
                 return error_response('Course is required for students')
             if not year_level:
@@ -1237,12 +1237,14 @@ def edit_user(user_id):
                 conn.close()
                 return redirect(url_for('edit_user', user_id=user_id))
 
+            # Department is required for all roles
+            if not dept_id:
+                flash('Department is required for all users', 'error')
+                conn.close()
+                return redirect(url_for('edit_user', user_id=user_id))
+
             # Role-specific required validations for updates
             if role == 'student':
-                if not dept_id:
-                    flash('Department is required for students', 'error')
-                    conn.close()
-                    return redirect(url_for('edit_user', user_id=user_id))
                 if not year_level:
                     flash('Year level is required for students', 'error')
                     conn.close()
@@ -1252,10 +1254,6 @@ def edit_user(user_id):
                     conn.close()
                     return redirect(url_for('edit_user', user_id=user_id))
             elif role == 'faculty':
-                if not dept_id:
-                    flash('Department is required for faculty', 'error')
-                    conn.close()
-                    return redirect(url_for('edit_user', user_id=user_id))
                 if not position:
                     flash('Position is required for faculty', 'error')
                     conn.close()
@@ -1302,9 +1300,9 @@ def edit_user(user_id):
                     ''', (position, user_id))
             
             conn.commit()
-            # Use redirect with flag to trigger toast instead of in-page banner
+            flash('User updated successfully', 'success')
             conn.close()
-            return redirect(url_for('edit_user', user_id=user_id, updated='1'))
+            return redirect(url_for('admin_users'))
             
         except Exception as e:
             flash(f'Error updating user: {str(e)}', 'error')
@@ -1931,9 +1929,13 @@ def edit_class(class_id):
             
             conn.commit()
             flash('Class updated successfully', 'success')
+            conn.close()
+            return redirect(url_for('admin_classes'))
             
         except Exception as e:
             flash(f'Error updating class: {str(e)}', 'error')
+            conn.close()
+            return redirect(url_for('edit_class', class_id=class_id))
     
     # Get class data
     class_info = conn.execute('''
@@ -2393,9 +2395,13 @@ def edit_event(event_id):
             
             conn.commit()
             flash('Event updated successfully', 'success')
+            conn.close()
+            return redirect(url_for('admin_events'))
             
         except Exception as e:
             flash(f'Error updating event: {str(e)}', 'error')
+            conn.close()
+            return redirect(url_for('edit_event', event_id=event_id))
     
     # Get event data
     event_info = conn.execute('''
@@ -5376,8 +5382,8 @@ def admin_attendance_export(fmt):
             query += ' AND a.attendance_status = ?'
             params.append(status_filter)
         if class_filter:
-            query += ' AND c.class_name LIKE ?'
-            params.append(f'%{class_filter}%')
+            query += ' AND c.class_name = ?'
+            params.append(class_filter)
         
         query += ' ORDER BY a.attendance_date DESC, u.lastname, u.firstname'
         
@@ -5541,7 +5547,7 @@ def admin_attendance_export(fmt):
                 buffer = BytesIO()
                 doc = SimpleDocTemplate(buffer, pagesize=landscape(letter), topMargin=0.5*inch)
                 # Set a descriptive PDF title so the browser tab doesn't show "(anonymous)"
-                doc.title = f"FaceCheck Reports - {report_type.title()} ({date_from or 'All'} to {date_to or 'All'})"
+                doc.title = f"FaceCheck Attendance Records ({date_from or 'All'} to {date_to or 'All'})"
                 elements = []
                 
                 styles = getSampleStyleSheet()
