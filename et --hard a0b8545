@@ -1,0 +1,7 @@
+[33m1ba2f66[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32msteve[m[33m, [m[1;31morigin/steve[m[33m, [m[1;31morigin/HEAD[m[33m)[m HEAD@{0}: reset: moving to 1ba2f66
+[33ma0b8545[m HEAD@{1}: commit: added the revisions
+[33m1ba2f66[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32msteve[m[33m, [m[1;31morigin/steve[m[33m, [m[1;31morigin/HEAD[m[33m)[m HEAD@{2}: commit: fix attendance timestamp ui
+[33mb860057[m HEAD@{3}: commit: fix admin side
+[33m24f3097[m HEAD@{4}: commit: fix face recognition, anti-spoofing, class & event management
+[33m10309a0[m HEAD@{5}: commit: fix some errors, bugs, and all. also added a new feature
+[33mb31e9cf[m HEAD@{6}: clone: from https://github.com/darkensteve/Face_Check.git

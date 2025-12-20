@@ -9903,7 +9903,7 @@ def api_faculty_reports_student_patterns():
     
     # 3. Time-based patterns (hour of day for lates)
     time_patterns = conn.execute('''
-        SELECT strftime('%H', a.attendance_time) AS hour,
+        SELECT strftime('%H', a.attendance_date) AS hour,
                COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) AS late_count,
                COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) AS present_count,
                COUNT(a.attendance_id) AS total_records
@@ -9911,8 +9911,8 @@ def api_faculty_reports_student_patterns():
         JOIN student_class sc ON a.studentclass_id = sc.studentclass_id
         WHERE sc.student_id = ?
           AND DATE(a.attendance_date) BETWEEN ? AND ?
-          AND a.attendance_time IS NOT NULL
-        GROUP BY strftime('%H', a.attendance_time)
+          AND a.attendance_date IS NOT NULL
+        GROUP BY strftime('%H', a.attendance_date)
         HAVING late_count > 0
         ORDER BY late_count DESC
     ''', (student_id, start, end)).fetchall()
