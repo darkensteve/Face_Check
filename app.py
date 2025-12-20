@@ -3711,13 +3711,22 @@ def api_register_face():
         except Exception as e:
             return jsonify({'error': f'Failed to save face image: {str(e)}'}), 500
         
-        # Update the student record with the attendance_image path
+        # Add face_updated_at column if it doesn't exist
         try:
+            conn.execute('ALTER TABLE student ADD COLUMN face_updated_at DATETIME')
+            conn.commit()
+        except:
+            pass  # Column already exists
+        
+        # Update the student record with the attendance_image path and timestamp
+        try:
+            from datetime import datetime
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             conn.execute('''
                 UPDATE student 
-                SET attendance_image = ? 
+                SET attendance_image = ?, face_updated_at = ?
                 WHERE user_id = ?
-            ''', (face_path, session['user_id']))
+            ''', (face_path, now, session['user_id']))
             
             conn.commit()
             
@@ -3815,12 +3824,21 @@ def api_faculty_register_face():
         except:
             pass  # Column already exists
         
-        # Update the faculty record with the attendance_image path
+        # Add face_updated_at column if it doesn't exist
+        try:
+            conn.execute('ALTER TABLE faculty ADD COLUMN face_updated_at DATETIME')
+            conn.commit()
+        except:
+            pass  # Column already exists
+        
+        # Update the faculty record with the attendance_image path and timestamp
+        from datetime import datetime
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         conn.execute('''
             UPDATE faculty 
-            SET attendance_image = ? 
+            SET attendance_image = ?, face_updated_at = ?
             WHERE user_id = ?
-        ''', (face_path, session['user_id']))
+        ''', (face_path, now, session['user_id']))
         
         conn.commit()
         conn.close()
@@ -3885,10 +3903,13 @@ def update_face():
             next_update_date = last_updated + timedelta(days=90)
             days_until_required = (next_update_date - datetime.now()).days
     else:
-        # If never updated but has attendance_image, use a default old date to force update
+        # If face_updated_at is NULL but has attendance_image, it's a new registration
+        # Don't require update immediately - they just registered
         if student['attendance_image']:
-            requires_update = True
+            requires_update = False
             last_updated = None
+            # Set days_until_required to 90 days from now (since they just registered)
+            days_until_required = 90
     
     conn.close()
     
@@ -3942,10 +3963,13 @@ def faculty_update_face():
             next_update_date = last_updated + timedelta(days=90)
             days_until_required = (next_update_date - datetime.now()).days
     else:
-        # If never updated but has attendance_image, use a default old date to force update
+        # If face_updated_at is NULL but has attendance_image, it's a new registration
+        # Don't require update immediately - they just registered
         if faculty_info['attendance_image']:
-            requires_update = True
+            requires_update = False
             last_updated = None
+            # Set days_until_required to 90 days from now (since they just registered)
+            days_until_required = 90
     
     conn.close()
     
