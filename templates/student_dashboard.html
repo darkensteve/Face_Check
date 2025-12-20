@@ -145,6 +145,31 @@
                 </div>
             </div>
         </div>
+        {% else %}
+        <!-- Face Update Alert -->
+        <div class="bg-blue-50 border border-blue-200 rounded-xl shadow-lg p-6 mb-8">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-user-circle text-blue-600 text-2xl"></i>
+                    </div>
+                    <div class="ml-4">
+                        <h3 class="text-lg font-medium text-blue-800">Face Registration Active</h3>
+                        <div class="mt-2">
+                            <p class="text-blue-700">
+                                Your face is registered. Remember to update it every 3 months to maintain accuracy.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <a href="/update_face" class="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition duration-200">
+                        <i class="fas fa-sync-alt mr-2"></i>
+                        Update My Face
+                    </a>
+                </div>
+            </div>
+        </div>
         {% endif %}
 
         <!-- Upcoming Classes -->

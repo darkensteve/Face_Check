@@ -147,7 +147,7 @@
                             </div>
                             
                             <div>
-                                <label for="room" class="block text-sm font-medium text-gray-700 mb-2">Room</label>
+                                <label for="room" class="block text-sm font-medium text-gray-700 mb-2">Venue</label>
                                 <input type="text" id="room" name="room"
                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                        placeholder="e.g., Auditorium A">
@@ -173,7 +173,7 @@
                             </div>
                             
                             <div>
-                                <label for="event_date" class="block text-sm font-medium text-gray-700 mb-2">Event Date *</label>
+                                <label for="event_date" class="block text-sm font-medium text-gray-700 mb-2">Start Date *</label>
                                 <input type="date" id="event_date" name="event_date" required
                                        min="{{ today }}"
                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
@@ -189,6 +189,95 @@
                                 <label for="end_time" class="block text-sm font-medium text-gray-700 mb-2">End Time *</label>
                                 <input type="time" id="end_time" name="end_time" required
                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            </div>
+                            
+                            <!-- Repeat Event Options -->
+                            <div class="md:col-span-2 border-t pt-4">
+                                <div class="flex items-center mb-4">
+                                    <input type="checkbox" id="repeat_event" name="repeat_event" value="1"
+                                           class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                           onchange="toggleRepeatOptions()">
+                                    <label for="repeat_event" class="ml-2 text-sm font-medium text-gray-700">
+                                        Repeat this event (create multiple sessions)
+                                    </label>
+                                </div>
+                                
+                                <div id="repeat_options" class="hidden space-y-4 bg-gray-50 p-4 rounded-lg">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Repeat Frequency *</label>
+                                        <select id="repeat_frequency" name="repeat_frequency"
+                                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                            <option value="weekly">Weekly</option>
+                                            <option value="daily">Daily</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div id="weekly_options">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">Repeat on Days *</label>
+                                        <div class="grid grid-cols-7 gap-2">
+                                            <label class="flex flex-col items-center p-2 border rounded-lg cursor-pointer hover:bg-blue-50 repeat-day-option">
+                                                <input type="checkbox" name="repeat_days" value="0" class="repeat-day-checkbox">
+                                                <span class="text-xs mt-1">Sun</span>
+                                            </label>
+                                            <label class="flex flex-col items-center p-2 border rounded-lg cursor-pointer hover:bg-blue-50 repeat-day-option">
+                                                <input type="checkbox" name="repeat_days" value="1" class="repeat-day-checkbox">
+                                                <span class="text-xs mt-1">Mon</span>
+                                            </label>
+                                            <label class="flex flex-col items-center p-2 border rounded-lg cursor-pointer hover:bg-blue-50 repeat-day-option">
+                                                <input type="checkbox" name="repeat_days" value="2" class="repeat-day-checkbox">
+                                                <span class="text-xs mt-1">Tue</span>
+                                            </label>
+                                            <label class="flex flex-col items-center p-2 border rounded-lg cursor-pointer hover:bg-blue-50 repeat-day-option">
+                                                <input type="checkbox" name="repeat_days" value="3" class="repeat-day-checkbox">
+                                                <span class="text-xs mt-1">Wed</span>
+                                            </label>
+                                            <label class="flex flex-col items-center p-2 border rounded-lg cursor-pointer hover:bg-blue-50 repeat-day-option">
+                                                <input type="checkbox" name="repeat_days" value="4" class="repeat-day-checkbox">
+                                                <span class="text-xs mt-1">Thu</span>
+                                            </label>
+                                            <label class="flex flex-col items-center p-2 border rounded-lg cursor-pointer hover:bg-blue-50 repeat-day-option">
+                                                <input type="checkbox" name="repeat_days" value="5" class="repeat-day-checkbox">
+                                                <span class="text-xs mt-1">Fri</span>
+                                            </label>
+                                            <label class="flex flex-col items-center p-2 border rounded-lg cursor-pointer hover:bg-blue-50 repeat-day-option">
+                                                <input type="checkbox" name="repeat_days" value="6" class="repeat-day-checkbox">
+                                                <span class="text-xs mt-1">Sat</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">Duration</label>
+                                            <select id="repeat_duration_type" name="repeat_duration_type"
+                                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                    onchange="toggleDurationInput()">
+                                                <option value="weeks">Number of Weeks</option>
+                                                <option value="end_date">Until End Date</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div id="weeks_input">
+                                            <label for="repeat_weeks" class="block text-sm font-medium text-gray-700 mb-2">Number of Weeks *</label>
+                                            <input type="number" id="repeat_weeks" name="repeat_weeks" min="1" max="52" value="4"
+                                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                        </div>
+                                        
+                                        <div id="end_date_input" class="hidden">
+                                            <label for="repeat_end_date" class="block text-sm font-medium text-gray-700 mb-2">End Date *</label>
+                                            <input type="date" id="repeat_end_date" name="repeat_end_date"
+                                                   min="{{ today }}"
+                                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                        <p class="text-sm text-blue-800">
+                                            <i class="fas fa-info-circle mr-2"></i>
+                                            <span id="repeat_summary">Select options to see preview</span>
+                                        </p>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         
@@ -234,6 +323,194 @@
             // Initialize on load
             updateStartTimeMin();
         })();
+
+        function toggleRepeatOptions() {
+            const repeatCheckbox = document.getElementById('repeat_event');
+            const repeatOptions = document.getElementById('repeat_options');
+            const weeklyOptions = document.getElementById('weekly_options');
+            const frequencySelect = document.getElementById('repeat_frequency');
+            
+            if (repeatCheckbox.checked) {
+                repeatOptions.classList.remove('hidden');
+                updateRepeatSummary();
+                
+                // Show/hide weekly options based on frequency
+                if (frequencySelect.value === 'weekly') {
+                    weeklyOptions.style.display = 'block';
+                } else {
+                    weeklyOptions.style.display = 'none';
+                }
+            } else {
+                repeatOptions.classList.add('hidden');
+            }
+        }
+
+        function toggleDurationInput() {
+            const durationType = document.getElementById('repeat_duration_type').value;
+            const weeksInput = document.getElementById('weeks_input');
+            const endDateInput = document.getElementById('end_date_input');
+            
+            if (durationType === 'weeks') {
+                weeksInput.style.display = 'block';
+                endDateInput.classList.add('hidden');
+                document.getElementById('repeat_weeks').required = true;
+                document.getElementById('repeat_end_date').required = false;
+            } else {
+                weeksInput.style.display = 'none';
+                endDateInput.classList.remove('hidden');
+                document.getElementById('repeat_weeks').required = false;
+                document.getElementById('repeat_end_date').required = true;
+            }
+            updateRepeatSummary();
+        }
+
+        function updateRepeatSummary() {
+            const repeatCheckbox = document.getElementById('repeat_event');
+            if (!repeatCheckbox.checked) return;
+            
+            const frequency = document.getElementById('repeat_frequency').value;
+            const durationType = document.getElementById('repeat_duration_type').value;
+            const startDate = document.getElementById('event_date').value;
+            const summaryEl = document.getElementById('repeat_summary');
+            
+            if (!startDate) {
+                summaryEl.textContent = 'Select a start date to see preview';
+                return;
+            }
+            
+            let summary = '';
+            
+            if (frequency === 'weekly') {
+                const selectedDays = Array.from(document.querySelectorAll('.repeat-day-checkbox:checked')).map(cb => {
+                    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                    return dayNames[parseInt(cb.value)];
+                });
+                
+                if (selectedDays.length === 0) {
+                    summary = 'Please select at least one day of the week';
+                } else {
+                    summary = `Will repeat every ${selectedDays.join(', ')}`;
+                }
+            } else {
+                summary = 'Will repeat every day';
+            }
+            
+            if (durationType === 'weeks') {
+                const weeks = document.getElementById('repeat_weeks').value || 0;
+                summary += ` for ${weeks} week${weeks !== 1 ? 's' : ''}`;
+            } else {
+                const endDate = document.getElementById('repeat_end_date').value;
+                if (endDate) {
+                    summary += ` until ${endDate}`;
+                } else {
+                    summary += ' (select end date)';
+                }
+            }
+            
+            summaryEl.textContent = summary;
+        }
+
+        // Add event listeners
+        document.addEventListener('DOMContentLoaded', function() {
+            const repeatCheckbox = document.getElementById('repeat_event');
+            const frequencySelect = document.getElementById('repeat_frequency');
+            const durationTypeSelect = document.getElementById('repeat_duration_type');
+            const startDateInput = document.getElementById('event_date');
+            const weeksInput = document.getElementById('repeat_weeks');
+            const endDateInput = document.getElementById('repeat_end_date');
+            const dayCheckboxes = document.querySelectorAll('.repeat-day-checkbox');
+            
+            if (repeatCheckbox) {
+                repeatCheckbox.addEventListener('change', toggleRepeatOptions);
+            }
+            
+            if (frequencySelect) {
+                frequencySelect.addEventListener('change', function() {
+                    const weeklyOptions = document.getElementById('weekly_options');
+                    if (this.value === 'weekly') {
+                        weeklyOptions.style.display = 'block';
+                    } else {
+                        weeklyOptions.style.display = 'none';
+                    }
+                    updateRepeatSummary();
+                });
+            }
+            
+            if (durationTypeSelect) {
+                durationTypeSelect.addEventListener('change', toggleDurationInput);
+            }
+            
+            if (startDateInput) {
+                startDateInput.addEventListener('change', updateRepeatSummary);
+            }
+            
+            if (weeksInput) {
+                weeksInput.addEventListener('input', updateRepeatSummary);
+            }
+            
+            if (endDateInput) {
+                endDateInput.addEventListener('change', updateRepeatSummary);
+            }
+            
+            dayCheckboxes.forEach(cb => {
+                cb.addEventListener('change', updateRepeatSummary);
+            });
+            
+            // Add visual feedback for day selection
+            dayCheckboxes.forEach(cb => {
+                cb.addEventListener('change', function() {
+                    const label = this.closest('label');
+                    if (this.checked) {
+                        label.classList.add('bg-blue-100', 'border-blue-500');
+                        label.classList.remove('border-gray-300');
+                    } else {
+                        label.classList.remove('bg-blue-100', 'border-blue-500');
+                        label.classList.add('border-gray-300');
+                    }
+                });
+            });
+        });
+
+        // Form validation before submit
+        document.querySelector('form').addEventListener('submit', function(e) {
+            const repeatCheckbox = document.getElementById('repeat_event');
+            if (repeatCheckbox && repeatCheckbox.checked) {
+                const frequency = document.getElementById('repeat_frequency').value;
+                
+                if (frequency === 'weekly') {
+                    const selectedDays = document.querySelectorAll('.repeat-day-checkbox:checked');
+                    if (selectedDays.length === 0) {
+                        e.preventDefault();
+                        alert('Please select at least one day of the week for weekly repeats');
+                        return false;
+                    }
+                }
+                
+                const durationType = document.getElementById('repeat_duration_type').value;
+                if (durationType === 'weeks') {
+                    const weeks = document.getElementById('repeat_weeks').value;
+                    if (!weeks || parseInt(weeks) < 1) {
+                        e.preventDefault();
+                        alert('Please enter a valid number of weeks (at least 1)');
+                        return false;
+                    }
+                } else {
+                    const endDate = document.getElementById('repeat_end_date').value;
+                    if (!endDate) {
+                        e.preventDefault();
+                        alert('Please select an end date');
+                        return false;
+                    }
+                    
+                    const startDate = document.getElementById('event_date').value;
+                    if (endDate <= startDate) {
+                        e.preventDefault();
+                        alert('End date must be after the start date');
+                        return false;
+                    }
+                }
+            }
+        });
     </script>
 </body>
 </html>
